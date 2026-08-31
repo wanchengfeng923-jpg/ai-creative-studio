@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+chat2api/.env
+chat2api/.venv/
+chat2api/generated_images/
+chat2api/image_jobs/
+data/*
+!data/.gitkeep
+!data/images/
+!data/images/.gitkeep
+!data/uploads/
+!data/uploads/.gitkeep
