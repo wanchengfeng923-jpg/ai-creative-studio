@@ -194,6 +194,8 @@
 - `node --check static/app.js`、`python -m compileall -q src chat2api launcher.py`、`git diff --check`：通过。
 - 正式服务在 `127.0.0.1:8797` 加载真实 SQLite 叙事项目和历史成功；三步切换、项目入口和真实结果渲染可用。
 - 390px 视口无横向溢出，修复旧移动端侧栏规则造成的顶部空白；浏览器控制台无 error/warn。
+- 收尾复核：默认正式端口 `127.0.0.1:8775` 已启动并加载正式页面；临时验证端口 `8797` 已停止。
+- Git 检查点为分支 `codex/formal-b-ui`、提交 `e39b571`；提交后的全量 `git diff --check` 通过。
 
 ### 未完成
 
