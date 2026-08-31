@@ -33,6 +33,7 @@ from .repository import StudioDataError, StudioRepository
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT_DIR / "static"
+TAG_OPTIONS_PATH = ROOT_DIR / "config" / "creative_tag_options.json"
 DATA_DIR = ROOT_DIR / "data"
 DATABASE_PATH = DATA_DIR / "creative_studio.db"
 IMAGES_DIR = DATA_DIR / "images"
@@ -125,6 +126,18 @@ class StudioApplication:
 APP = StudioApplication()
 
 
+def load_tag_options() -> dict[str, Any]:
+    """读取随版本发布的标签选项，不把 Excel 或外部路径暴露给浏览器。"""
+
+    try:
+        payload = json.loads(TAG_OPTIONS_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
+        raise StudioDataError("标签配置不存在或无法解析") from exc
+    if not isinstance(payload, dict) or not payload.get("narrative") or not payload.get("visual"):
+        raise StudioDataError("标签配置格式无效")
+    return payload
+
+
 class StudioHandler(BaseHTTPRequestHandler):
     server_version = "CreativeStudio/0.1"
 
@@ -160,6 +173,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = parsed.path
         if path == "/api/health":
             self._json({"success": True, "service": "AI创意工作台"})
+            return
+        if path == "/api/tag-options":
+            self._json({"success": True, "config": load_tag_options()})
             return
         if path == "/api/projects":
             keyword = parse_qs(parsed.query).get("search", [""])[0]

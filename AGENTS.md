@@ -31,6 +31,14 @@
 - 当前应用不读取或写入 ERP 数据库，不连接 ERP 用户、提案、视频库或投放数据。
 - AI 文字生成仍复用 `WEB_ERP_AI_*` 环境变量命名；这是兼容层，不代表依赖 ERP 进程。
 
+## 正式前端
+
+- 正式入口是 `static/index.html`、`static/app.js`、`static/styles.css`，采用三步 B 工作流：任务说明、创意定位、生成与采用。
+- `static/ui-prototype.*` 和 `frontend/` 只作为设计参考；正式需求应接入真实 API 和数据库，不能把原型假数据复制到正式入口。
+- 调整正式页面时保留项目 CRUD、自动保存、标签依赖、最多两批、图片单项重试、历史和采用替换行为。
+- 前端回滚以 Git 提交为边界；页面替换不迁移或覆盖 `data/`，不修改 `chat2api/.env`。
+- 正式 UI 修改除最小代码检查外，还要在 `1280x720` 和 `390x844` 检查步骤流、项目抽屉、真实历史、控制台日志和横向溢出。
+
 ## AI 功能规则
 
 - 叙事类和展示类必须走明确分支；修改展示类时保持叙事类行为不变。
@@ -68,3 +76,16 @@ git diff --check
 
 当前项目没有独立访问网址；本地启动后访问 `http://127.0.0.1:8775/`。
 
+## Agent skills
+
+### Issue tracker
+
+Issue 使用本地 Markdown，存放在 `.scratch/<feature-slug>/`。参见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+分类使用五个默认角色标签。参见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+采用单上下文领域文档布局。参见 `docs/agents/domain.md`。

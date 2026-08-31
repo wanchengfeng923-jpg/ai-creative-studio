@@ -1,0 +1,3441 @@
+{
+  "version": "tags-2026-08-31-v1",
+  "sources": [
+    "叙事类创意定位_完整选项.xlsx",
+    "剑侠传奇_展示型广告创意辅助工具_输入标签完整配置.xlsx"
+  ],
+  "narrative": {
+    "groups": [
+      {
+        "key": "target_audiences",
+        "secondary_key": "secondary_target_audiences",
+        "label": "目标人群",
+        "main_max": 1,
+        "secondary_max": 1,
+        "options": [
+          {
+            "id": "1",
+            "category": "题材偏好用户",
+            "label": "武侠情怀用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "2",
+            "category": "题材偏好用户",
+            "label": "仙侠/玄幻用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "3",
+            "category": "题材偏好用户",
+            "label": "传统卡牌用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "4",
+            "category": "玩法偏好用户",
+            "label": "放置游戏用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "5",
+            "category": "题材偏好用户",
+            "label": "小游戏泛用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "6",
+            "category": "剧情偏好用户",
+            "label": "短剧剧情用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "7",
+            "category": "玩法偏好用户",
+            "label": "策略研究用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "8",
+            "category": "玩法偏好用户",
+            "label": "收集党",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "9",
+            "category": "玩法偏好用户",
+            "label": "轻度休闲用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "10",
+            "category": "玩法偏好用户",
+            "label": "重度养成用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "11",
+            "category": "剧情偏好用户",
+            "label": "门派情怀用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "12",
+            "category": "剧情偏好用户",
+            "label": "江湖剧情用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "13",
+            "category": "玩法偏好用户",
+            "label": "武功秘籍用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "14",
+            "category": "剧情偏好用户",
+            "label": "武林争霸用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "15",
+            "category": "剧情偏好用户",
+            "label": "正邪选择用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "16",
+            "category": "题材偏好用户",
+            "label": "老武侠玩家",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "17",
+            "category": "题材偏好用户",
+            "label": "Q版画风用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "18",
+            "category": "付费层级用户",
+            "label": "零氪用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "19",
+            "category": "付费层级用户",
+            "label": "小R用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "20",
+            "category": "付费层级用户",
+            "label": "中R用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "21",
+            "category": "付费层级用户",
+            "label": "大R用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "22",
+            "category": "用户阶段用户",
+            "label": "回流用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "23",
+            "category": "用户阶段用户",
+            "label": "新手用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "24",
+            "category": "用户阶段用户",
+            "label": "老手用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          },
+          {
+            "id": "25",
+            "category": "用户阶段用户",
+            "label": "上班族碎片时间用户",
+            "description": "主目标人群最多 1 项；副目标人群最多 1 项；主、副不可重复"
+          }
+        ]
+      },
+      {
+        "key": "player_desires",
+        "secondary_key": "secondary_player_desires",
+        "label": "玩家欲望",
+        "main_max": 1,
+        "secondary_max": 1,
+        "options": [
+          {
+            "id": "1",
+            "category": "成长追求",
+            "label": "成长爽感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "2",
+            "category": "收集追求",
+            "label": "收集欲望",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "3",
+            "category": "身份代入",
+            "label": "武侠身份感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "4",
+            "category": "社交竞争",
+            "label": "策略成就感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "5",
+            "category": "成长追求",
+            "label": "福利获得感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "6",
+            "category": "情绪爽点",
+            "label": "逆袭复仇欲",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "7",
+            "category": "身份代入",
+            "label": "选择代入感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "8",
+            "category": "社交竞争",
+            "label": "强者压制感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "9",
+            "category": "收集追求",
+            "label": "探索发现感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "10",
+            "category": "情绪爽点",
+            "label": "轻松陪伴感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "11",
+            "category": "身份代入",
+            "label": "情怀怀旧感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "12",
+            "category": "社交竞争",
+            "label": "社交炫耀感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "13",
+            "category": "收集追求",
+            "label": "稀缺参与感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "14",
+            "category": "社交竞争",
+            "label": "排行竞争感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "15",
+            "category": "收集追求",
+            "label": "角色喜爱感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "16",
+            "category": "身份代入",
+            "label": "门派归属感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "17",
+            "category": "成长追求",
+            "label": "低成本变强感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "18",
+            "category": "情绪爽点",
+            "label": "反差惊喜感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "19",
+            "category": "情绪爽点",
+            "label": "剧情追看欲",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          },
+          {
+            "id": "20",
+            "category": "成长追求",
+            "label": "掌控养成感",
+            "description": "按所属分组可多选，当前分组上限为该分组全部选项数"
+          }
+        ]
+      },
+      {
+        "key": "content_forms",
+        "secondary_key": "secondary_content_forms",
+        "label": "内容形式",
+        "main_max": 1,
+        "secondary_max": 2,
+        "options": [
+          {
+            "id": "1",
+            "category": "未分组",
+            "label": "真实战斗录屏",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "2",
+            "category": "未分组",
+            "label": "抽卡展示",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "3",
+            "category": "未分组",
+            "label": "角色展示",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "4",
+            "category": "未分组",
+            "label": "门派展示",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "5",
+            "category": "未分组",
+            "label": "阵容攻略",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "6",
+            "category": "未分组",
+            "label": "新手避坑",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "7",
+            "category": "未分组",
+            "label": "福利提醒",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "8",
+            "category": "未分组",
+            "label": "成长对比",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "9",
+            "category": "未分组",
+            "label": "低战反杀",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "10",
+            "category": "未分组",
+            "label": "榜单盘点",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "11",
+            "category": "未分组",
+            "label": "真人口播",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "12",
+            "category": "未分组",
+            "label": "玩家测评",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "13",
+            "category": "未分组",
+            "label": "主播切片",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "14",
+            "category": "未分组",
+            "label": "达人试玩",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "15",
+            "category": "未分组",
+            "label": "评论区答疑",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "16",
+            "category": "未分组",
+            "label": "伪聊天推荐",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "17",
+            "category": "未分组",
+            "label": "武侠短剧情",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "18",
+            "category": "未分组",
+            "label": "废柴逆袭剧情",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "19",
+            "category": "未分组",
+            "label": "门派危机剧情",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "20",
+            "category": "未分组",
+            "label": "正邪选择剧情",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "21",
+            "category": "未分组",
+            "label": "师徒传承剧情",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "22",
+            "category": "未分组",
+            "label": "互动选择题",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "23",
+            "category": "未分组",
+            "label": "三选一测试",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "24",
+            "category": "未分组",
+            "label": "战力挑战",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "25",
+            "category": "未分组",
+            "label": "平民阵容挑战",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "26",
+            "category": "未分组",
+            "label": "真香反转",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "27",
+            "category": "未分组",
+            "label": "搞笑吐槽",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "28",
+            "category": "未分组",
+            "label": "情怀混剪",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "29",
+            "category": "未分组",
+            "label": "活动新服介绍",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "30",
+            "category": "未分组",
+            "label": "版本更新介绍",
+            "description": "当前可多选，最多 30 项"
+          }
+        ]
+      },
+      {
+        "key": "opening_hooks",
+        "secondary_key": "secondary_opening_hooks",
+        "label": "开局钩子",
+        "main_max": 1,
+        "secondary_max": 2,
+        "options": [
+          {
+            "id": "1",
+            "category": "未分组",
+            "label": "结果钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "2",
+            "category": "未分组",
+            "label": "错误钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "3",
+            "category": "未分组",
+            "label": "悬念钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "4",
+            "category": "未分组",
+            "label": "冲突钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "5",
+            "category": "未分组",
+            "label": "选择钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "6",
+            "category": "未分组",
+            "label": "反常识钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "7",
+            "category": "未分组",
+            "label": "福利钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "8",
+            "category": "未分组",
+            "label": "身份钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "9",
+            "category": "未分组",
+            "label": "挑战钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "10",
+            "category": "未分组",
+            "label": "对比钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "11",
+            "category": "未分组",
+            "label": "提问钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "12",
+            "category": "未分组",
+            "label": "评论区钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "13",
+            "category": "未分组",
+            "label": "真香钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "14",
+            "category": "未分组",
+            "label": "稀缺钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "15",
+            "category": "未分组",
+            "label": "排名钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "16",
+            "category": "未分组",
+            "label": "反差钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "17",
+            "category": "未分组",
+            "label": "爽点钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "18",
+            "category": "未分组",
+            "label": "情怀钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "19",
+            "category": "未分组",
+            "label": "剧情危机钩子",
+            "description": "当前可多选，最多 20 项"
+          },
+          {
+            "id": "20",
+            "category": "未分组",
+            "label": "新手避坑钩子",
+            "description": "当前可多选，最多 20 项"
+          }
+        ]
+      },
+      {
+        "key": "product_evidences",
+        "secondary_key": "secondary_product_evidences",
+        "label": "产品证据",
+        "main_max": 1,
+        "secondary_max": 2,
+        "options": [
+          {
+            "id": "1",
+            "category": "未分组",
+            "label": "真实战斗画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "2",
+            "category": "未分组",
+            "label": "技能释放画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "3",
+            "category": "未分组",
+            "label": "Boss挑战画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "4",
+            "category": "未分组",
+            "label": "竞技场胜利画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "5",
+            "category": "未分组",
+            "label": "低战反杀画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "6",
+            "category": "未分组",
+            "label": "侠客升级画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "7",
+            "category": "未分组",
+            "label": "侠客升星画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "8",
+            "category": "未分组",
+            "label": "装备强化画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "9",
+            "category": "未分组",
+            "label": "战力提升画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "10",
+            "category": "未分组",
+            "label": "抽卡获得画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "11",
+            "category": "未分组",
+            "label": "稀有侠客获得画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "12",
+            "category": "未分组",
+            "label": "登录奖励画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "13",
+            "category": "未分组",
+            "label": "活动奖励画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "14",
+            "category": "未分组",
+            "label": "邮件奖励画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "15",
+            "category": "未分组",
+            "label": "阵容搭配画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "16",
+            "category": "未分组",
+            "label": "站位调整画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "17",
+            "category": "未分组",
+            "label": "门派羁绊画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "18",
+            "category": "未分组",
+            "label": "门派列表画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "19",
+            "category": "未分组",
+            "label": "掌门展示画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "20",
+            "category": "未分组",
+            "label": "侠客图鉴画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "21",
+            "category": "未分组",
+            "label": "角色立绘展示",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "22",
+            "category": "未分组",
+            "label": "Q版战斗形象展示",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "23",
+            "category": "未分组",
+            "label": "排行榜画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "24",
+            "category": "未分组",
+            "label": "开服冲榜画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "25",
+            "category": "未分组",
+            "label": "自动战斗画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "26",
+            "category": "未分组",
+            "label": "离线收益画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "27",
+            "category": "未分组",
+            "label": "剧情对白画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "28",
+            "category": "未分组",
+            "label": "江湖地图画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "29",
+            "category": "未分组",
+            "label": "玩家评论画面",
+            "description": "当前可多选，最多 30 项"
+          },
+          {
+            "id": "30",
+            "category": "未分组",
+            "label": "主播试玩画面",
+            "description": "当前可多选，最多 30 项"
+          }
+        ]
+      }
+    ]
+  },
+  "visual": {
+    "groups": [
+      {
+        "key": "visual_target_audiences",
+        "secondary_key": "visual_secondary_target_audiences",
+        "label": "主目标用户",
+        "type": "primary_secondary",
+        "main_max": 1,
+        "secondary_max": 2,
+        "options": [
+          {
+            "id": "U-A01",
+            "category": "题材 / 内容偏好型",
+            "label": "武侠情怀用户",
+            "description": "长期喜欢江湖、门派、侠客、武学、恩怨等传统武侠内容",
+            "note": "题材认知与文化情怀"
+          },
+          {
+            "id": "U-A02",
+            "category": "题材 / 内容偏好型",
+            "label": "仙侠修真用户",
+            "description": "长期喜欢修炼、境界、宗门、法宝、渡劫、飞升等仙侠内容",
+            "note": "题材认知与成长体系"
+          },
+          {
+            "id": "U-A03",
+            "category": "题材 / 内容偏好型",
+            "label": "角色内容用户",
+            "description": "更关注角色人设、外形、性格、人物关系与个人故事",
+            "note": "角色本身是否值得喜欢"
+          },
+          {
+            "id": "U-A04",
+            "category": "题材 / 内容偏好型",
+            "label": "剧情世界观用户",
+            "description": "更关注世界设定、剧情推进、人物命运、阵营冲突与沉浸体验",
+            "note": "故事与世界是否值得进入"
+          },
+          {
+            "id": "U-B01",
+            "category": "角色 / 阵容养成型",
+            "label": "角色养成用户",
+            "description": "喜欢获取角色、培养角色、升星突破并建立长期角色资产",
+            "note": "把单个角色养起来"
+          },
+          {
+            "id": "U-B02",
+            "category": "角色 / 阵容养成型",
+            "label": "卡牌阵容用户",
+            "description": "喜欢组队、阵容搭配、羁绊、克制与角色组合关系",
+            "note": "研究谁和谁一起上"
+          },
+          {
+            "id": "U-C01",
+            "category": "成长 / 策略型",
+            "label": "数值养成用户",
+            "description": "对等级、战力、装备、属性、境界等长期数值成长高度敏感",
+            "note": "数值持续增长"
+          },
+          {
+            "id": "U-C02",
+            "category": "成长 / 策略型",
+            "label": "策略构筑用户",
+            "description": "喜欢Build、武学、装备、克制、流派等可研究的组合系统",
+            "note": "理解规则并形成解法"
+          },
+          {
+            "id": "U-D01",
+            "category": "战斗体验型",
+            "label": "战斗体验用户",
+            "description": "更重视技能表现、战斗反馈、Boss战、清怪与攻击节奏等直接战斗体验",
+            "note": "打起来是否爽、是否有反馈"
+          },
+          {
+            "id": "U-E01",
+            "category": "游戏方式型",
+            "label": "放置轻量用户",
+            "description": "偏好低操作负担、挂机、自动战斗、碎片时间与离线收益",
+            "note": "低负担持续游玩"
+          },
+          {
+            "id": "U-E02",
+            "category": "游戏方式型",
+            "label": "深度长期用户",
+            "description": "愿意长期投入时间，研究系统、沉淀资产并追求长期成长",
+            "note": "长期经营账号与系统"
+          }
+        ]
+      },
+      {
+        "key": "visual_player_desires",
+        "secondary_key": "visual_secondary_player_desires",
+        "label": "玩家欲望",
+        "type": "primary_secondary",
+        "main_max": 1,
+        "secondary_max": 1,
+        "options": [
+          {
+            "id": "D-A01",
+            "category": "获得 / 占有型",
+            "label": "收集欲",
+            "description": "我想把它们集齐",
+            "note": "数量、完整度、图鉴完成感"
+          },
+          {
+            "id": "D-A02",
+            "category": "获得 / 占有型",
+            "label": "稀有占有欲",
+            "description": "越稀有、别人越没有，我越想拥有",
+            "note": "限定、稀有、唯一、隐藏"
+          },
+          {
+            "id": "D-A03",
+            "category": "获得 / 占有型",
+            "label": "高价值获得欲",
+            "description": "我希望用较低成本获得大量价值",
+            "note": "低投入高回报、获得感"
+          },
+          {
+            "id": "D-B01",
+            "category": "成长 / 养成型",
+            "label": "变强欲",
+            "description": "我要持续变得更强",
+            "note": "等级、战力、境界、强度提升"
+          },
+          {
+            "id": "D-B02",
+            "category": "成长 / 养成型",
+            "label": "养成掌控欲",
+            "description": "我要亲手把角色或资产培养起来",
+            "note": "投入—决策—成长反馈"
+          },
+          {
+            "id": "D-B03",
+            "category": "成长 / 养成型",
+            "label": "数值膨胀爽感",
+            "description": "大数字快速增长本身就让我爽",
+            "note": "数值爆发式上涨"
+          },
+          {
+            "id": "D-C01",
+            "category": "挑战 / 能力证明型",
+            "label": "策略验证欲",
+            "description": "我要证明自己的搭配、判断和理解是对的",
+            "note": "阵容、Build、克制、解题"
+          },
+          {
+            "id": "D-C02",
+            "category": "挑战 / 能力证明型",
+            "label": "胜负征服欲",
+            "description": "我要击败别人、Boss或高难目标",
+            "note": "胜利、压制、越战、征服"
+          },
+          {
+            "id": "D-C03",
+            "category": "挑战 / 能力证明型",
+            "label": "战斗反馈爽感",
+            "description": "攻击、暴击、清屏和技能释放本身带来即时快感",
+            "note": "高反馈战斗瞬间"
+          },
+          {
+            "id": "D-D01",
+            "category": "身份 / 社会价值型",
+            "label": "身份优越感",
+            "description": "我拥有的东西能证明我的地位和差异",
+            "note": "高品质资产、称号、身份标识"
+          },
+          {
+            "id": "D-D02",
+            "category": "身份 / 社会价值型",
+            "label": "排名竞争欲",
+            "description": "我要在榜单、竞技或竞争中超过别人",
+            "note": "排名、第一、跨服竞争"
+          },
+          {
+            "id": "D-D03",
+            "category": "身份 / 社会价值型",
+            "label": "社交归属欲",
+            "description": "我想属于一个门派、帮派、阵营或玩家群体",
+            "note": "群体身份与共同目标"
+          },
+          {
+            "id": "D-E01",
+            "category": "探索 / 情绪体验型",
+            "label": "探索发现欲",
+            "description": "我想知道还有什么未知内容",
+            "note": "隐藏、未知、奇遇、秘密"
+          },
+          {
+            "id": "D-E02",
+            "category": "探索 / 情绪体验型",
+            "label": "情怀唤醒",
+            "description": "这让我重新感受到记忆里的武侠或旧游戏体验",
+            "note": "熟悉感、年代感、经典江湖"
+          },
+          {
+            "id": "D-E03",
+            "category": "探索 / 情绪体验型",
+            "label": "审美愉悦",
+            "description": "漂亮、帅、酷本身就让我愿意继续看",
+            "note": "角色颜值、美术品质、视觉享受"
+          },
+          {
+            "id": "D-F01",
+            "category": "效率 / 低负担型",
+            "label": "轻松省时欲",
+            "description": "我希望少操作、少耗时间，也能获得成长和收益",
+            "note": "挂机、自动、碎片时间"
+          }
+        ]
+      },
+      {
+        "key": "visual_product_selling_points",
+        "secondary_key": "visual_secondary_product_selling_points",
+        "label": "产品卖点",
+        "type": "primary_secondary",
+        "main_max": 1,
+        "secondary_max": 1,
+        "options": [
+          {
+            "id": "SP-A01",
+            "category": "江湖 / 掌门体验",
+            "label": "自立门派，当一派掌门",
+            "description": "强调玩家以掌门身份建立并经营自己的江湖势力",
+            "note": "具体门派经营深度以当前版本为准"
+          },
+          {
+            "id": "SP-A02",
+            "category": "江湖 / 掌门体验",
+            "label": "正邪江湖，自由选择道路",
+            "description": "强调玩家在江湖立场、事件或剧情选择中存在不同道路",
+            "note": "具体分支与后果以当前版本为准"
+          },
+          {
+            "id": "SP-A03",
+            "category": "江湖 / 掌门体验",
+            "label": "多门派构成完整武侠江湖",
+            "description": "强调多个门派、不同身份和武学共同构成完整江湖生态",
+            "note": "具体门派数量不要写死在标签名中"
+          },
+          {
+            "id": "SP-A04",
+            "category": "江湖 / 掌门体验",
+            "label": "丰富江湖事件与剧情选择",
+            "description": "强调玩家会参与江湖事件并作出选择，而非只看剧情",
+            "note": "具体事件数量与分支以当前版本为准"
+          },
+          {
+            "id": "SP-B01",
+            "category": "侠客收集 / 养成",
+            "label": "丰富侠客可招募收集",
+            "description": "强调存在大量不同侠客可获得，形成长期收集空间",
+            "note": "具体侠客数量以版本数据为准"
+          },
+          {
+            "id": "SP-B02",
+            "category": "侠客收集 / 养成",
+            "label": "侠客各有定位与特色",
+            "description": "强调角色在身份、定位、武学或战斗表现上存在差异",
+            "note": "避免仅用美术差异替代玩法差异"
+          },
+          {
+            "id": "SP-B03",
+            "category": "侠客收集 / 养成",
+            "label": "侠客长期培养成长",
+            "description": "强调获得侠客后仍可持续练功、突破、养成和强化",
+            "note": "以当前养成系统为准"
+          },
+          {
+            "id": "SP-B04",
+            "category": "侠客收集 / 养成",
+            "label": "侠客组合 / 羁绊价值",
+            "description": "强调多个侠客组合后产生阵容或羁绊价值",
+            "note": "需确保广告表达与真实羁绊/组合规则一致"
+          },
+          {
+            "id": "SP-C01",
+            "category": "武学 / 兵器构筑",
+            "label": "丰富武学秘籍",
+            "description": "强调游戏拥有多种武学、秘籍或功法资产",
+            "note": "具体数量和名称以产品配置为准"
+          },
+          {
+            "id": "SP-C02",
+            "category": "武学 / 兵器构筑",
+            "label": "角色 × 武学搭配",
+            "description": "强调角色与武学之间存在搭配、构筑或适配价值",
+            "note": "需以真实可搭配关系为基础"
+          },
+          {
+            "id": "SP-C03",
+            "category": "武学 / 兵器构筑",
+            "label": "兵器 / 装备持续成长",
+            "description": "强调装备、兵器能够获取、强化并形成长期成长",
+            "note": "具体强化路径以当前版本为准"
+          },
+          {
+            "id": "SP-C04",
+            "category": "武学 / 兵器构筑",
+            "label": "稀有武学 / 神兵追求",
+            "description": "强调高价值、稀有的武学、兵器或装备值得长期追求",
+            "note": "稀有度与获取方式需真实"
+          },
+          {
+            "id": "SP-D01",
+            "category": "阵容 / 战斗",
+            "label": "多侠客阵容自由搭配",
+            "description": "强调玩家可使用多个侠客组成自己的战斗阵容",
+            "note": "阵容人数和位置规则以当前版本为准"
+          },
+          {
+            "id": "SP-D02",
+            "category": "阵容 / 战斗",
+            "label": "不同阵容存在策略解法",
+            "description": "强调阵容、定位或搭配会影响战斗结果，而非纯数值堆叠",
+            "note": "需由产品侧确认策略深度"
+          },
+          {
+            "id": "SP-D03",
+            "category": "阵容 / 战斗",
+            "label": "丰富PVE挑战",
+            "description": "强调存在Boss、副本、爬塔或其他PVE目标可持续挑战",
+            "note": "具体玩法以当前版本为准"
+          },
+          {
+            "id": "SP-D04",
+            "category": "阵容 / 战斗",
+            "label": "PVP / 玩家竞争",
+            "description": "强调玩家之间存在竞技、排名或对抗空间",
+            "note": "具体PVP机制以当前版本为准"
+          },
+          {
+            "id": "SP-D05",
+            "category": "阵容 / 战斗",
+            "label": "爽快武侠战斗表现",
+            "description": "强调技能、攻击、群体伤害、击杀等战斗表现本身具有爽感",
+            "note": "适合展示型广告直接表现"
+          },
+          {
+            "id": "SP-E01",
+            "category": "门派经营 / 长线江湖",
+            "label": "门派持续经营成长",
+            "description": "强调玩家培养的不只是单个角色，而是整个门派或势力",
+            "note": "需与真实门派经营系统对应"
+          },
+          {
+            "id": "SP-E02",
+            "category": "门派经营 / 长线江湖",
+            "label": "长线资产积累",
+            "description": "强调侠客、武学、装备、门派与资源持续沉淀形成长期账号资产",
+            "note": "不要包装成短期重置玩法"
+          },
+          {
+            "id": "SP-E03",
+            "category": "门派经营 / 长线江湖",
+            "label": "帮派 / 多人江湖竞争",
+            "description": "强调帮派、盟会或多人系统中的协作与竞争",
+            "note": "具体社交机制以当前版本为准"
+          },
+          {
+            "id": "SP-E04",
+            "category": "门派经营 / 长线江湖",
+            "label": "玩家经济 / 交易价值",
+            "description": "强调交易行、资源流通或玩家经济体系的价值",
+            "note": "避免使用超出真实自由度的“自由交易”承诺"
+          },
+          {
+            "id": "SP-F01",
+            "category": "轻量 / 小游戏体验",
+            "label": "挂机也能持续成长",
+            "description": "强调玩家在低操作或离线情况下仍可获得成长收益",
+            "note": "挂机收益规则以当前版本为准"
+          },
+          {
+            "id": "SP-F02",
+            "category": "轻量 / 小游戏体验",
+            "label": "碎片时间轻松玩",
+            "description": "强调单次游玩负担低，适合短时间进入并获得反馈",
+            "note": "属于体验卖点，不等同于“没有深度”"
+          },
+          {
+            "id": "SP-F03",
+            "category": "轻量 / 小游戏体验",
+            "label": "即点即玩、低进入门槛",
+            "description": "强调小游戏形态带来的低进入成本和快速开始体验",
+            "note": "不同平台入口能力需按投放环境校验"
+          }
+        ]
+      },
+      {
+        "key": "visual_display_contents",
+        "secondary_key": "visual_secondary_display_contents",
+        "label": "展示内容",
+        "type": "primary_secondary",
+        "main_max": 1,
+        "secondary_max": 2,
+        "options": [
+          {
+            "id": "DC-A01",
+            "category": "侠客角色",
+            "label": "侠客角色",
+            "description": "展示一个或多个可识别侠客本体；单人/群像数量不在此层决定",
+            "note": "角色资产本身"
+          },
+          {
+            "id": "DC-A02",
+            "category": "侠客角色",
+            "label": "掌门 / 高价值角色",
+            "description": "展示具有高身份、高品质或高价值感的核心角色",
+            "note": "高价值角色资产"
+          },
+          {
+            "id": "DC-A03",
+            "category": "侠客角色",
+            "label": "角色形态 / 时装",
+            "description": "展示角色外观、服装、进阶形态或外观差异",
+            "note": "外观与形态资产"
+          },
+          {
+            "id": "DC-B01",
+            "category": "战斗",
+            "label": "常规战斗",
+            "description": "展示真实日常战斗过程或战斗状态",
+            "note": "实机战斗"
+          },
+          {
+            "id": "DC-B02",
+            "category": "战斗",
+            "label": "Boss / 强敌战斗",
+            "description": "展示Boss、高难目标或明显强敌的战斗关系",
+            "note": "高压战斗目标"
+          },
+          {
+            "id": "DC-B03",
+            "category": "战斗",
+            "label": "PVP战斗",
+            "description": "展示玩家间竞技或对抗战斗",
+            "note": "玩家对抗"
+          },
+          {
+            "id": "DC-B04",
+            "category": "战斗",
+            "label": "技能 / 招式",
+            "description": "把技能、武学招式或释放效果作为主要展示对象",
+            "note": "技能表现"
+          },
+          {
+            "id": "DC-B05",
+            "category": "战斗",
+            "label": "战斗结果",
+            "description": "展示胜利、击杀、越战、Boss倒下或其他明确战斗结果",
+            "note": "结果画面"
+          },
+          {
+            "id": "DC-C01",
+            "category": "养成 / 阵容",
+            "label": "侠客养成",
+            "description": "展示升级、练功、突破、属性成长等角色养成过程或状态",
+            "note": "角色成长系统"
+          },
+          {
+            "id": "DC-C02",
+            "category": "养成 / 阵容",
+            "label": "阵容",
+            "description": "展示上阵角色、队伍组合、站位或阵容关系",
+            "note": "组合系统"
+          },
+          {
+            "id": "DC-C03",
+            "category": "养成 / 阵容",
+            "label": "数值 / 战力",
+            "description": "展示战力、等级、伤害、属性等可量化信息",
+            "note": "数值信息"
+          },
+          {
+            "id": "DC-D01",
+            "category": "武学 / 装备",
+            "label": "武学 / 秘籍",
+            "description": "展示功法、武学、秘籍、技能书等资产或界面",
+            "note": "武学资产"
+          },
+          {
+            "id": "DC-D02",
+            "category": "武学 / 装备",
+            "label": "兵器 / 装备",
+            "description": "展示兵器、防具、装备栏或装备资产",
+            "note": "装备资产"
+          },
+          {
+            "id": "DC-D03",
+            "category": "武学 / 装备",
+            "label": "稀有道具 / 资源",
+            "description": "展示高价值资源、稀有道具、材料或特殊资产",
+            "note": "资源资产"
+          },
+          {
+            "id": "DC-E01",
+            "category": "江湖 / 门派",
+            "label": "门派",
+            "description": "展示门派身份、门派建筑、门派势力或相关界面",
+            "note": "门派资产"
+          },
+          {
+            "id": "DC-E02",
+            "category": "江湖 / 门派",
+            "label": "江湖场景 / 地图",
+            "description": "展示城镇、山门、道路、世界地图等游戏世界空间",
+            "note": "世界环境"
+          },
+          {
+            "id": "DC-E03",
+            "category": "江湖 / 门派",
+            "label": "江湖事件 / 剧情选择",
+            "description": "展示事件、对话、分支选择或剧情决策界面",
+            "note": "剧情事件"
+          },
+          {
+            "id": "DC-F01",
+            "category": "获得 / 奖励",
+            "label": "寻侠 / 获得角色",
+            "description": "展示获取侠客的过程、结果或相关界面",
+            "note": "角色获得"
+          },
+          {
+            "id": "DC-F02",
+            "category": "获得 / 奖励",
+            "label": "掉落 / 获得资源",
+            "description": "展示装备、秘籍、资源掉落或结算获得",
+            "note": "资源获得"
+          },
+          {
+            "id": "DC-F03",
+            "category": "获得 / 奖励",
+            "label": "福利 / 奖励",
+            "description": "展示登录、活动、礼包或其他福利奖励",
+            "note": "价值获得"
+          },
+          {
+            "id": "DC-G01",
+            "category": "系统 / 社会",
+            "label": "排行榜 / 竞技结果",
+            "description": "展示排行榜、名次、竞技结算或竞争结果",
+            "note": "竞争系统"
+          },
+          {
+            "id": "DC-G02",
+            "category": "系统 / 社会",
+            "label": "帮派 / 多人系统",
+            "description": "展示帮派、盟会、多人成员或协作系统",
+            "note": "社会系统"
+          },
+          {
+            "id": "DC-G03",
+            "category": "系统 / 社会",
+            "label": "交易行 / 玩家交易",
+            "description": "展示交易行、价格、买卖或资源流通界面",
+            "note": "经济系统"
+          },
+          {
+            "id": "DC-G04",
+            "category": "系统 / 社会",
+            "label": "游戏核心UI / 系统界面",
+            "description": "展示能代表真实产品形态的核心UI或系统页面；用于兜底真实游戏信息",
+            "note": "真实产品界面"
+          }
+        ],
+        "depends_on": "visual_product_selling_points",
+        "relation_key": "product_display"
+      },
+      {
+        "key": "visual_art_style",
+        "label": "美术表现风格",
+        "type": "style_cascade",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "AS-S01",
+            "category": "强相关",
+            "label": "产品原生风",
+            "description": "最大程度直接沿用《剑侠传奇》当前角色、场景、UI和战斗视觉，不主动改造审美体系",
+            "references": [
+              {
+                "id": "AS-S01-R1",
+                "label": "《剑侠传奇》游戏实机",
+                "category": "游戏/内部参考",
+                "description": "原生角色比例、场景、UI与战斗界面"
+              },
+              {
+                "id": "AS-S01-R2",
+                "label": "《剑侠传奇》角色立绘",
+                "category": "游戏/内部参考",
+                "description": "原生角色造型、服装与身份资产"
+              },
+              {
+                "id": "AS-S01-R3",
+                "label": "《剑侠传奇》战斗界面",
+                "category": "游戏/内部参考",
+                "description": "真实战斗空间、HUD与技能表现"
+              }
+            ]
+          },
+          {
+            "id": "AS-S02",
+            "category": "强相关",
+            "label": "产品原生精修风",
+            "description": "保持产品原有审美和资产识别，只提升光影、材质、细节、层次与广告完成度",
+            "references": [
+              {
+                "id": "AS-S02-R1",
+                "label": "《剑侠传奇》角色宣传立绘",
+                "category": "游戏/内部参考",
+                "description": "原生资产高精修与商业化表现"
+              },
+              {
+                "id": "AS-S02-R2",
+                "label": "《剑侠传奇》活动KV",
+                "category": "游戏/内部参考",
+                "description": "产品内视觉语言的高完成度包装"
+              },
+              {
+                "id": "AS-S02-R3",
+                "label": "《剑侠传奇》商店宣传图",
+                "category": "游戏/内部参考",
+                "description": "真实产品资产与广告视觉结合"
+              }
+            ]
+          },
+          {
+            "id": "AS-S03",
+            "category": "强相关",
+            "label": "国风半写实",
+            "description": "真人比例和东方材质基础上保留商业游戏插画感，兼顾武侠身份与广告精致度",
+            "references": [
+              {
+                "id": "AS-S03-R1",
+                "label": "《逆水寒》",
+                "category": "游戏",
+                "description": "半写实角色、精细服装、东方环境"
+              },
+              {
+                "id": "AS-S03-R2",
+                "label": "《剑网3》",
+                "category": "游戏",
+                "description": "传统武侠角色与门派服饰"
+              },
+              {
+                "id": "AS-S03-R3",
+                "label": "《燕云十六声》",
+                "category": "游戏",
+                "description": "写实武侠世界、冷峻东方质感"
+              },
+              {
+                "id": "AS-S03-R4",
+                "label": "《永劫无间》",
+                "category": "游戏",
+                "description": "高品质东方武侠角色与兵器"
+              }
+            ]
+          },
+          {
+            "id": "AS-S04",
+            "category": "强相关",
+            "label": "新国风插画",
+            "description": "东方文化元素与现代商业插画、平面设计和高完成度角色视觉结合",
+            "references": [
+              {
+                "id": "AS-S04-R1",
+                "label": "《忘川风华录》",
+                "category": "游戏",
+                "description": "新国风人物与东方装饰设计"
+              },
+              {
+                "id": "AS-S04-R2",
+                "label": "《代号：鸢》",
+                "category": "游戏",
+                "description": "高精度国风角色插画与商业构图"
+              },
+              {
+                "id": "AS-S04-R3",
+                "label": "《王者荣耀》国风皮肤宣传",
+                "category": "游戏",
+                "description": "现代商业KV中的东方传统元素转译"
+              },
+              {
+                "id": "AS-S04-R4",
+                "label": "《绘真·妙笔千山》",
+                "category": "游戏",
+                "description": "传统东方色彩与现代数字绘画结合"
+              }
+            ]
+          },
+          {
+            "id": "AS-S05",
+            "category": "强相关",
+            "label": "国漫厚涂",
+            "description": "以强轮廓、厚重色块、高对比光影和现代国漫角色表现强化人物冲击",
+            "references": [
+              {
+                "id": "AS-S05-R1",
+                "label": "《一人之下》",
+                "category": "漫画/动画",
+                "description": "现代国漫人物线条与动作表现"
+              },
+              {
+                "id": "AS-S05-R2",
+                "label": "《镖人》",
+                "category": "漫画/动画",
+                "description": "硬朗国漫人物、武侠动作与厚重氛围"
+              },
+              {
+                "id": "AS-S05-R3",
+                "label": "《枕刀歌》",
+                "category": "动画",
+                "description": "写实国漫武侠与强战斗构图"
+              },
+              {
+                "id": "AS-S05-R4",
+                "label": "《雾山五行》",
+                "category": "动画",
+                "description": "高饱和笔触、国风动作与强对比表现"
+              }
+            ]
+          },
+          {
+            "id": "AS-S06",
+            "category": "强相关",
+            "label": "武侠漫画风",
+            "description": "保留明确传统武侠人物、兵器和招式身份，以漫画线条、分镜张力和夸张姿态强化表达",
+            "references": [
+              {
+                "id": "AS-S06-R1",
+                "label": "《镖人》",
+                "category": "漫画",
+                "description": "硬朗武侠线条与人物群像"
+              },
+              {
+                "id": "AS-S06-R2",
+                "label": "《风云》",
+                "category": "漫画",
+                "description": "经典港式武侠视觉与招式张力"
+              },
+              {
+                "id": "AS-S06-R3",
+                "label": "《中华英雄》",
+                "category": "漫画",
+                "description": "传统侠客与夸张武侠表现"
+              },
+              {
+                "id": "AS-S06-R4",
+                "label": "《火凤燎原》",
+                "category": "漫画",
+                "description": "精细线描、群像与历史武侠气质"
+              }
+            ]
+          },
+          {
+            "id": "AS-S07",
+            "category": "强相关",
+            "label": "东方水墨武侠",
+            "description": "以墨色、留白、笔触、书法感和东方意境强化武侠气质，同时保留产品角色身份",
+            "references": [
+              {
+                "id": "AS-S07-R1",
+                "label": "《影之刃3》",
+                "category": "游戏",
+                "description": "水墨暗黑武侠与强轮廓角色"
+              },
+              {
+                "id": "AS-S07-R2",
+                "label": "《说剑》",
+                "category": "游戏",
+                "description": "极简水墨、书法与武侠动作"
+              },
+              {
+                "id": "AS-S07-R3",
+                "label": "《绘真·妙笔千山》",
+                "category": "游戏",
+                "description": "山水绘画、传统色与空间留白"
+              },
+              {
+                "id": "AS-S07-R4",
+                "label": "《雾山五行》",
+                "category": "动画",
+                "description": "水墨笔触、传统色与动作张力"
+              }
+            ]
+          },
+          {
+            "id": "AS-W01",
+            "category": "弱相关",
+            "label": "日系赛璐璐",
+            "description": "使用清晰描边、大色块和二次元角色塑造，把武侠内容转译为日式商业动画/游戏语言",
+            "references": [
+              {
+                "id": "AS-W01-R1",
+                "label": "《原神》",
+                "category": "游戏",
+                "description": "高完成度赛璐璐角色与幻想场景"
+              },
+              {
+                "id": "AS-W01-R2",
+                "label": "《崩坏：星穹铁道》",
+                "category": "游戏",
+                "description": "商业二次元角色与高品质UI/特效"
+              },
+              {
+                "id": "AS-W01-R3",
+                "label": "《碧蓝幻想》",
+                "category": "游戏",
+                "description": "日式幻想角色立绘与色彩"
+              },
+              {
+                "id": "AS-W01-R4",
+                "label": "《Fate/Grand Order》",
+                "category": "游戏",
+                "description": "日式角色插画与卡牌表现"
+              }
+            ]
+          },
+          {
+            "id": "AS-W02",
+            "category": "弱相关",
+            "label": "日漫热血风",
+            "description": "强调速度线、动作夸张、强表情和爆发性战斗构图的热血漫画/动画表现",
+            "references": [
+              {
+                "id": "AS-W02-R1",
+                "label": "《鬼灭之刃》",
+                "category": "漫画/动画",
+                "description": "高对比招式特效与热血战斗"
+              },
+              {
+                "id": "AS-W02-R2",
+                "label": "《咒术回战》",
+                "category": "漫画/动画",
+                "description": "强动作姿态与高速战斗表现"
+              },
+              {
+                "id": "AS-W02-R3",
+                "label": "《火影忍者》",
+                "category": "漫画/动画",
+                "description": "速度线、忍术与群体战斗"
+              },
+              {
+                "id": "AS-W02-R4",
+                "label": "《BLEACH》",
+                "category": "漫画/动画",
+                "description": "刀剑角色、强轮廓与夸张招式"
+              }
+            ]
+          },
+          {
+            "id": "AS-W03",
+            "category": "弱相关",
+            "label": "东方奇幻动画风",
+            "description": "保留东方题材与人物身份，但整体更接近动画电影的幻想色彩、光影和场景奇观",
+            "references": [
+              {
+                "id": "AS-W03-R1",
+                "label": "《白蛇：缘起》",
+                "category": "动画电影",
+                "description": "东方角色、山水与奇幻光效"
+              },
+              {
+                "id": "AS-W03-R2",
+                "label": "《哪吒之魔童降世》",
+                "category": "动画电影",
+                "description": "国风奇幻人物与强戏剧色彩"
+              },
+              {
+                "id": "AS-W03-R3",
+                "label": "《大鱼海棠》",
+                "category": "动画电影",
+                "description": "东方意境、传统建筑与幻想空间"
+              },
+              {
+                "id": "AS-W03-R4",
+                "label": "《深海》",
+                "category": "动画电影",
+                "description": "高密度色彩、粒子与梦幻氛围"
+              }
+            ]
+          },
+          {
+            "id": "AS-W04",
+            "category": "弱相关",
+            "label": "港漫夸张武侠",
+            "description": "高对比、强肌肉、夸张动作、能量爆发和极强招式张力的港式武侠漫画语言",
+            "references": [
+              {
+                "id": "AS-W04-R1",
+                "label": "《风云》",
+                "category": "漫画",
+                "description": "夸张武学、强动作和能量表现"
+              },
+              {
+                "id": "AS-W04-R2",
+                "label": "《中华英雄》",
+                "category": "漫画",
+                "description": "硬派侠客与经典港漫造型"
+              },
+              {
+                "id": "AS-W04-R3",
+                "label": "《龙虎门》",
+                "category": "漫画",
+                "description": "男性向力量感与拳脚冲击"
+              },
+              {
+                "id": "AS-W04-R4",
+                "label": "《天子传奇》",
+                "category": "漫画",
+                "description": "神功、兵器与夸张武侠奇观"
+              }
+            ]
+          },
+          {
+            "id": "AS-W05",
+            "category": "弱相关",
+            "label": "复古武侠插画",
+            "description": "模拟90年代至千禧年前后的国产武侠小说封面、PC游戏包装与传统商业插画记忆",
+            "references": [
+              {
+                "id": "AS-W05-R1",
+                "label": "《金庸群侠传》",
+                "category": "游戏",
+                "description": "90年代国产武侠游戏视觉"
+              },
+              {
+                "id": "AS-W05-R2",
+                "label": "《武林群侠传》",
+                "category": "游戏",
+                "description": "经典国产武侠RPG角色与包装感"
+              },
+              {
+                "id": "AS-W05-R3",
+                "label": "《天龙八部》经典PC单机版",
+                "category": "游戏",
+                "description": "早期国产武侠角色插画与界面"
+              },
+              {
+                "id": "AS-W05-R4",
+                "label": "《新绝代双骄2》",
+                "category": "游戏",
+                "description": "千禧年前后国产武侠RPG视觉"
+              }
+            ]
+          },
+          {
+            "id": "AS-W06",
+            "category": "弱相关",
+            "label": "Q版国风",
+            "description": "压缩头身比例、强化大头和可爱表情，同时保留国风服饰、武器与东方身份",
+            "references": [
+              {
+                "id": "AS-W06-R1",
+                "label": "《梦幻西游》",
+                "category": "游戏",
+                "description": "经典Q版国风角色"
+              },
+              {
+                "id": "AS-W06-R2",
+                "label": "《大话西游手游》",
+                "category": "游戏",
+                "description": "Q版东方人物与传统题材"
+              },
+              {
+                "id": "AS-W06-R3",
+                "label": "《桃源深处有人家》",
+                "category": "游戏",
+                "description": "清新Q版国风人物和场景"
+              },
+              {
+                "id": "AS-W06-R4",
+                "label": "《江南百景图》",
+                "category": "游戏",
+                "description": "国风小比例人物与古代生活场景"
+              }
+            ]
+          },
+          {
+            "id": "AS-W07",
+            "category": "弱相关",
+            "label": "卡通武侠",
+            "description": "比Q版更强调夸张动画表情、喜剧节奏和轻娱乐造型的武侠/东方卡通表现",
+            "references": [
+              {
+                "id": "AS-W07-R1",
+                "label": "《功夫熊猫》",
+                "category": "动画电影",
+                "description": "夸张动作与东方功夫卡通"
+              },
+              {
+                "id": "AS-W07-R2",
+                "label": "《虹猫蓝兔七侠传》",
+                "category": "动画",
+                "description": "传统武侠身份的电视动画化"
+              },
+              {
+                "id": "AS-W07-R3",
+                "label": "《乌龙院》",
+                "category": "漫画/动画",
+                "description": "喜剧化武侠角色与夸张表情"
+              },
+              {
+                "id": "AS-W07-R4",
+                "label": "《侠岚》",
+                "category": "动画",
+                "description": "东方武侠/玄幻题材的动画角色表现"
+              }
+            ]
+          },
+          {
+            "id": "AS-W08",
+            "category": "弱相关",
+            "label": "剪纸国风",
+            "description": "以剪纸、镂空、平面层叠与民间美术轮廓表现人物和江湖场景",
+            "references": [
+              {
+                "id": "AS-W08-R1",
+                "label": "《猪八戒吃西瓜》",
+                "category": "动画",
+                "description": "经典中国剪纸动画"
+              },
+              {
+                "id": "AS-W08-R2",
+                "label": "《渔童》",
+                "category": "动画",
+                "description": "传统剪纸与民间美术"
+              },
+              {
+                "id": "AS-W08-R3",
+                "label": "《金色的海螺》",
+                "category": "动画",
+                "description": "剪纸式人物与装饰图形"
+              },
+              {
+                "id": "AS-W08-R4",
+                "label": "《张飞审瓜》",
+                "category": "动画",
+                "description": "传统剪纸戏曲人物语言"
+              }
+            ]
+          },
+          {
+            "id": "AS-W09",
+            "category": "弱相关",
+            "label": "古籍线描 / 版画",
+            "description": "模拟古代书籍线描、木刻版画、绣像和武学图谱的平面叙事语言",
+            "references": [
+              {
+                "id": "AS-W09-R1",
+                "label": "《太吾绘卷》",
+                "category": "游戏",
+                "description": "古籍式界面、人物与东方系统视觉"
+              },
+              {
+                "id": "AS-W09-R2",
+                "label": "《鬼谷八荒》",
+                "category": "游戏",
+                "description": "水墨线描人物与传统界面语言"
+              },
+              {
+                "id": "AS-W09-R3",
+                "label": "《山海经》古籍版画",
+                "category": "古籍/插画",
+                "description": "古代异兽线描与木刻感"
+              },
+              {
+                "id": "AS-W09-R4",
+                "label": "明清武侠绣像本",
+                "category": "古籍/插画",
+                "description": "传统人物线描与版画构图"
+              }
+            ]
+          },
+          {
+            "id": "AS-W10",
+            "category": "弱相关",
+            "label": "工笔重彩",
+            "description": "以精细勾线、层叠传统色和装饰性纹样塑造高精度东方人物与场景",
+            "references": [
+              {
+                "id": "AS-W10-R1",
+                "label": "《忘川风华录》",
+                "category": "游戏",
+                "description": "传统色、细线与古典人物表现"
+              },
+              {
+                "id": "AS-W10-R2",
+                "label": "《代号：鸢》",
+                "category": "游戏",
+                "description": "精细国风角色插画与服饰细节"
+              },
+              {
+                "id": "AS-W10-R3",
+                "label": "《王者荣耀》敦煌系列皮肤",
+                "category": "游戏",
+                "description": "重彩、敦煌纹样与角色商业KV"
+              },
+              {
+                "id": "AS-W10-R4",
+                "label": "《绘真·妙笔千山》",
+                "category": "游戏",
+                "description": "传统矿物色与细腻东方画面"
+              }
+            ]
+          },
+          {
+            "id": "AS-W11",
+            "category": "弱相关",
+            "label": "3D国风动画",
+            "description": "将角色和江湖转为国产3D动画式人物材质、镜头光影与动作表现",
+            "references": [
+              {
+                "id": "AS-W11-R1",
+                "label": "《凡人修仙传》",
+                "category": "动画",
+                "description": "成熟3D东方人物与场景"
+              },
+              {
+                "id": "AS-W11-R2",
+                "label": "《斗破苍穹》",
+                "category": "动画",
+                "description": "3D玄幻角色、技能与大场景"
+              },
+              {
+                "id": "AS-W11-R3",
+                "label": "《画江湖之不良人》",
+                "category": "动画",
+                "description": "3D国风江湖角色与势力"
+              },
+              {
+                "id": "AS-W11-R4",
+                "label": "《眷思量》",
+                "category": "动画",
+                "description": "高精度3D东方人物和服装材质"
+              }
+            ]
+          },
+          {
+            "id": "AS-W12",
+            "category": "弱相关",
+            "label": "黏土 / 手办国风",
+            "description": "将游戏角色转译成真实手办、潮玩、黏土模型或棚拍收藏品视觉",
+            "references": [
+              {
+                "id": "AS-W12-R1",
+                "label": "Nendoroid 黏土人系列",
+                "category": "手办/视觉品类",
+                "description": "大头比例、实体塑料材质与收藏展示"
+              },
+              {
+                "id": "AS-W12-R2",
+                "label": "POP MART 潮玩系列",
+                "category": "潮玩/视觉品类",
+                "description": "实体模型、盲盒与商业棚拍"
+              },
+              {
+                "id": "AS-W12-R3",
+                "label": "《原神》角色手办宣传",
+                "category": "游戏衍生",
+                "description": "二次元角色实体化与高品质棚拍"
+              },
+              {
+                "id": "AS-W12-R4",
+                "label": "《阴阳师》角色手办宣传",
+                "category": "游戏衍生",
+                "description": "东方角色实体模型与收藏感"
+              }
+            ]
+          },
+          {
+            "id": "AS-U01",
+            "category": "不相关",
+            "label": "像素风",
+            "description": "把角色、场景和资产转译为低分辨率像素块、sprite或HD-2D视觉",
+            "references": [
+              {
+                "id": "AS-U01-R1",
+                "label": "《八方旅人》",
+                "category": "游戏",
+                "description": "HD-2D、像素人物与立体光影"
+              },
+              {
+                "id": "AS-U01-R2",
+                "label": "《死亡细胞》",
+                "category": "游戏",
+                "description": "高动作性像素角色与粒子效果"
+              },
+              {
+                "id": "AS-U01-R3",
+                "label": "《星露谷物语》",
+                "category": "游戏",
+                "description": "经典2D像素人物和世界"
+              },
+              {
+                "id": "AS-U01-R4",
+                "label": "《挺进地牢》",
+                "category": "游戏",
+                "description": "俯视像素角色与高密度战斗反馈"
+              }
+            ]
+          },
+          {
+            "id": "AS-U02",
+            "category": "不相关",
+            "label": "Low Poly低多边形",
+            "description": "用简化几何面、低面数模型和大色块构建角色与环境",
+            "references": [
+              {
+                "id": "AS-U02-R1",
+                "label": "《纪念碑谷》",
+                "category": "游戏",
+                "description": "几何化空间和低细节建模"
+              },
+              {
+                "id": "AS-U02-R2",
+                "label": "《The Pathless》",
+                "category": "游戏",
+                "description": "简化几何角色、开阔环境与强色块"
+              },
+              {
+                "id": "AS-U02-R3",
+                "label": "《ABZÛ》",
+                "category": "游戏",
+                "description": "低多边形环境、纯净色块和流动空间"
+              },
+              {
+                "id": "AS-U02-R4",
+                "label": "《Journey》",
+                "category": "游戏",
+                "description": "几何化人物、极简环境与大面积色彩"
+              }
+            ]
+          },
+          {
+            "id": "AS-U03",
+            "category": "不相关",
+            "label": "Voxel方块风",
+            "description": "用体素、方块或积木式三维单元重构角色、建筑和江湖世界",
+            "references": [
+              {
+                "id": "AS-U03-R1",
+                "label": "《Minecraft》",
+                "category": "游戏",
+                "description": "标准方块体素世界"
+              },
+              {
+                "id": "AS-U03-R2",
+                "label": "《Minecraft Dungeons》",
+                "category": "游戏",
+                "description": "体素角色与动作RPG战斗"
+              },
+              {
+                "id": "AS-U03-R3",
+                "label": "《Trove》",
+                "category": "游戏",
+                "description": "彩色Voxel角色和世界"
+              },
+              {
+                "id": "AS-U03-R4",
+                "label": "《Crossy Road》",
+                "category": "游戏",
+                "description": "简化体素人物与场景"
+              }
+            ]
+          },
+          {
+            "id": "AS-U04",
+            "category": "不相关",
+            "label": "欧美卡通",
+            "description": "使用大轮廓、夸张比例、强表情和高可读性的欧美商业卡通语言",
+            "references": [
+              {
+                "id": "AS-U04-R1",
+                "label": "《部落冲突》",
+                "category": "游戏",
+                "description": "欧美卡通角色与高识别建筑"
+              },
+              {
+                "id": "AS-U04-R2",
+                "label": "《荒野乱斗》",
+                "category": "游戏",
+                "description": "夸张比例、高饱和和强动作姿态"
+              },
+              {
+                "id": "AS-U04-R3",
+                "label": "《皇室战争》",
+                "category": "游戏",
+                "description": "轻量卡通角色与竞技UI"
+              },
+              {
+                "id": "AS-U04-R4",
+                "label": "《魔兽大作战》",
+                "category": "游戏",
+                "description": "玩具化欧美卡通与策略角色"
+              }
+            ]
+          },
+          {
+            "id": "AS-U05",
+            "category": "不相关",
+            "label": "欧美漫画",
+            "description": "用美漫线条、网点、分镜切割和强冲击文字表现角色与战斗",
+            "references": [
+              {
+                "id": "AS-U05-R1",
+                "label": "《Marvel Snap》",
+                "category": "游戏",
+                "description": "美漫卡牌、角色插画与强图形设计"
+              },
+              {
+                "id": "AS-U05-R2",
+                "label": "《蜘蛛侠：纵横宇宙》",
+                "category": "动画电影",
+                "description": "漫画网点、分层线条与多风格画面"
+              },
+              {
+                "id": "AS-U05-R3",
+                "label": "《忍者神龟》",
+                "category": "漫画/动画",
+                "description": "经典美式漫画人物与街头动作"
+              },
+              {
+                "id": "AS-U05-R4",
+                "label": "DC Comics 经典漫画",
+                "category": "漫画",
+                "description": "美漫线稿、块面与英雄构图"
+              }
+            ]
+          },
+          {
+            "id": "AS-U06",
+            "category": "不相关",
+            "label": "暗黑哥特",
+            "description": "以阴暗、腐朽、宗教建筑、黑红材质和压迫气氛把武侠转译为西方暗黑幻想",
+            "references": [
+              {
+                "id": "AS-U06-R1",
+                "label": "《暗黑破坏神IV》",
+                "category": "游戏",
+                "description": "黑暗宗教、血肉材质与高压氛围"
+              },
+              {
+                "id": "AS-U06-R2",
+                "label": "《恶魔城》",
+                "category": "游戏/动画",
+                "description": "哥特建筑、吸血鬼与暗色幻想"
+              },
+              {
+                "id": "AS-U06-R3",
+                "label": "《血源诅咒》",
+                "category": "游戏",
+                "description": "维多利亚哥特、怪物与压迫场景"
+              },
+              {
+                "id": "AS-U06-R4",
+                "label": "《黑暗之魂3》",
+                "category": "游戏",
+                "description": "残破宗教建筑、盔甲与暗黑奇幻"
+              }
+            ]
+          },
+          {
+            "id": "AS-U07",
+            "category": "不相关",
+            "label": "欧美奇幻",
+            "description": "将江湖改造为西方RPG式英雄、城堡、法术与史诗奇幻世界",
+            "references": [
+              {
+                "id": "AS-U07-R1",
+                "label": "《魔兽世界》",
+                "category": "游戏",
+                "description": "史诗欧美奇幻角色与种族"
+              },
+              {
+                "id": "AS-U07-R2",
+                "label": "《上古卷轴V：天际》",
+                "category": "游戏",
+                "description": "写实西方奇幻世界与冒险"
+              },
+              {
+                "id": "AS-U07-R3",
+                "label": "《博德之门3》",
+                "category": "游戏",
+                "description": "高品质欧美RPG角色与团队冒险"
+              },
+              {
+                "id": "AS-U07-R4",
+                "label": "《龙腾世纪》",
+                "category": "游戏",
+                "description": "西方奇幻阵营、盔甲与魔法"
+              }
+            ]
+          },
+          {
+            "id": "AS-U08",
+            "category": "不相关",
+            "label": "赛博朋克",
+            "description": "以霓虹、机械义体、未来都市、电子UI和科技材质重构武侠内容",
+            "references": [
+              {
+                "id": "AS-U08-R1",
+                "label": "《赛博朋克2077》",
+                "category": "游戏",
+                "description": "霓虹未来都市、义体与高科技界面"
+              },
+              {
+                "id": "AS-U08-R2",
+                "label": "《赛博浪客》",
+                "category": "动画",
+                "description": "高饱和赛博城市与高速动作"
+              },
+              {
+                "id": "AS-U08-R3",
+                "label": "《幽灵行者》",
+                "category": "游戏",
+                "description": "第一人称刀剑、霓虹和未来建筑"
+              },
+              {
+                "id": "AS-U08-R4",
+                "label": "《攻壳机动队》",
+                "category": "漫画/动画",
+                "description": "赛博城市、机械身体与电子视觉"
+              }
+            ]
+          },
+          {
+            "id": "AS-U09",
+            "category": "不相关",
+            "label": "蒸汽朋克",
+            "description": "使用黄铜、齿轮、蒸汽机械、工业城市和复古未来主义改造武侠视觉",
+            "references": [
+              {
+                "id": "AS-U09-R1",
+                "label": "《Dishonored》",
+                "category": "游戏",
+                "description": "工业城市、机械装置与暗色蒸汽美学"
+              },
+              {
+                "id": "AS-U09-R2",
+                "label": "《Frostpunk》",
+                "category": "游戏",
+                "description": "工业机械、蒸汽结构与极端环境"
+              },
+              {
+                "id": "AS-U09-R3",
+                "label": "《SteamWorld》系列",
+                "category": "游戏",
+                "description": "蒸汽机械角色与卡通工业世界"
+              },
+              {
+                "id": "AS-U09-R4",
+                "label": "《BioShock Infinite》",
+                "category": "游戏",
+                "description": "复古机械、浮空城市与华丽工业设计"
+              }
+            ]
+          },
+          {
+            "id": "AS-U10",
+            "category": "不相关",
+            "label": "纸片 / 拼贴",
+            "description": "通过纸张、撕边、贴纸、照片和手工拼贴层构成角色与信息",
+            "references": [
+              {
+                "id": "AS-U10-R1",
+                "label": "《South Park》",
+                "category": "动画",
+                "description": "剪纸式平面人物和场景"
+              },
+              {
+                "id": "AS-U10-R2",
+                "label": "《Paper Mario》系列",
+                "category": "游戏",
+                "description": "纸片角色、折纸与二维舞台感"
+              },
+              {
+                "id": "AS-U10-R3",
+                "label": "《Tearaway》",
+                "category": "游戏",
+                "description": "纸艺、手工材质与拼贴世界"
+              },
+              {
+                "id": "AS-U10-R4",
+                "label": "《Don't Starve》",
+                "category": "游戏",
+                "description": "纸面手绘、剪影与拼贴式世界"
+              }
+            ]
+          },
+          {
+            "id": "AS-U11",
+            "category": "不相关",
+            "label": "美式复古海报",
+            "description": "采用20世纪中期广告、宣传画、复古印刷和原子时代视觉语言",
+            "references": [
+              {
+                "id": "AS-U11-R1",
+                "label": "《Fallout》系列",
+                "category": "游戏",
+                "description": "50年代美国广告与复古未来主义"
+              },
+              {
+                "id": "AS-U11-R2",
+                "label": "《BioShock》系列",
+                "category": "游戏",
+                "description": "复古商业视觉、Art Deco与宣传画"
+              },
+              {
+                "id": "AS-U11-R3",
+                "label": "《The Outer Worlds》",
+                "category": "游戏",
+                "description": "复古科幻广告与商业海报"
+              },
+              {
+                "id": "AS-U11-R4",
+                "label": "《Cuphead》",
+                "category": "游戏",
+                "description": "30年代卡通、旧印刷与复古商业视觉"
+              }
+            ]
+          },
+          {
+            "id": "AS-U12",
+            "category": "不相关",
+            "label": "波普潮流",
+            "description": "以高饱和色块、大字体、图形符号和潮流排版制造强商业视觉冲击",
+            "references": [
+              {
+                "id": "AS-U12-R1",
+                "label": "《女神异闻录5》",
+                "category": "游戏",
+                "description": "红黑高对比、图形化UI和强排版"
+              },
+              {
+                "id": "AS-U12-R2",
+                "label": "《喷射战士3》",
+                "category": "游戏",
+                "description": "潮流色彩、街头图形与涂料视觉"
+              },
+              {
+                "id": "AS-U12-R3",
+                "label": "《NEO：美妙世界》",
+                "category": "游戏",
+                "description": "潮流插画、街头时尚与图形UI"
+              },
+              {
+                "id": "AS-U12-R4",
+                "label": "《No More Heroes 3》",
+                "category": "游戏",
+                "description": "高饱和波普、夸张图形与游戏感排版"
+              }
+            ]
+          },
+          {
+            "id": "AS-U13",
+            "category": "不相关",
+            "label": "涂鸦街头",
+            "description": "以喷漆、手写、贴纸、墙面涂鸦和街头运动感重构角色与界面",
+            "references": [
+              {
+                "id": "AS-U13-R1",
+                "label": "《Jet Set Radio》",
+                "category": "游戏",
+                "description": "经典街头涂鸦、滑行与赛璐璐"
+              },
+              {
+                "id": "AS-U13-R2",
+                "label": "《Hi-Fi RUSH》",
+                "category": "游戏",
+                "description": "漫画化街头图形与音乐动作"
+              },
+              {
+                "id": "AS-U13-R3",
+                "label": "《Bomb Rush Cyberfunk》",
+                "category": "游戏",
+                "description": "街头涂鸦、潮流角色与城市运动"
+              },
+              {
+                "id": "AS-U13-R4",
+                "label": "《Street Fighter 6》",
+                "category": "游戏",
+                "description": "喷漆式UI、街头文字与格斗能量"
+              }
+            ]
+          },
+          {
+            "id": "AS-U14",
+            "category": "不相关",
+            "label": "定格动画",
+            "description": "把角色和环境表现为实体模型、毛毡、木偶或黏土，并呈现逐帧拍摄质感",
+            "references": [
+              {
+                "id": "AS-U14-R1",
+                "label": "《超级无敌掌门狗》",
+                "category": "动画",
+                "description": "黏土定格人物和生活场景"
+              },
+              {
+                "id": "AS-U14-R2",
+                "label": "《鬼妈妈》",
+                "category": "动画电影",
+                "description": "布偶/模型定格与暗黑童话"
+              },
+              {
+                "id": "AS-U14-R3",
+                "label": "《犬之岛》",
+                "category": "动画电影",
+                "description": "模型布景、定格人物与对称构图"
+              },
+              {
+                "id": "AS-U14-R4",
+                "label": "《魔弦传说》",
+                "category": "动画电影",
+                "description": "高精度定格模型与东方奇幻元素"
+              }
+            ]
+          },
+          {
+            "id": "AS-U15",
+            "category": "不相关",
+            "label": "儿童绘本",
+            "description": "使用柔和手绘、简化线条、纸张质感和童书式叙事画面重构游戏内容",
+            "references": [
+              {
+                "id": "AS-U15-R1",
+                "label": "《小王子》",
+                "category": "绘本/动画",
+                "description": "水彩留白、简化人物与诗意画面"
+              },
+              {
+                "id": "AS-U15-R2",
+                "label": "《姆明》",
+                "category": "绘本/动画",
+                "description": "手绘线条、简洁角色与童话环境"
+              },
+              {
+                "id": "AS-U15-R3",
+                "label": "《小熊维尼》",
+                "category": "绘本/动画",
+                "description": "柔和手绘、纸面质感与温暖色调"
+              },
+              {
+                "id": "AS-U15-R4",
+                "label": "《咕噜牛》",
+                "category": "绘本/动画",
+                "description": "儿童绘本角色、夸张轮廓与自然场景"
+              }
+            ]
+          },
+          {
+            "id": "AS-U16",
+            "category": "不相关",
+            "label": "极简扁平",
+            "description": "通过极少色块、简化几何、低细节人物和大留白完成高度符号化表达",
+            "references": [
+              {
+                "id": "AS-U16-R1",
+                "label": "《纪念碑谷》",
+                "category": "游戏",
+                "description": "极简几何、纯净色彩与空间留白"
+              },
+              {
+                "id": "AS-U16-R2",
+                "label": "《GRIS》",
+                "category": "游戏",
+                "description": "极简人物、平面色彩与情绪留白"
+              },
+              {
+                "id": "AS-U16-R3",
+                "label": "《Florence》",
+                "category": "游戏",
+                "description": "扁平插画、简洁UI与生活叙事"
+              },
+              {
+                "id": "AS-U16-R4",
+                "label": "《Alto's Odyssey》",
+                "category": "游戏",
+                "description": "极简剪影、渐变环境与低信息密度"
+              }
+            ]
+          },
+          {
+            "id": "AS-U17",
+            "category": "不相关",
+            "label": "黑白漫画",
+            "description": "几乎完全去色，以墨线、网点、速度线、明暗块面和漫画分格强化冲击",
+            "references": [
+              {
+                "id": "AS-U17-R1",
+                "label": "《浪客行》",
+                "category": "漫画",
+                "description": "写实墨线、武士人物与大面积黑白层次"
+              },
+              {
+                "id": "AS-U17-R2",
+                "label": "《剑风传奇》",
+                "category": "漫画",
+                "description": "高密度黑白线稿与暗黑战斗"
+              },
+              {
+                "id": "AS-U17-R3",
+                "label": "《一拳超人》漫画版",
+                "category": "漫画",
+                "description": "高动作性黑白分镜和速度线"
+              },
+              {
+                "id": "AS-U17-R4",
+                "label": "《火影忍者》漫画版",
+                "category": "漫画",
+                "description": "黑白战斗、网点和忍术分镜"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "key": "visual_motif",
+        "label": "视觉母题",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "VM-A01",
+            "category": "单核心结构",
+            "label": "中心聚焦式",
+            "description": "一个核心对象位于主要视觉中心，其他元素围绕其建立层级",
+            "note": "单一中心；四周辅助"
+          },
+          {
+            "id": "VM-A02",
+            "category": "单核心结构",
+            "label": "偏心聚焦式",
+            "description": "核心对象位于左/右三分之一或黄金分割位置，另一侧形成信息空间",
+            "note": "一侧主体；另一侧留空间"
+          },
+          {
+            "id": "VM-A03",
+            "category": "单核心结构",
+            "label": "全幅主体式",
+            "description": "主体占据画面大部分面积，其他信息只能作为覆盖或边缘层存在",
+            "note": "主体铺满；辅助信息弱化"
+          },
+          {
+            "id": "VM-A04",
+            "category": "单核心结构",
+            "label": "中心留白式",
+            "description": "主体或信息集中在较小区域，通过大面积留白建立高级感和注意力反差",
+            "note": "小主体；大留白"
+          },
+          {
+            "id": "VM-B01",
+            "category": "双区结构",
+            "label": "左右分屏式",
+            "description": "画面分成左右两个主要区域，两区关系清晰",
+            "note": "左区 | 右区"
+          },
+          {
+            "id": "VM-B02",
+            "category": "双区结构",
+            "label": "上下分屏式",
+            "description": "画面分成上下两个主要区域，适合竖屏纵向阅读",
+            "note": "上区 / 下区"
+          },
+          {
+            "id": "VM-B03",
+            "category": "双区结构",
+            "label": "主次双区式",
+            "description": "两个区域面积明显不等，以一个主区和一个辅助区构成层级",
+            "note": "主区约2/3；次区约1/3"
+          },
+          {
+            "id": "VM-B04",
+            "category": "双区结构",
+            "label": "交错双区式",
+            "description": "两个区域相互压入、错位或越界，不采用简单直线切割",
+            "note": "A区与B区交错咬合"
+          },
+          {
+            "id": "VM-C01",
+            "category": "多区结构",
+            "label": "均分网格式",
+            "description": "多个内容单元按规则网格均匀分配，权重接近",
+            "note": "2×2 / 3×2 / 3×3"
+          },
+          {
+            "id": "VM-C02",
+            "category": "多区结构",
+            "label": "主格 + 副格式",
+            "description": "一个大区域承担主体，若干小区域承载次级内容",
+            "note": "1大格 + 多小格"
+          },
+          {
+            "id": "VM-C03",
+            "category": "多区结构",
+            "label": "自由拼贴式",
+            "description": "多个不同尺寸内容块以不规则但有秩序的方式组合",
+            "note": "大小块自由拼接"
+          },
+          {
+            "id": "VM-C04",
+            "category": "多区结构",
+            "label": "条带排列式",
+            "description": "内容沿横向或纵向条带连续排列，形成连续阅读路径",
+            "note": "A→B→C条带"
+          },
+          {
+            "id": "VM-D01",
+            "category": "环绕结构",
+            "label": "环形环绕式",
+            "description": "多个元素围绕一个中心形成完整环形或近环形关系",
+            "note": "中心 + 360°环绕"
+          },
+          {
+            "id": "VM-D02",
+            "category": "环绕结构",
+            "label": "半环绕式",
+            "description": "多个元素从半侧包围核心，为另一侧保留信息或留白区域",
+            "note": "中心 + 半圈包围"
+          },
+          {
+            "id": "VM-D03",
+            "category": "环绕结构",
+            "label": "放射式",
+            "description": "关系从中心向外扩散，强调中心是来源或核心节点",
+            "note": "中心 → 四周"
+          },
+          {
+            "id": "VM-D04",
+            "category": "环绕结构",
+            "label": "向心聚拢式",
+            "description": "外围元素通过方向、姿态或线条共同指向中心",
+            "note": "四周 → 中心"
+          },
+          {
+            "id": "VM-E01",
+            "category": "方向动势结构",
+            "label": "对角线式",
+            "description": "主要对象沿一条对角线组织，形成明显方向性和张力",
+            "note": "左下→右上 / 左上→右下"
+          },
+          {
+            "id": "VM-E02",
+            "category": "方向动势结构",
+            "label": "Z型结构",
+            "description": "信息按照Z字路径阅读，适合多个重点的顺序浏览",
+            "note": "左上→右上→左下→右下"
+          },
+          {
+            "id": "VM-E03",
+            "category": "方向动势结构",
+            "label": "S型流线结构",
+            "description": "主要对象沿曲线流动排列，形成柔和连续的视觉路径",
+            "note": "S形曲线阅读"
+          },
+          {
+            "id": "VM-E04",
+            "category": "方向动势结构",
+            "label": "纵深透视式",
+            "description": "通过前景、中景、后景建立明显尺度与空间纵深",
+            "note": "前大—中—后小"
+          },
+          {
+            "id": "VM-F01",
+            "category": "包围 / 框架结构",
+            "label": "边框包围式",
+            "description": "主体被边框、装饰、UI或信息层围合在一个明确区域中",
+            "note": "外围框架 + 中央主体"
+          },
+          {
+            "id": "VM-F02",
+            "category": "包围 / 框架结构",
+            "label": "门洞 / 窗口式",
+            "description": "通过前景孔洞、窗口或开口观察主体，形成窥视与聚焦",
+            "note": "前景开口 → 主体"
+          },
+          {
+            "id": "VM-F03",
+            "category": "包围 / 框架结构",
+            "label": "前景夹景式",
+            "description": "左右或上下存在明显前景，对中间主体形成夹景和纵深",
+            "note": "前景 | 主体 | 前景"
+          },
+          {
+            "id": "VM-F04",
+            "category": "包围 / 框架结构",
+            "label": "框中框式",
+            "description": "画面内存在大画面与明确的小画面/窗口关系",
+            "note": "主画面 + 内嵌画面"
+          },
+          {
+            "id": "VM-G01",
+            "category": "层叠结构",
+            "label": "卡片层叠式",
+            "description": "多个矩形或卡片化单元前后覆盖并形成层次",
+            "note": "卡片前后叠放"
+          },
+          {
+            "id": "VM-G02",
+            "category": "层叠结构",
+            "label": "前后错层式",
+            "description": "不依赖卡片边框，多个主体通过大小、遮挡和位置形成前后错层",
+            "note": "前大 / 中 / 后小"
+          },
+          {
+            "id": "VM-G03",
+            "category": "层叠结构",
+            "label": "阶梯递进式",
+            "description": "多个元素按阶梯或逐级偏移方式连续递进",
+            "note": "A→B→C→D阶梯"
+          },
+          {
+            "id": "VM-G04",
+            "category": "层叠结构",
+            "label": "金字塔式",
+            "description": "元素形成稳定的三角或倒三角层级，强调顶部/中心核心",
+            "note": "上窄下宽或倒金字塔"
+          }
+        ]
+      },
+      {
+        "key": "visual_dynamics",
+        "label": "动态方案",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "DY-01",
+            "category": "背景静态",
+            "label": "全静态",
+            "description": "整张画面保持静止，由美术、结构和信息本身承担停留",
+            "note": "静态海报式"
+          },
+          {
+            "id": "DY-02",
+            "category": "背景静态",
+            "label": "主体微动态",
+            "description": "环境保持稳定，核心主体只有轻量运动能量",
+            "note": "主体轻微活化"
+          },
+          {
+            "id": "DY-03",
+            "category": "背景静态",
+            "label": "主体强动态",
+            "description": "背景稳定，主要运动能量全部集中在核心主体",
+            "note": "主体驱动"
+          },
+          {
+            "id": "DY-04",
+            "category": "背景微动态",
+            "label": "背景微动态",
+            "description": "主体保持稳定，环境承担轻微生命感与氛围变化",
+            "note": "环境轻动"
+          },
+          {
+            "id": "DY-05",
+            "category": "背景微动态",
+            "label": "双微动态",
+            "description": "主体与背景都有轻量动态，整体保持克制和平衡",
+            "note": "展示广告通用平衡档"
+          },
+          {
+            "id": "DY-06",
+            "category": "背景微动态",
+            "label": "背景微 + 主体强",
+            "description": "环境保持轻动，主体承担明显动态表现",
+            "note": "主体主导型"
+          },
+          {
+            "id": "DY-07",
+            "category": "背景强动态",
+            "label": "背景强动态",
+            "description": "环境运动明显而主体稳定，形成强烈动静反差",
+            "note": "环境焦点型"
+          },
+          {
+            "id": "DY-08",
+            "category": "背景强动态",
+            "label": "背景强 + 主体微",
+            "description": "环境承担主要动态能量，主体只维持轻微生命感",
+            "note": "环境主导型"
+          },
+          {
+            "id": "DY-09",
+            "category": "背景强动态",
+            "label": "双强动态",
+            "description": "主体和环境都承担明显动态表达；需要AI控制层级避免混乱",
+            "note": "高能量型"
+          }
+        ]
+      },
+      {
+        "key": "visual_voice_hook",
+        "label": "语音钩子",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "VH-00",
+            "category": "特殊",
+            "label": "无语音钩子",
+            "description": "不使用语言开场，只使用BGM、音效和画面建立注意力",
+            "note": "无语言机制"
+          },
+          {
+            "id": "VH-A01",
+            "category": "提问互动型",
+            "label": "直接提问",
+            "description": "第一句话直接向用户提出问题，迫使其在脑中形成回答",
+            "note": "问句→用户回答"
+          },
+          {
+            "id": "VH-A02",
+            "category": "提问互动型",
+            "label": "二选一 / 多选挑战",
+            "description": "把用户放入两个或多个选项中，诱发即时选择",
+            "note": "选项A/B/C→选择"
+          },
+          {
+            "id": "VH-A03",
+            "category": "提问互动型",
+            "label": "猜测式",
+            "description": "让用户预测身份、强弱、结果或答案",
+            "note": "未知→猜测"
+          },
+          {
+            "id": "VH-B01",
+            "category": "悬念型",
+            "label": "话说一半",
+            "description": "故意留下关键缺口，不在开头一次性说完整",
+            "note": "半句话→等待补全"
+          },
+          {
+            "id": "VH-B02",
+            "category": "悬念型",
+            "label": "秘密揭露",
+            "description": "暗示存在大多数人不知道的信息或规则",
+            "note": "隐藏信息→揭露欲"
+          },
+          {
+            "id": "VH-B03",
+            "category": "悬念型",
+            "label": "答案延迟",
+            "description": "先提出明确悬念，但把最终答案延后",
+            "note": "问题→延迟答案"
+          },
+          {
+            "id": "VH-C01",
+            "category": "反常识 / 反差型",
+            "label": "反常识结论",
+            "description": "开场直接给出与常规直觉不一致的判断",
+            "note": "常识≠结论"
+          },
+          {
+            "id": "VH-C02",
+            "category": "反常识 / 反差型",
+            "label": "否定常规认知",
+            "description": "先否定用户习惯的玩法、认知或判断，再引出新解释",
+            "note": "你以为X→其实不是"
+          },
+          {
+            "id": "VH-C03",
+            "category": "反常识 / 反差型",
+            "label": "极端反差",
+            "description": "用强烈前后、强弱、身份或结果反差制造听觉冲击",
+            "note": "极端A↔极端B"
+          },
+          {
+            "id": "VH-D01",
+            "category": "结论先行型",
+            "label": "直接评价",
+            "description": "第一句话直接给出明确评价，后续画面负责承接",
+            "note": "先评价→再证明"
+          },
+          {
+            "id": "VH-D02",
+            "category": "结论先行型",
+            "label": "强判断",
+            "description": "用确定、不可忽视的判断压缩用户理解路径",
+            "note": "强结论→理由"
+          },
+          {
+            "id": "VH-D03",
+            "category": "结论先行型",
+            "label": "排名 / Top结论",
+            "description": "以Top、最好、最强、最推荐等排序逻辑开场",
+            "note": "排名结论→展开"
+          },
+          {
+            "id": "VH-E01",
+            "category": "挑战 / 激将型",
+            "label": "能力挑战",
+            "description": "直接挑战用户能否完成、打赢或判断正确",
+            "note": "你能不能X"
+          },
+          {
+            "id": "VH-E02",
+            "category": "挑战 / 激将型",
+            "label": "认知挑战",
+            "description": "挑战用户是否真正理解某个规则、角色或题材",
+            "note": "你懂不懂X"
+          },
+          {
+            "id": "VH-E03",
+            "category": "挑战 / 激将型",
+            "label": "身份挑战",
+            "description": "用玩家资历、题材身份或群体身份刺激用户回应",
+            "note": "真正的X都…"
+          },
+          {
+            "id": "VH-F01",
+            "category": "冲突型",
+            "label": "直接反驳",
+            "description": "以“错了/不对/不是这样”等对抗性语言直接打断用户注意",
+            "note": "反驳→重新解释"
+          },
+          {
+            "id": "VH-F02",
+            "category": "冲突型",
+            "label": "观点争论",
+            "description": "让两个立场在声音里发生明显冲突或分歧",
+            "note": "观点A↔观点B"
+          },
+          {
+            "id": "VH-F03",
+            "category": "冲突型",
+            "label": "命令 / 阻止",
+            "description": "用“等等、别、先别”等命令性语言制造即时停止感",
+            "note": "阻止→解释原因"
+          },
+          {
+            "id": "VH-G01",
+            "category": "情绪爆发型",
+            "label": "惊讶",
+            "description": "声音一开始处于明显惊讶状态，先传递情绪再传递信息",
+            "note": "惊讶→发现"
+          },
+          {
+            "id": "VH-G02",
+            "category": "情绪爆发型",
+            "label": "兴奋",
+            "description": "以强烈兴奋和发现感开始，提高整体能量",
+            "note": "兴奋→价值"
+          },
+          {
+            "id": "VH-G03",
+            "category": "情绪爆发型",
+            "label": "后悔 / 懊恼",
+            "description": "以损失、错过或错误决定引出后续信息",
+            "note": "后悔→补救/原因"
+          },
+          {
+            "id": "VH-G04",
+            "category": "情绪爆发型",
+            "label": "紧张 / 危机",
+            "description": "开场直接制造危险、失败边缘或时间压力",
+            "note": "危机→应对"
+          },
+          {
+            "id": "VH-H01",
+            "category": "信息刺激型",
+            "label": "数字先行",
+            "description": "第一句话先给出高识别数字，再解释数字代表什么",
+            "note": "数字→含义"
+          },
+          {
+            "id": "VH-H02",
+            "category": "信息刺激型",
+            "label": "稀缺先行",
+            "description": "先强调数量少、机会少或稀有，再解释价值",
+            "note": "稀缺→价值"
+          },
+          {
+            "id": "VH-H03",
+            "category": "信息刺激型",
+            "label": "收益 / 获得先行",
+            "description": "先告诉用户能够得到什么，再展开获得逻辑",
+            "note": "先收益→后过程"
+          },
+          {
+            "id": "VH-H04",
+            "category": "信息刺激型",
+            "label": "时间先行",
+            "description": "以分钟、天数、阶段等时间信息建立低成本或高效率感",
+            "note": "时间→结果"
+          },
+          {
+            "id": "VH-I01",
+            "category": "代入型",
+            "label": "第一人称发现",
+            "description": "以“我刚发现/我才知道”式个人发现建立分享感",
+            "note": "我发现→分享"
+          },
+          {
+            "id": "VH-I02",
+            "category": "代入型",
+            "label": "第一人称经历",
+            "description": "以自己的游戏经历或过程作为入口",
+            "note": "我经历→结论"
+          },
+          {
+            "id": "VH-I03",
+            "category": "代入型",
+            "label": "假设代入",
+            "description": "直接让用户进入某个身份、处境或选择场景",
+            "note": "如果你是X→情境"
+          },
+          {
+            "id": "VH-I04",
+            "category": "代入型",
+            "label": "回忆唤起",
+            "description": "通过过去的游戏、武侠或年代记忆建立听觉共鸣",
+            "note": "还记得X→情怀"
+          }
+        ]
+      },
+      {
+        "key": "visual_carousel",
+        "label": "是否轮播",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "CL-00",
+            "category": "单画面",
+            "label": "否",
+            "description": "核心视觉画面不发生切换；可以有主体/背景动态，也可以有镜头运动",
+            "note": "选择后隐藏轮播数量与轮播形式"
+          },
+          {
+            "id": "CL-01",
+            "category": "多画面轮播",
+            "label": "是",
+            "description": "存在两个及以上独立核心视觉画面，通过结构关系连续展示",
+            "note": "选择后显示轮播数量与轮播形式"
+          }
+        ]
+      },
+      {
+        "key": "visual_carousel_count",
+        "label": "轮播数量",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "CN-00",
+            "category": "AI决定",
+            "label": "AI决定",
+            "description": "不锁定具体屏数，由AI根据其他结构条件生成合理数量",
+            "note": "默认推荐值；仅多画面轮播时出现"
+          },
+          {
+            "id": "CN-02",
+            "category": "2屏",
+            "label": "2屏",
+            "description": "适合建立最简洁的A→B、前→后、问题→答案等关系",
+            "note": "信息最集中"
+          },
+          {
+            "id": "CN-03",
+            "category": "3屏",
+            "label": "3屏",
+            "description": "适合形成完整的开始—展开—结果或宏观—核心—承接结构",
+            "note": "最通用"
+          },
+          {
+            "id": "CN-04",
+            "category": "4屏",
+            "label": "4屏",
+            "description": "适合较丰富的多角色、多系统、多门派或多阶段展示",
+            "note": "单屏信息需保持简洁"
+          },
+          {
+            "id": "CN-05",
+            "category": "5屏",
+            "label": "5屏",
+            "description": "适合强枚举、多个同类对象或完整展示",
+            "note": "上限；超过5屏更接近传统剪辑视频"
+          }
+        ],
+        "visible_when": {
+          "key": "visual_carousel",
+          "values": [
+            "是",
+            "多画面轮播"
+          ]
+        }
+      },
+      {
+        "key": "visual_carousel_form",
+        "label": "轮播形式",
+        "type": "single",
+        "main_max": 1,
+        "secondary_max": 0,
+        "options": [
+          {
+            "id": "CF-A01",
+            "category": "平行型",
+            "label": "同类枚举",
+            "description": "多个画面地位接近，依次展示同一类别下的不同对象",
+            "note": "A→B→C"
+          },
+          {
+            "id": "CF-A02",
+            "category": "平行型",
+            "label": "分类枚举",
+            "description": "多个画面地位接近，但分别展示不同类别的信息",
+            "note": "类型A→类型B→类型C"
+          },
+          {
+            "id": "CF-A03",
+            "category": "平行型",
+            "label": "多角度展示",
+            "description": "围绕同一个核心对象，从不同侧面连续展示",
+            "note": "对象X：侧面1→侧面2→侧面3"
+          },
+          {
+            "id": "CF-B01",
+            "category": "递进型",
+            "label": "由弱到强",
+            "description": "后一屏在强度、能力或结果上明显高于前一屏",
+            "note": "低→中→高"
+          },
+          {
+            "id": "CF-B02",
+            "category": "递进型",
+            "label": "由少到多",
+            "description": "后一屏在数量、规模或覆盖度上逐步增加",
+            "note": "少→更多→大量"
+          },
+          {
+            "id": "CF-B03",
+            "category": "递进型",
+            "label": "由普通到稀有",
+            "description": "价值、品质或稀有度逐步提升",
+            "note": "普通→优质→顶级"
+          },
+          {
+            "id": "CF-B04",
+            "category": "递进型",
+            "label": "由浅到深",
+            "description": "从表层认知逐步进入机制、价值或核心信息",
+            "note": "表层→理解→核心"
+          },
+          {
+            "id": "CF-C01",
+            "category": "因果型",
+            "label": "行为 → 结果",
+            "description": "前一屏的行为、操作或状态直接导致后一屏结果",
+            "note": "行为→结果"
+          },
+          {
+            "id": "CF-C02",
+            "category": "因果型",
+            "label": "选择 → 结果",
+            "description": "先展示选择，再展示由选择产生的对应后果",
+            "note": "选择→后果"
+          },
+          {
+            "id": "CF-C03",
+            "category": "因果型",
+            "label": "获取 → 成长 → 使用",
+            "description": "围绕游戏资产形成获得、培养和发挥价值的完整循环",
+            "note": "获得→培养→使用"
+          },
+          {
+            "id": "CF-D01",
+            "category": "对比型",
+            "label": "前后对比",
+            "description": "通过同一对象前后状态差异建立价值",
+            "note": "Before→After"
+          },
+          {
+            "id": "CF-D02",
+            "category": "对比型",
+            "label": "A / B对比",
+            "description": "通过两个对象、方案或状态并列比较建立差异",
+            "note": "A↔B"
+          },
+          {
+            "id": "CF-D03",
+            "category": "对比型",
+            "label": "正反对比",
+            "description": "通过两个方向、结果或立场的明显对立建立认知",
+            "note": "正↔反"
+          },
+          {
+            "id": "CF-E01",
+            "category": "揭晓型",
+            "label": "悬念 → 揭晓",
+            "description": "先制造未知，再在后续画面给出答案",
+            "note": "未知→揭晓"
+          },
+          {
+            "id": "CF-E02",
+            "category": "揭晓型",
+            "label": "局部 → 全貌",
+            "description": "先展示局部视觉信息，后续逐步扩展到完整对象或场景",
+            "note": "局部→全貌"
+          },
+          {
+            "id": "CF-E03",
+            "category": "揭晓型",
+            "label": "线索 → 答案",
+            "description": "每屏增加新的认知线索，直到最终得到答案",
+            "note": "线索1→线索2→答案"
+          },
+          {
+            "id": "CF-F01",
+            "category": "聚焦切换型",
+            "label": "整体 → 局部",
+            "description": "先给整体集合或全局，再挑其中一个核心对象深入",
+            "note": "全局→聚焦"
+          },
+          {
+            "id": "CF-F02",
+            "category": "聚焦切换型",
+            "label": "局部 → 整体",
+            "description": "先用一个局部对象吸引，再展开它所在的完整系统、集合或世界",
+            "note": "聚焦→全局"
+          }
+        ],
+        "visible_when": {
+          "key": "visual_carousel",
+          "values": [
+            "是",
+            "多画面轮播"
+          ]
+        }
+      }
+    ],
+    "relations": {
+      "product_display": {
+        "SP-A01": [
+          "DC-E01",
+          "DC-E02",
+          "DC-G04",
+          "DC-A01",
+          "DC-E03",
+          "DC-G02"
+        ],
+        "SP-A02": [
+          "DC-E03",
+          "DC-A01",
+          "DC-E02",
+          "DC-B01",
+          "DC-E01",
+          "DC-G04"
+        ],
+        "SP-A03": [
+          "DC-E01",
+          "DC-A01",
+          "DC-E02",
+          "DC-D01",
+          "DC-C02",
+          "DC-G04"
+        ],
+        "SP-A04": [
+          "DC-E03",
+          "DC-A01",
+          "DC-E02",
+          "DC-E01",
+          "DC-B01",
+          "DC-G04"
+        ],
+        "SP-B01": [
+          "DC-A01",
+          "DC-F01",
+          "DC-G04",
+          "DC-C02",
+          "DC-D01",
+          "DC-F03"
+        ],
+        "SP-B02": [
+          "DC-A01",
+          "DC-C02",
+          "DC-B04",
+          "DC-B01",
+          "DC-D01",
+          "DC-G04"
+        ],
+        "SP-B03": [
+          "DC-C01",
+          "DC-A01",
+          "DC-C03",
+          "DC-D01",
+          "DC-D02",
+          "DC-G04"
+        ],
+        "SP-B04": [
+          "DC-C02",
+          "DC-A01",
+          "DC-B01",
+          "DC-C03",
+          "DC-G04",
+          "DC-B04"
+        ],
+        "SP-C01": [
+          "DC-D01",
+          "DC-A01",
+          "DC-B04",
+          "DC-B01",
+          "DC-G04",
+          "DC-D03"
+        ],
+        "SP-C02": [
+          "DC-D01",
+          "DC-A01",
+          "DC-C02",
+          "DC-B01",
+          "DC-B04",
+          "DC-G04"
+        ],
+        "SP-C03": [
+          "DC-D02",
+          "DC-C01",
+          "DC-C03",
+          "DC-D03",
+          "DC-A01",
+          "DC-G04"
+        ],
+        "SP-C04": [
+          "DC-D02",
+          "DC-D01",
+          "DC-D03",
+          "DC-F02",
+          "DC-A01",
+          "DC-F03"
+        ],
+        "SP-D01": [
+          "DC-C02",
+          "DC-A01",
+          "DC-B01",
+          "DC-B04",
+          "DC-C03",
+          "DC-G04"
+        ],
+        "SP-D02": [
+          "DC-C02",
+          "DC-B01",
+          "DC-B02",
+          "DC-A01",
+          "DC-C03",
+          "DC-G04"
+        ],
+        "SP-D03": [
+          "DC-B02",
+          "DC-B01",
+          "DC-B05",
+          "DC-A01",
+          "DC-C03",
+          "DC-G04"
+        ],
+        "SP-D04": [
+          "DC-B03",
+          "DC-G01",
+          "DC-B05",
+          "DC-A01",
+          "DC-C03",
+          "DC-G04"
+        ],
+        "SP-D05": [
+          "DC-B04",
+          "DC-B01",
+          "DC-B05",
+          "DC-B02",
+          "DC-A01",
+          "DC-C03"
+        ],
+        "SP-E01": [
+          "DC-E01",
+          "DC-G04",
+          "DC-C01",
+          "DC-E02",
+          "DC-A01",
+          "DC-C03"
+        ],
+        "SP-E02": [
+          "DC-C01",
+          "DC-D02",
+          "DC-C03",
+          "DC-E01",
+          "DC-G04",
+          "DC-D03"
+        ],
+        "SP-E03": [
+          "DC-G02",
+          "DC-G01",
+          "DC-B03",
+          "DC-E01",
+          "DC-A01",
+          "DC-G04"
+        ],
+        "SP-E04": [
+          "DC-G03",
+          "DC-D03",
+          "DC-G04",
+          "DC-F02",
+          "DC-D02",
+          "DC-A01"
+        ],
+        "SP-F01": [
+          "DC-G04",
+          "DC-C01",
+          "DC-C03",
+          "DC-F03",
+          "DC-E01",
+          "DC-D02"
+        ],
+        "SP-F02": [
+          "DC-G04",
+          "DC-F03",
+          "DC-C01",
+          "DC-B01",
+          "DC-C03",
+          "DC-E01"
+        ],
+        "SP-F03": [
+          "DC-G04",
+          "DC-F03",
+          "DC-B01",
+          "DC-A01",
+          "DC-F01",
+          "DC-C03"
+        ]
+      }
+    }
+  }
+}

@@ -34,7 +34,27 @@ CREATIVE_TAG_KEYS = (
     "secondary_opening_hooks",
     "product_evidences",
     "secondary_product_evidences",
+    # 展示类输入标签；与叙事类标签分开，避免切换模式时互相覆盖。
+    "visual_target_audiences",
+    "visual_secondary_target_audiences",
+    "visual_player_desires",
+    "visual_secondary_player_desires",
+    "visual_product_selling_points",
+    "visual_secondary_product_selling_points",
+    "visual_display_contents",
+    "visual_secondary_display_contents",
+    "visual_art_style_relevance",
+    "visual_art_style",
+    "visual_art_style_references",
+    "visual_motif",
+    "visual_dynamics",
+    "visual_voice_hook",
+    "visual_carousel",
+    "visual_carousel_count",
+    "visual_carousel_form",
 )
+NARRATIVE_TAG_KEYS = CREATIVE_TAG_KEYS[:10]
+VISUAL_TAG_KEYS = CREATIVE_TAG_KEYS[10:]
 AI_TASK_TYPE_MAX_LENGTH = 100
 AI_TASK_DESCRIPTION_MAX_LENGTH = 1000
 AI_SCRIPT_TYPE_MAX_LENGTH = 20
@@ -195,14 +215,15 @@ def build_creative_input_fingerprint(
     product_evidence_summary: Any,
     aspect_ratio: Any,
 ) -> str:
-    """返回与用户输入顺序无关的展示类创意请求指纹。"""
+    """返回与当前脚本类型相关、且与标签输入顺序无关的创意请求指纹。"""
 
     normalized_tags = normalize_creative_tags(creative_tags)
+    active_keys = VISUAL_TAG_KEYS if str(script_type or "").strip() == "展示类" else NARRATIVE_TAG_KEYS
     value = {
         "script_type": str(script_type or "").strip(),
         "creative_tags": {
-            key: sorted(items)
-            for key, items in normalized_tags.items()
+            key: sorted(normalized_tags[key])
+            for key in active_keys
         },
         "task_type": str(task_type or "").strip(),
         "task_description": str(task_description or "").strip(),
@@ -213,7 +234,7 @@ def build_creative_input_fingerprint(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def format_creative_tags_for_prompt(value: Any) -> str:
+def format_creative_tags_for_prompt(value: Any, mode: str = "") -> str:
     """把标签候选转换成 AI 更容易理解的中文分组文本。"""
 
     tags = normalize_creative_tags(value)
@@ -228,11 +249,33 @@ def format_creative_tags_for_prompt(value: Any) -> str:
         ("副开局钩子候选", "secondary_opening_hooks"),
         ("产品证据候选", "product_evidences"),
         ("副产品证据候选", "secondary_product_evidences"),
+        ("展示类主目标用户", "visual_target_audiences"),
+        ("展示类附目标用户", "visual_secondary_target_audiences"),
+        ("展示类玩家欲望主选", "visual_player_desires"),
+        ("展示类玩家欲望辅选", "visual_secondary_player_desires"),
+        ("展示类产品卖点主选", "visual_product_selling_points"),
+        ("展示类产品卖点辅选", "visual_secondary_product_selling_points"),
+        ("展示类主展示内容", "visual_display_contents"),
+        ("展示类辅助展示内容", "visual_secondary_display_contents"),
+        ("展示类美术相关度", "visual_art_style_relevance"),
+        ("展示类美术表现风格", "visual_art_style"),
+        ("展示类美术参考作品", "visual_art_style_references"),
+        ("展示类视觉母题", "visual_motif"),
+        ("展示类动态方案", "visual_dynamics"),
+        ("展示类语音钩子", "visual_voice_hook"),
+        ("展示类是否轮播", "visual_carousel"),
+        ("展示类轮播数量", "visual_carousel_count"),
+        ("展示类轮播形式", "visual_carousel_form"),
     )
+    allowed_keys = None
+    if str(mode).strip() == "visual":
+        allowed_keys = set(VISUAL_TAG_KEYS)
+    elif str(mode).strip() == "narrative":
+        allowed_keys = set(NARRATIVE_TAG_KEYS)
     lines = [
         f"{label}：{'、'.join(tags[key])}"
         for label, key in groups
-        if tags[key]
+        if tags[key] and (allowed_keys is None or key in allowed_keys)
     ]
     return "\n".join(lines) or "（未选择标签）"
 
@@ -283,7 +326,7 @@ def build_creative_prompt(
     template = str(prompt_template or "").strip()
     if not template:
         raise AiCreativeConfigurationError("AI提示词尚未配置")
-    tags_text = format_creative_tags_for_prompt(tags)
+    tags_text = format_creative_tags_for_prompt(tags, mode="narrative")
     content = template.replace("{{game_info}}", str(game_info or "").strip())
     content = content.replace("{{creative_tags}}", tags_text)
     bounded_task_type = _bounded_context_text(task_type, AI_TASK_TYPE_MAX_LENGTH)
@@ -408,7 +451,7 @@ def build_visual_creative_prompt(
     replacements = {
         "{{task_type}}": _bounded_context_text(task_type, AI_TASK_TYPE_MAX_LENGTH),
         "{{task_description}}": _bounded_context_text(task_description, AI_TASK_DESCRIPTION_MAX_LENGTH),
-        "{{creative_tags}}": format_creative_tags_for_prompt(tags),
+        "{{creative_tags}}": format_creative_tags_for_prompt(tags, mode="visual"),
         "{{aspect_ratio}}": str(aspect_ratio or "").strip() or "16:9",
         "{{product_evidence_summary}}": str(product_evidence_summary or "").strip(),
         "{{reference_file_names}}": reference_names,

@@ -9,6 +9,7 @@
     saveTimer: 0,
     pollTimer: 0,
     saving: false,
+    tagConfig: null,
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -18,13 +19,19 @@
     search: $("#projectSearch"), name: $("#projectName"), taskType: $("#taskType"),
     description: $("#taskDescription"), descriptionLabel: $("#descriptionLabel"),
     evidence: $("#productEvidence"), aspectField: $("#aspectField"), files: $("#referenceFiles"),
+    tagControls: $("#tagControls"),
     fileInput: $("#referenceFileInput"), saveState: $("#saveState"), generate: $("#generateButton"),
     generateTitle: $("#generateTitle"), generationHint: $("#generationHint"),
-    results: $("#resultsSection"), resultsGrid: $("#resultsGrid"), resultsTitle: $("#resultsTitle"),
+    results: $(".results-section"), resultsGrid: $("#resultsGrid"), resultsTitle: $("#resultsTitle"),
     resultsMeta: $("#resultsMeta"), batchTabs: $("#batchTabs"), stale: $("#staleResults"),
     staleBody: $("#staleResultsBody"), adoption: $("#adoptionPanel"), toast: $("#toast"),
     imageDialog: $("#imageDialog"), dialogImage: $("#dialogImage"),
+    stepper: $("#stepper"), stepBrief: $("#stepBrief"), stepPosition: $("#stepPosition"), stepOutput: $("#stepOutput"),
+    briefNext: $("#briefNextButton"), positionBack: $("#positionBackButton"), positionNext: $("#positionNextButton"), outputEdit: $("#outputEditButton"),
+    projectMenu: $("#projectMenuButton"), projectMenuName: $("#projectMenuName"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
   };
+
+  let currentStep = 1;
 
   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -48,9 +55,155 @@
     return String(value || "").split(/[，,、\n]/).map((item) => item.trim()).filter(Boolean);
   }
 
-  function collectProject() {
+  function activeTagMode() {
+    return ($(".mode-button.active")?.dataset.scriptType || state.project?.script_type) === "展示类" ? "visual" : "narrative";
+  }
+
+  function selectedValues(select) {
+    if (!select) return [];
+    return Array.from(select.options).filter((option) => option.selected).map((option) => option.value).filter(Boolean);
+  }
+
+  function optionMarkup(options, selected, { multiple = false, emptyLabel = "请选择" } = {}) {
+    const selectedSet = new Set(selected || []);
+    const categories = new Map();
+    (options || []).forEach((option) => {
+      const category = String(option.category || "未分组");
+      if (!categories.has(category)) categories.set(category, []);
+      categories.get(category).push(option);
+    });
+    const empty = multiple ? "" : `<option value="">${esc(emptyLabel)}</option>`;
+    const body = Array.from(categories.entries()).map(([category, items]) => {
+      const optionsHtml = items.map((option) => {
+        const value = String(option.label || "");
+        const hint = option.description || option.note || "";
+        return `<option value="${esc(value)}" data-option-id="${esc(option.id)}" title="${esc(hint)}" ${selectedSet.has(value) ? "selected" : ""}>${esc(value)}</option>`;
+      }).join("");
+      return categories.size > 1 ? `<optgroup label="${esc(category)}">${optionsHtml}</optgroup>` : optionsHtml;
+    }).join("");
+    return empty + body;
+  }
+
+  function selectedOrLegacyOptions(options, selected) {
+    const known = new Set((options || []).map((option) => String(option.label || "")));
+    const legacy = (selected || []).filter((value) => !known.has(value)).map((value, index) => ({ id: `legacy-${index}`, label: value, category: "已有标签", description: "此标签来自旧项目数据" }));
+    return [...legacy, ...(options || [])];
+  }
+
+  function renderPrimarySecondary(group, tags) {
+    const main = selectedOrLegacyOptions(group.options, tags[group.key] || []);
+    const secondary = selectedOrLegacyOptions(group.options, tags[group.secondary_key] || []);
+    const mainLimit = group.main_max ? `最多${group.main_max}项` : "可选";
+    const secondaryLimit = group.secondary_max ? `最多${group.secondary_max}项` : "可选";
+    return `<div class="tag-group" data-tag-group="${esc(group.key)}">
+      <div class="tag-group-header"><strong>${esc(group.label)}</strong><small>主选${esc(mainLimit)} · 辅助${esc(secondaryLimit)}</small></div>
+      <label>主选<select data-tag-select="${esc(group.key)}">${optionMarkup(main, tags[group.key] || [])}</select></label>
+      <label>辅助<select data-tag-select="${esc(group.secondary_key)}" data-tag-max="${esc(group.secondary_max || 0)}" multiple size="4">${optionMarkup(secondary, tags[group.secondary_key] || [], { multiple: true })}</select></label>
+      <p class="tag-hint">按住 Ctrl（或 Command）可选择多个辅助标签；选项定义可悬停查看。</p>
+    </div>`;
+  }
+
+  function renderTagControls() {
+    if (!state.tagConfig || !state.project) return;
+    const mode = activeTagMode();
+    const tags = state.project.creative_tags || {};
+    const groups = state.tagConfig[mode]?.groups || [];
+    els.tagControls.innerHTML = groups.map((group) => {
+      if (group.type === "primary_secondary") return renderPrimarySecondary(group, tags);
+      if (group.type === "style_cascade") {
+        const relevance = tags.visual_art_style_relevance || [];
+        const styleOptions = selectedOrLegacyOptions(group.options, tags.visual_art_style || []);
+        const selectedStyle = tags.visual_art_style || [];
+        const currentStyle = group.options.find((option) => option.label === selectedStyle[0]);
+        const relevanceOptions = Array.from(new Set(group.options.map((option) => option.category))).map((label, index) => ({ id: `relevance-${index}`, label, category: "相关度" }));
+        const selectedRelevance = relevance.length ? relevance : (currentStyle ? [currentStyle.category] : []);
+        const refs = currentStyle?.references || [];
+        const selectedRefs = tags.visual_art_style_references || [];
+        return `<div class="tag-group" data-tag-group="${esc(group.key)}">
+          <div class="tag-group-header"><strong>${esc(group.label)}</strong><small>一级、二级必选 · 三级参考最多2项</small></div>
+          <label>一级相关度<select data-tag-select="visual_art_style_relevance">${optionMarkup(relevanceOptions, selectedRelevance)}</select></label>
+          <label>二级风格<select data-tag-select="visual_art_style" data-style-options>${optionMarkup(styleOptions, selectedStyle)}</select></label>
+          <label>三级参考<select data-tag-select="visual_art_style_references" data-tag-max="2" data-style-ref-options multiple size="4">${optionMarkup(refs, selectedRefs, { multiple: true })}</select></label>
+          <p class="tag-hint">三级参考用于建立视觉共识，不等于照搬作品；每个风格最多选择2项。</p>
+        </div>`;
+      }
+      const selected = tags[group.key] || [];
+      const options = selectedOrLegacyOptions(group.options, selected);
+      const visible = group.visible_when ? " hidden" : "";
+      return `<div class="tag-group${visible}" data-tag-group="${esc(group.key)}" data-visible-key="${esc(group.visible_when?.key || "")}" data-visible-values="${esc((group.visible_when?.values || []).join("|"))}">
+        <div class="tag-group-header"><strong>${esc(group.label)}</strong><small>必选1项</small></div>
+        <label>选择<select data-tag-select="${esc(group.key)}">${optionMarkup(options, selected)}</select></label>
+      </div>`;
+    }).join("");
+    updateTagDependencies();
+  }
+
+  function refreshSelectOptions(select, options, selected) {
+    const selectedValuesSet = new Set(selected || []);
+    select.innerHTML = optionMarkup(selectedOrLegacyOptions(options, selected), selected, { multiple: select.multiple });
+    Array.from(select.options).forEach((option) => { option.selected = selectedValuesSet.has(option.value); });
+  }
+
+  function updateTagDependencies() {
+    const mode = activeTagMode();
+    if (mode !== "visual") return;
+    const groups = state.tagConfig?.visual?.groups || [];
+    const tags = collectTagValues();
+    const carousel = tags.visual_carousel?.[0] || "";
+    $$('[data-visible-key]').forEach((group) => {
+      const values = (group.dataset.visibleValues || "").split("|").filter(Boolean);
+      const hidden = values.length > 0 && !values.includes(carousel);
+      group.classList.toggle("hidden", hidden);
+      if (hidden) group.querySelectorAll("[data-tag-select]").forEach((select) => {
+        if (select.multiple) Array.from(select.options).forEach((option) => { option.selected = false; });
+        else select.value = "";
+      });
+    });
+    const displayGroup = groups.find((group) => group.key === "visual_display_contents");
+    const displaySelect = $('[data-tag-select="visual_display_contents"]');
+    if (displayGroup && displaySelect) {
+      const sellGroup = groups.find((group) => group.key === "visual_product_selling_points");
+      const selectedSellIds = new Set((tags.visual_product_selling_points || []).concat(tags.visual_secondary_product_selling_points || []).map((label) => sellGroup?.options.find((option) => option.label === label)?.id).filter(Boolean));
+      const relation = state.tagConfig.visual.relations?.product_display || {};
+      const allowedIds = new Set();
+      selectedSellIds.forEach((id) => (relation[id] || []).forEach((displayId) => allowedIds.add(displayId)));
+      const options = allowedIds.size ? displayGroup.options.filter((option) => allowedIds.has(option.id)) : displayGroup.options;
+      const current = selectedValues(displaySelect);
+      refreshSelectOptions(displaySelect, options, current.filter((value) => options.some((option) => option.label === value)));
+      displaySelect.disabled = !options.length;
+    }
+    const styleGroup = groups.find((group) => group.key === "visual_art_style");
+    const styleSelect = $('[data-tag-select="visual_art_style"]');
+    const relevanceSelect = $('[data-tag-select="visual_art_style_relevance"]');
+    const refsSelect = $('[data-tag-select="visual_art_style_references"]');
+    if (styleGroup && styleSelect && relevanceSelect && refsSelect) {
+      const relevance = relevanceSelect.value;
+      const styleOptions = relevance ? styleGroup.options.filter((option) => option.category === relevance) : styleGroup.options;
+      const currentStyle = styleSelect.value;
+      refreshSelectOptions(styleSelect, styleOptions, styleOptions.some((option) => option.label === currentStyle) ? [currentStyle] : []);
+      const style = styleOptions.find((option) => option.label === styleSelect.value);
+      refreshSelectOptions(refsSelect, style?.references || [], selectedValues(refsSelect));
+    }
+  }
+
+  function collectTagValues() {
     const tags = {};
-    $$('[data-tag]').forEach((input) => { tags[input.dataset.tag] = splitTags(input.value); });
+    $$('[data-tag-select]').forEach((select) => { tags[select.dataset.tagSelect] = selectedValues(select); });
+    return tags;
+  }
+
+  function limitMultiSelect(select) {
+    if (!select?.multiple) return;
+    const max = Number(select.dataset.tagMax || 0);
+    if (!max) return;
+    const selected = Array.from(select.options).filter((option) => option.selected);
+    if (selected.length <= max) return;
+    selected.slice(max).forEach((option) => { option.selected = false; });
+    toast(`最多选择${max}项辅助标签`);
+  }
+
+  function collectProject() {
+    const tags = collectTagValues();
     return {
       name: els.name.value.trim() || "未命名创意",
       script_type: $(".mode-button.active")?.dataset.scriptType || "展示类",
@@ -98,6 +251,8 @@
     await saveProject(true).catch(() => {});
     const payload = await api(`/api/projects/${projectId}`);
     state.project = payload.project;
+    state.history = null;
+    els.list.closest(".sidebar")?.classList.remove("drawer-open");
     state.activeBatch = 0;
     populateProject();
     renderProjectList();
@@ -109,16 +264,41 @@
     els.empty.classList.add("hidden");
     els.workspace.classList.remove("hidden");
     els.name.value = project.name;
+    els.projectMenuName.textContent = project.name;
+    els.briefProjectName.textContent = project.name;
     els.taskType.value = project.task_type || "";
     els.description.value = project.task_description || "";
     els.evidence.value = project.product_evidence_summary || "";
     $$(".mode-button").forEach((button) => button.classList.toggle("active", button.dataset.scriptType === project.script_type));
     $$('[data-aspect]').forEach((button) => button.classList.toggle("active", button.dataset.aspect === project.aspect_ratio));
-    $$('[data-tag]').forEach((input) => { input.value = (project.creative_tags?.[input.dataset.tag] || []).join("，"); });
+    renderTagControls();
     renderFiles();
     updateModeCopy();
     renderAdoption();
     els.saveState.textContent = "已保存";
+    currentStep = state.history?.batches?.length ? 3 : (project.task_description ? 2 : 1);
+    applyStep();
+  }
+
+  function applyStep() {
+    if (!state.project) return;
+    els.stepBrief.classList.toggle("hidden", currentStep !== 1);
+    els.stepPosition.classList.toggle("hidden", currentStep !== 2);
+    els.stepOutput.classList.toggle("hidden", currentStep !== 3);
+    els.briefSummary.classList.toggle("hidden", currentStep === 3);
+    els.stepper.querySelectorAll("[data-step]").forEach((button) => {
+      const step = Number(button.dataset.step);
+      button.classList.toggle("active", step === currentStep);
+      button.classList.toggle("done", step < currentStep);
+      button.querySelector("span").textContent = step < currentStep ? "✓" : String(step);
+    });
+    const description = (els.description.value || "").trim();
+    els.briefTaskType.textContent = els.taskType.value.trim() || "尚未填写";
+    els.briefDescription.textContent = description || "尚未填写";
+    els.briefScriptType.textContent = state.project.script_type || "展示类";
+    els.briefAspect.textContent = state.project.aspect_ratio === "9:16" ? "竖版 9:16" : "横版 16:9";
+    els.outputBriefSummary.textContent = description ? description.slice(0, 42) : "目标尚未填写";
+    els.outputModeSummary.textContent = state.project.script_type || "展示类";
   }
 
   function renderFiles() {
@@ -148,6 +328,9 @@
       });
       state.project = payload.project;
       els.saveState.textContent = "已保存";
+      els.projectMenuName.textContent = state.project.name;
+      els.briefProjectName.textContent = state.project.name;
+      applyStep();
       await loadProjects();
       if (!quiet) await loadHistory(false);
     } catch (error) {
@@ -167,6 +350,8 @@
     els.generationHint.textContent = visual ? "每个定位最多生成2批，每批3套方案" : "每个定位最多生成2批，每批5个故事";
     els.generate.innerHTML = visual ? "<span>✦</span> 生成视觉方案" : "<span>✦</span> 生成叙事方案";
     els.resultsTitle.textContent = visual ? "视觉方案" : "叙事方案";
+    if (state.project) { els.briefScriptType.textContent = state.project.script_type; els.outputModeSummary.textContent = state.project.script_type; }
+    applyStep();
   }
 
   async function loadHistory(selectLatest = false) {
@@ -177,6 +362,7 @@
     state.activeBatch = Math.max(0, Math.min(state.activeBatch, Math.max(0, history.batches.length - 1)));
     if (history.adoption) state.project.adoption = history.adoption;
     renderHistory();
+    if (history.batches.length && currentStep < 3) { currentStep = 3; applyStep(); }
   }
 
   function renderHistory() {
@@ -311,7 +497,7 @@
         body: JSON.stringify({ recommendation_kind: "visual", item_id: itemId }),
       });
       state.project.adoption = { recommendation_kind: "visual", reference_id: String(itemId), snapshot: payload.snapshot };
-      renderHistory(); await loadProjects(); toast("已采用视觉方案");
+      renderHistory(); await loadProjects();
     } catch (error) { toast(error.message, true); }
   }
 
@@ -322,7 +508,7 @@
         body: JSON.stringify({ recommendation_kind: "narrative", generation_id: generationId, item_index: itemIndex }),
       });
       state.project.adoption = { recommendation_kind: "narrative", reference_id: `${generationId}:${itemIndex}`, snapshot: payload.snapshot };
-      renderHistory(); await loadProjects(); toast("已采用叙事方案");
+      renderHistory(); await loadProjects();
     } catch (error) { toast(error.message, true); }
   }
 
@@ -366,12 +552,24 @@
     $("#newProjectButton").addEventListener("click", createProject);
     $("#emptyNewButton").addEventListener("click", createProject);
     $("#deleteProjectButton").addEventListener("click", deleteProject);
+    els.projectMenu.addEventListener("click", () => els.list.closest(".sidebar")?.classList.toggle("drawer-open"));
+    els.briefNext.addEventListener("click", () => { currentStep = 2; applyStep(); });
+    els.positionBack.addEventListener("click", () => { currentStep = 1; applyStep(); });
+    els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 3; applyStep(); await loadHistory(false).catch(() => {}); });
+    els.outputEdit.addEventListener("click", () => { currentStep = 2; applyStep(); });
+    els.stepper.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => { currentStep = Number(button.dataset.step); applyStep(); }));
     els.generate.addEventListener("click", generate);
     els.search.addEventListener("input", () => { clearTimeout(els.search.timer); els.search.timer = setTimeout(loadProjects, 250); });
-    [els.name, els.taskType, els.description, els.evidence, ...$$('[data-tag]')].forEach((input) => input.addEventListener("input", scheduleSave));
+    [els.name, els.taskType, els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
+    els.tagControls.addEventListener("change", (event) => {
+      if (!event.target.matches("[data-tag-select]")) return;
+      limitMultiSelect(event.target);
+      updateTagDependencies();
+      scheduleSave();
+    });
     $$(".mode-button").forEach((button) => button.addEventListener("click", () => {
       $$(".mode-button").forEach((item) => item.classList.toggle("active", item === button));
-      state.project.script_type = button.dataset.scriptType; updateModeCopy(); scheduleSave();
+      state.project.script_type = button.dataset.scriptType; renderTagControls(); updateModeCopy(); scheduleSave();
     }));
     $$('[data-aspect]').forEach((button) => button.addEventListener("click", () => {
       $$('[data-aspect]').forEach((item) => item.classList.toggle("active", item === button)); scheduleSave();
@@ -383,7 +581,12 @@
 
   async function init() {
     bindEvents();
-    try { await loadProjects(); } catch (error) { toast(error.message, true); }
+    try {
+      const payload = await api("/api/tag-options");
+      state.tagConfig = payload.config;
+      await loadProjects();
+      if (state.projects.length) await openProject(state.projects[0].id);
+    } catch (error) { toast(error.message, true); }
   }
 
   init();

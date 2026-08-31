@@ -3,104 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI创意工作台</title>
+  <title>AI 创意工作台</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">AI</div>
-        <div><strong>创意工作台</strong><span>独立本地版</span></div>
-      </div>
-      <button id="newProjectButton" class="primary full">＋ 新建创意项目</button>
-      <label class="search-box">
-        <span>⌕</span>
-        <input id="projectSearch" placeholder="搜索项目">
-      </label>
-      <div id="projectList" class="project-list"></div>
+    <aside class="sidebar" aria-label="项目导航">
+      <div class="brand"><div class="brand-mark">AI</div><div><strong>造境</strong><span>AI CREATIVE STUDIO</span></div></div>
+      <button id="newProjectButton" class="primary full">＋ 新建创意</button>
+      <label class="search-box"><span>⌕</span><input id="projectSearch" placeholder="搜索项目"></label>
+      <div class="project-list" id="projectList"></div>
       <div class="sidebar-foot"><i></i> 数据只保存在本机</div>
     </aside>
-
     <main class="workspace">
-      <div id="emptyState" class="empty-state">
-        <div class="empty-orbit"><span>✦</span></div>
-        <h1>把一个想法变成可选的创意方案</h1>
-        <p>创建项目后，可生成展示类视觉方案与AI参考图，或生成叙事类故事、钩子和画面建议。</p>
-        <button id="emptyNewButton" class="primary">创建第一个项目</button>
-      </div>
-
+      <div id="emptyState" class="empty-state"><div class="empty-orbit"><span>✦</span></div><h1>从任务说明到可采用方向</h1><p>创建项目后，完成任务说明、创意定位，再生成并采用方案。</p><button id="emptyNewButton" class="primary">创建第一个项目</button></div>
       <section id="projectWorkspace" class="project-workspace hidden">
-        <header class="workspace-header">
-          <div>
-            <div class="eyebrow">CREATIVE PROJECT</div>
-            <input id="projectName" class="project-name" value="未命名创意" maxlength="120">
-            <div id="saveState" class="save-state">已保存</div>
-          </div>
-          <button id="deleteProjectButton" class="ghost danger">删除项目</button>
-        </header>
-
-        <div class="mode-switch" role="tablist" aria-label="创意类型">
-          <button class="mode-button active" data-script-type="展示类"><b>视觉</b><span>展示类</span><small>3套方案＋AI参考图</small></button>
-          <button class="mode-button" data-script-type="叙事类"><b>故事</b><span>叙事类</span><small>5故事＋10钩子＋30画面</small></button>
-        </div>
-
-        <div class="editor-grid">
-          <section class="panel input-panel">
-            <div class="panel-heading"><div><span class="step">01</span><h2>创意需求</h2></div><p>描述目标和第一眼想传达的内容</p></div>
-            <label>任务类型<input id="taskType" placeholder="例如：新素材测试、版本推广"></label>
-            <label><span id="descriptionLabel">创意说明</span><textarea id="taskDescription" rows="5" placeholder="描述你想解决的问题、核心卖点和希望用户感受到的内容"></textarea></label>
-            <div id="aspectField">
-              <span class="field-label">目标画幅</span>
-              <div class="segmented">
-                <button data-aspect="16:9" class="active">▰ 横版 16:9</button>
-                <button data-aspect="9:16">▯ 竖版 9:16</button>
-              </div>
-            </div>
-            <label>产品证据与补充资料<textarea id="productEvidence" rows="3" placeholder="可用角色、玩法、UI、装备、数据或必须出现的产品信息"></textarea></label>
-          </section>
-
-          <section class="panel position-panel">
-            <div class="panel-heading"><div><span class="step">02</span><h2>创意定位</h2></div><p>多个选项用逗号分隔</p></div>
-            <div class="tag-grid">
-              <label>目标人群<input data-tag="target_audiences" placeholder="武侠玩家, 成长型玩家"></label>
-              <label>玩家欲望<input data-tag="player_desires" placeholder="变强, 收集, 逆袭"></label>
-              <label>内容形式<input data-tag="content_forms" placeholder="反差展示, UI实录"></label>
-              <label>开局钩子<input data-tag="opening_hooks" placeholder="属性暴涨, 现实异变"></label>
-              <label class="wide">产品证据<input data-tag="product_evidences" placeholder="真实战斗UI, 装备属性, 角色立绘"></label>
-            </div>
-            <div class="file-zone">
-              <div><strong>参考文件</strong><span>文件名会提供给AI，原文件保存在当前项目</span></div>
-              <label class="upload-button">添加文件<input id="referenceFileInput" type="file" multiple hidden></label>
-              <div id="referenceFiles" class="file-list"></div>
-            </div>
-          </section>
-        </div>
-
-        <section class="generate-bar">
-          <div><strong id="generateTitle">AI视觉创意推荐</strong><span id="generationHint">每个定位最多生成2批，每批3套方案</span></div>
-          <button id="generateButton" class="primary large"><span>✦</span> 生成视觉方案</button>
-        </section>
-
-        <section id="adoptionPanel" class="adoption-panel hidden"></section>
-
-        <section id="resultsSection" class="results-section hidden">
-          <div class="results-heading">
-            <div><span class="step">03</span><div><h2 id="resultsTitle">视觉方案</h2><p id="resultsMeta"></p></div></div>
-            <div id="batchTabs" class="batch-tabs"></div>
-          </div>
-          <div id="resultsGrid" class="results-grid"></div>
-          <details id="staleResults" class="stale-results hidden">
-            <summary>查看基于旧定位生成的历史方案</summary>
-            <div id="staleResultsBody"></div>
-          </details>
-        </section>
+        <header class="workspace-header"><div class="header-brand"><div class="brand-mark">AI</div><div><strong>造境</strong><small>AI CREATIVE STUDIO</small></div></div><div class="project-menu"><button id="projectMenuButton" type="button">当前项目 <span>⌄</span></button><input id="projectName" value="未命名创意" maxlength="120" aria-label="项目名称"><strong id="projectMenuName" class="hidden">未命名创意</strong></div><div class="header-actions"><div id="saveState" class="save-state"><i></i>已保存</div><button id="deleteProjectButton" class="ghost danger">删除项目</button></div></header>
+        <section class="workspace-intro"><div><div class="eyebrow">GUIDED CREATION</div><h1>从任务说明到可采用方向</h1><p>一次只处理一个决定，完成定位后直接生成并采用。</p></div><div class="mode-switch compact" role="tablist" aria-label="创意类型"><button class="mode-button active" data-script-type="展示类"><b>视觉</b><span>展示类</span><small>3 套方案＋参考图</small></button><button class="mode-button" data-script-type="叙事类"><b>故事</b><span>叙事类</span><small>故事与钩子</small></button></div></section>
+        <nav id="stepper" class="stepper" aria-label="创作步骤"><button type="button" data-step="1"><span>1</span><strong>任务说明</strong><small>BRIEF</small></button><i></i><button type="button" data-step="2"><span>2</span><strong>创意定位</strong><small>POSITION</small></button><i></i><button type="button" data-step="3"><span>3</span><strong>生成与采用</strong><small>OUTPUT</small></button></nav>
+        <section id="adoptionPanel" class="adoption-panel hidden"></section><section class="step-layout"><div class="step-column">
+          <section id="stepBrief" class="panel input-panel step-section"><div class="panel-heading"><div><span class="step">01</span><h2>任务说明</h2></div><p>先写清这次要完成的任务</p></div><label>任务类型<input id="taskType" placeholder="例如：新版本首曝素材、剧情钩子创作"></label><label><span id="descriptionLabel">任务描述</span><textarea id="taskDescription" rows="8" placeholder="描述你想解决的问题、核心卖点和希望用户感受到的内容"></textarea></label><div class="step-actions"><button type="button" id="briefNextButton" class="primary">继续下一步 →</button></div></section>
+          <section id="stepPosition" class="panel position-panel step-section hidden"><div class="panel-heading"><div><span class="step">02</span><h2>创意定位</h2></div><p>从配置标签中选择主选和辅助项</p></div><div id="tagControls" class="tag-controls" aria-live="polite"></div><details class="advanced-config"><summary>高级生成设置</summary><div id="aspectField"><span class="field-label">目标画幅</span><div class="segmented"><button type="button" data-aspect="16:9" class="active">横版 16:9</button><button type="button" data-aspect="9:16">竖版 9:16</button></div></div><label>产品证据与补充资料<textarea id="productEvidence" rows="3" placeholder="必须出现的产品信息"></textarea></label><div class="file-zone"><div><strong>参考文件</strong><span>文件名会提供给 AI，原文件保存在当前项目</span></div><label class="upload-button">添加文件<input id="referenceFileInput" type="file" multiple hidden></label><div id="referenceFiles" class="file-list"></div></div></details><div class="step-actions"><button type="button" id="positionBackButton" class="ghost">← 上一步</button><button type="button" id="positionNextButton" class="primary">确认定位，生成方案 →</button></div></section>
+          <section id="stepOutput" class="step-section hidden"><div class="output-summary"><span>当前简报</span><strong id="outputBriefSummary">目标尚未填写</strong><span id="outputModeSummary">展示类</span><button type="button" id="outputEditButton" class="text-link">修改配置</button></div><section class="results-section"><div class="results-heading"><div><span class="step">03</span><div><h2 id="resultsTitle">视觉方案</h2><p id="resultsMeta"></p></div></div><div class="batch-tabs" id="batchTabs"></div></div><div id="resultsGrid" class="results-grid"></div><details id="staleResults" class="stale-results hidden"><summary>历史批次</summary><div id="staleResultsBody"></div></details></section><div class="generate-bar"><div><strong id="generateTitle">AI视觉创意推荐</strong><span id="generationHint">每个定位最多生成 2 批，每批 3 套方案</span></div><button id="generateButton" class="primary large"><span>✦</span> 生成视觉方案</button></div></section>
+        </div><aside id="briefSummary" class="brief-summary"><div class="summary-head"><span>实时创意简报</span><strong id="briefSaveState">已保存</strong></div><h3 id="briefProjectName">未命名创意</h3><dl><div><dt>任务</dt><dd id="briefTaskType">尚未填写</dd></div><div><dt>目标</dt><dd id="briefDescription">尚未填写</dd></div><div><dt>类型</dt><dd id="briefScriptType">展示类</dd></div><div><dt>画幅</dt><dd id="briefAspect">横版 16:9</dd></div></dl><p>当前步骤完成后即可继续，辅助项可以后补。</p></aside></section>
       </section>
     </main>
   </div>
-
-  <div id="toast" class="toast" aria-live="polite"></div>
-  <dialog id="imageDialog" class="image-dialog"><button id="closeImageDialog" aria-label="关闭">×</button><img id="dialogImage" alt="AI参考图原图"></dialog>
-  <script src="/app.js"></script>
+  <div id="toast" class="toast" aria-live="polite"></div><dialog id="imageDialog" class="image-dialog"><button id="closeImageDialog" aria-label="关闭">×</button><img id="dialogImage" alt="AI参考图原图"></dialog><script src="/app.js"></script>
 </body>
 </html>

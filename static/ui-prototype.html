@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>PROTOTYPE — AI 创意工作台 UI 方向</title>
+  <link rel="stylesheet" href="/ui-prototype.css">
+</head>
+<body>
+  <!-- PROTOTYPE — 三个 UI 信息架构变体，通过 ?variant=A|B|C 切换；不连接真实 API。 -->
+  <div id="prototypeRoot"></div>
+
+  <div class="prototype-badge" aria-label="一次性原型">PROTOTYPE · 假数据</div>
+  <aside class="prototype-switcher" aria-label="原型变体切换">
+    <div id="prototypeState" class="prototype-state"></div>
+    <div class="switcher-main">
+      <button type="button" data-variant-direction="prev" aria-label="上一个变体">←</button>
+      <div class="variant-copy">
+        <strong id="variantLabel"></strong>
+        <span>方向键也可切换</span>
+      </div>
+      <div class="variant-dots" role="tablist" aria-label="选择变体">
+        <button type="button" data-variant="A">A</button>
+        <button type="button" data-variant="B">B</button>
+        <button type="button" data-variant="C">C</button>
+      </div>
+      <button type="button" data-variant-direction="next" aria-label="下一个变体">→</button>
+    </div>
+  </aside>
+
+  <div id="prototypeToast" class="prototype-toast" role="status" aria-live="polite"></div>
+  <script src="/ui-prototype.js"></script>
+</body>
+</html>
