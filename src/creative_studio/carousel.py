@@ -124,22 +124,31 @@ def expand_visual_carousel_rounds(config: Mapping[str, Any]) -> list[dict[str, A
         raise CarouselValidationError("轮播第1轮缺失")
 
     expanded: list[dict[str, Any]] = []
-    previous: dict[str, list[str]] = {key: [] for key in _ROUND_FIELDS}
+    base_round = normalized_rounds[1]
+    base_values = {
+        key: list(base_round["overrides"].get(key, [])) or None
+        for key in _ROUND_FIELDS
+    }
     for index in range(1, count + 1):
         round_item = normalized_rounds.get(index)
         if round_item is None:
-            raise CarouselValidationError("轮播轮次缺失")
+            round_item = {
+                "index": index,
+                "mode": "inherit",
+                "overrides": {key: [] for key in _ROUND_FIELDS},
+            }
         current = {"index": index}
         for key in _ROUND_FIELDS:
             override_values = round_item["overrides"].get(key, [])
-            if index == 1 or round_item["mode"] == "custom":
+            if index == 1:
                 values = override_values
+            elif round_item["mode"] == "custom":
+                values = override_values or base_values[key]
             elif round_item["mode"] == "inherit":
-                values = override_values or previous[key]
+                values = override_values or base_values[key]
             else:
                 values = override_values
             current[key] = list(values) if values else None
-            if current[key] is not None:
-                previous[key] = list(current[key])
+        current["mode"] = round_item["mode"] if index in normalized_rounds else "inherit"
         expanded.append(current)
     return expanded
