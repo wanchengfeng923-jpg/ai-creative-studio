@@ -56,6 +56,30 @@ class CarouselTests(unittest.TestCase):
         self.assertEqual(rounds[1]["visual_product_selling_points"], ["卖点B"])
         self.assertEqual(rounds[2]["visual_product_selling_points"], ["卖点A"])
 
+    def test_custom_round_missing_field_stays_none(self):
+        config = normalize_visual_carousel_config(
+            {
+                "visual_carousel": ["是"],
+                "visual_carousel_count": ["3屏"],
+                "visual_carousel_rounds": [
+                    {
+                        "index": 1,
+                        "mode": "base",
+                        "overrides": {"visual_product_selling_points": ["卖点A"]},
+                    },
+                    {
+                        "index": 2,
+                        "mode": "custom",
+                        "overrides": {"visual_motif": ["母题B"]},
+                    },
+                ],
+            },
+            require_enabled=True,
+        )
+        rounds = expand_visual_carousel_rounds(config)
+        self.assertEqual(rounds[1]["visual_product_selling_points"], None)
+        self.assertEqual(rounds[1]["visual_motif"], ["母题B"])
+
     def test_ai_count_has_no_predefined_rounds(self):
         config = normalize_visual_carousel_config(
             {

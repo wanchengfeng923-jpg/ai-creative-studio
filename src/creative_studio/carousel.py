@@ -143,7 +143,7 @@ def expand_visual_carousel_rounds(config: Mapping[str, Any]) -> list[dict[str, A
             if index == 1:
                 values = override_values
             elif round_item["mode"] == "custom":
-                values = override_values or base_values[key]
+                values = override_values
             elif round_item["mode"] == "inherit":
                 values = override_values or base_values[key]
             else:
