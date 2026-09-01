@@ -15,6 +15,7 @@ from creative_studio.generation_models import (
 )
 from creative_studio.generation_service import CreativeGenerationService
 from creative_studio.repository import StudioRepository
+from creative_studio.app import StudioApplication
 
 
 class FakeGenerationAdapter:
@@ -169,6 +170,45 @@ class GenerationServiceTests(unittest.TestCase):
         )
         self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
+
+    def test_inactive_tags_do_not_change_fingerprint_or_batch_identity(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "task_description": "展示说明",
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": ["3屏"],
+                    "visual_carousel_form": ["左右滑动"],
+                    "target_audiences": ["武侠玩家"],
+                },
+            },
+        )
+        first_snapshot = self.service._build_snapshot(self.repo.get_project(self.visual_project["id"]))
+        first_app_fingerprint = StudioApplication._fingerprint(self.repo.get_project(self.visual_project["id"]))
+        self.assertEqual(first_snapshot.fingerprint, first_app_fingerprint)
+        self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": ["3屏"],
+                    "visual_carousel_form": ["左右滑动"],
+                    "target_audiences": ["武侠玩家", "仙侠玩家"],
+                }
+            },
+        )
+        second_snapshot = self.service._build_snapshot(self.repo.get_project(self.visual_project["id"]))
+        second_app_fingerprint = StudioApplication._fingerprint(self.repo.get_project(self.visual_project["id"]))
+        self.assertEqual(second_snapshot.fingerprint, first_snapshot.fingerprint)
+        self.assertEqual(second_app_fingerprint, first_app_fingerprint)
+        outcome = self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+        self.assertEqual([batch["batch_index"] for batch in outcome.history["batches"]], [1, 2])
+        self.assertEqual(
+            [batch["input_fingerprint"] for batch in outcome.history["batches"]],
+            [first_snapshot.fingerprint, first_snapshot.fingerprint],
+        )
 
     def test_generate_failure_calls_fail_generation(self) -> None:
         class FailingAdapter:

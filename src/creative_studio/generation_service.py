@@ -10,6 +10,8 @@ from typing import Any, Mapping, Protocol
 
 from .ai_creative import (
     AiCreativeGenerationResult,
+    NARRATIVE_TAG_KEYS,
+    VISUAL_TAG_KEYS,
     generate_creative_recommendations,
     generate_visual_creative_recommendations,
     load_ai_creative_config,
@@ -54,11 +56,12 @@ def _load_tag_options() -> dict[str, Any]:
 
 
 def _fingerprint(snapshot: CreativeInputSnapshot) -> str:
+    active_keys = VISUAL_TAG_KEYS if snapshot.script_type == "展示类" else NARRATIVE_TAG_KEYS
     value: dict[str, Any] = {
         "script_type": snapshot.script_type,
         "creative_tags": {
-            key: sorted(values)
-            for key, values in snapshot.creative_tags.items()
+            key: sorted(snapshot.creative_tags[key])
+            for key in active_keys
         },
         "task_type": snapshot.task_type,
         "task_description": snapshot.task_description,
