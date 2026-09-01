@@ -16,9 +16,17 @@ from typing import Any, Dict, List
 
 import requests
 
+from .model_client import HttpModelClient, ModelClient, ModelRequest, ModelResponse
 from .ai_service_settings import AiServiceSettings
 from .ai_provider import chat_completions_url
 from .carousel import CarouselValidationError, normalize_visual_carousel_config, normalize_visual_carousel_frames
+from .prompting import CompiledPrompt, compile_prompt
+from .schemas import (
+    CarouselRecommendationSchema,
+    NarrativeRecommendationSchema,
+    SchemaValidationError,
+    VisualRecommendationSchema,
+)
 
 
 AI_LOGGER = logging.getLogger("web_erp.http")

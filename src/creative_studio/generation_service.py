@@ -27,6 +27,8 @@ from .generation_models import (
     GenerationContext,
     GenerationOutcome,
 )
+from .model_client import ModelClient
+from .prompting import CompiledPrompt
 from .repository import StudioDataError, StudioRepository
 
 
