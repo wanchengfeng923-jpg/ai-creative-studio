@@ -15,7 +15,7 @@
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   const els = {
-    empty: $("#emptyState"), workspace: $("#projectWorkspace"), list: $("#projectList"),
+    empty: $("#emptyState"), workspace: $("#projectWorkspace"), list: $("#projectList"), sidebar: $("#projectSidebar"), sidebarBackdrop: $("#sidebarBackdrop"),
     search: $("#projectSearch"), name: $("#projectName"), taskType: $("#taskType"),
     description: $("#taskDescription"), descriptionLabel: $("#descriptionLabel"),
     evidence: $("#productEvidence"), aspectField: $("#aspectField"), files: $("#referenceFiles"),
@@ -28,10 +28,15 @@
     imageDialog: $("#imageDialog"), dialogImage: $("#dialogImage"),
     stepper: $("#stepper"), stepBrief: $("#stepBrief"), stepPosition: $("#stepPosition"), stepOutput: $("#stepOutput"),
     briefNext: $("#briefNextButton"), positionBack: $("#positionBackButton"), positionNext: $("#positionNextButton"), outputEdit: $("#outputEditButton"),
-    projectMenu: $("#projectMenuButton"), projectMenuName: $("#projectMenuName"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
+    projectMenu: $("#projectMenuButton"), projectNameEditor: $("#projectNameEditor"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
   };
 
   let currentStep = 1;
+
+  function setProjectDrawer(open) {
+    els.sidebar.classList.toggle("drawer-open", open);
+    els.projectMenu.setAttribute("aria-expanded", String(open));
+  }
 
   const esc = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
@@ -243,6 +248,7 @@
     });
     await loadProjects();
     await openProject(payload.project.id);
+    setProjectDrawer(true);
     setTimeout(() => els.name.select(), 0);
   }
 
@@ -252,7 +258,7 @@
     const payload = await api(`/api/projects/${projectId}`);
     state.project = payload.project;
     state.history = null;
-    els.list.closest(".sidebar")?.classList.remove("drawer-open");
+    setProjectDrawer(false);
     state.activeBatch = 0;
     populateProject();
     renderProjectList();
@@ -263,8 +269,8 @@
     const project = state.project;
     els.empty.classList.add("hidden");
     els.workspace.classList.remove("hidden");
+    els.projectNameEditor.classList.remove("hidden");
     els.name.value = project.name;
-    els.projectMenuName.textContent = project.name;
     els.briefProjectName.textContent = project.name;
     els.taskType.value = project.task_type || "";
     els.description.value = project.task_description || "";
@@ -328,7 +334,6 @@
       });
       state.project = payload.project;
       els.saveState.textContent = "已保存";
-      els.projectMenuName.textContent = state.project.name;
       els.briefProjectName.textContent = state.project.name;
       applyStep();
       await loadProjects();
@@ -543,6 +548,7 @@
     await api(`/api/projects/${state.project.id}`, { method: "DELETE" });
     state.project = null; state.history = null; stopPolling();
     els.workspace.classList.add("hidden"); els.empty.classList.remove("hidden");
+    els.projectNameEditor.classList.add("hidden");
     await loadProjects(); toast("项目已删除");
   }
 
@@ -552,7 +558,8 @@
     $("#newProjectButton").addEventListener("click", createProject);
     $("#emptyNewButton").addEventListener("click", createProject);
     $("#deleteProjectButton").addEventListener("click", deleteProject);
-    els.projectMenu.addEventListener("click", () => els.list.closest(".sidebar")?.classList.toggle("drawer-open"));
+    els.projectMenu.addEventListener("click", () => setProjectDrawer(!els.sidebar.classList.contains("drawer-open")));
+    els.sidebarBackdrop.addEventListener("click", () => setProjectDrawer(false));
     els.briefNext.addEventListener("click", () => { currentStep = 2; applyStep(); });
     els.positionBack.addEventListener("click", () => { currentStep = 1; applyStep(); });
     els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 3; applyStep(); await loadHistory(false).catch(() => {}); });

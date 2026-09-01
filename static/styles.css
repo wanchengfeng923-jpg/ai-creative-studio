@@ -173,7 +173,8 @@ body { min-width:320px; }
 .app-shell { display:block; min-height:100vh; }
 .sidebar { position:fixed; inset:0 auto 0 0; width:300px; padding:18px 16px; color:#dfe9e6; background:#1d2928; box-shadow:16px 0 36px rgba(14,31,29,.18); transform:translateX(-100%); transition:transform .18s ease; z-index:50; }
 .sidebar.drawer-open { transform:translateX(0); }
-.sidebar.drawer-open::after { position:fixed; inset:0 0 0 300px; width:calc(100vw - 300px); background:rgba(16,28,27,.28); content:""; }
+.sidebar-backdrop { position:fixed; inset:0 0 0 300px; visibility:hidden; padding:0; border:0; opacity:0; background:rgba(16,28,27,.28); transition:opacity .18s ease,visibility .18s ease; pointer-events:none; z-index:49; }
+.sidebar.drawer-open + .sidebar-backdrop { visibility:visible; opacity:1; pointer-events:auto; }
 .brand { margin-bottom:20px; }
 .brand-mark { width:36px; height:36px; display:grid; flex:0 0 36px; place-items:center; border:0; border-radius:10px; color:#e8fffa; background:linear-gradient(145deg,#0a9384,#066d64); box-shadow:0 5px 14px rgba(8,127,115,.18); }
 .brand-mark svg { width:30px; height:30px; overflow:visible; }
@@ -183,6 +184,10 @@ body { min-width:320px; }
 .brand strong { font-size:16px; }
 .brand span { color:#91a7a2; font-size:8px; }
 .sidebar .primary { color:#fff; background:#087f73; }
+.sidebar-project-editor { display:grid; gap:6px; margin:2px 0 11px; padding:11px 12px 12px; border:1px solid rgba(117,196,159,.24); border-radius:9px; background:rgba(255,255,255,.06); }
+.sidebar-project-editor>span { color:#91a7a2; font-size:9px; font-weight:700; letter-spacing:.08em; }
+.sidebar-project-editor input { width:100%; margin:0; padding:7px 8px; border:1px solid rgba(255,255,255,.14); border-radius:6px; outline:0; color:#fff; background:rgba(8,20,18,.24); font-size:13px; font-weight:700; }
+.sidebar-project-editor input:hover,.sidebar-project-editor input:focus { border-color:#56b9aa; background:rgba(8,20,18,.38); box-shadow:0 0 0 3px rgba(86,185,170,.1); }
 .project-item:hover,.project-item.active { background:#2c403d; }
 .project-item.active { box-shadow:inset 3px 0 #56b9aa; }
 .workspace { min-width:0; padding:0 0 90px; }
@@ -200,10 +205,6 @@ body { min-width:320px; }
 .project-menu-icon svg { width:13px; height:13px; }
 .project-menu-icon path { fill:none; stroke:currentColor; stroke-linejoin:round; stroke-width:1.5; }
 .project-menu-chevron { color:#68827d; font-size:12px; transform:translateY(-1px); }
-.project-title { min-width:120px; max-width:360px; display:grid; gap:1px; margin:0; }
-.project-title>span { padding-left:7px; color:#84918f; font-size:8px; font-weight:650; letter-spacing:.08em; }
-.project-menu input { min-width:0; width:100%; margin:0; padding:3px 7px 4px; border:1px solid transparent; border-radius:6px; background:transparent; color:#273532; font-size:12px; font-weight:750; }
-.project-menu input:hover,.project-menu input:focus { border-color:var(--line); background:#fafcfc; box-shadow:none; }
 .header-actions { display:flex; align-items:center; gap:12px; }
 .save-state { display:flex; align-items:center; gap:6px; color:#687774; font-size:10px; }
 .save-state::before { width:6px; height:6px; border-radius:50%; background:#2b9b79; content:""; }
@@ -280,9 +281,6 @@ body { min-width:320px; }
   .project-menu { min-width:0; gap:7px; padding-left:9px; }
   .project-menu button { width:38px; padding:0; justify-content:center; }
   .project-menu button>span:not(.project-menu-icon) { display:none; }
-  .project-title { min-width:0; max-width:150px; }
-  .project-title>span { display:none; }
-  .project-menu input { padding:7px 6px; font-size:11px; }
   .save-state { font-size:9px; }
   .header-actions .danger { display:none; }
   .workspace-intro { align-items:stretch; flex-direction:column; margin:0; padding:19px 14px 0; }
@@ -305,5 +303,5 @@ body { min-width:320px; }
   .generate-bar>div { display:none; }
   .generate-bar .large { width:100%; }
   .sidebar { width:min(300px,calc(100vw - 38px)); }
-  .sidebar.drawer-open::after { inset:0 0 0 min(300px,calc(100vw - 38px)); }
+  .sidebar-backdrop { left:min(300px,calc(100vw - 38px)); }
 }
