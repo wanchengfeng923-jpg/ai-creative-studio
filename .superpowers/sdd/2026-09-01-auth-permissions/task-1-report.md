@@ -35,6 +35,8 @@ Issue fixed:
 
 - `verify_password()` no longer trusts the iteration count embedded in `encoded`. It now requires the fixed PBKDF2 iteration count and rejects mismatches before any hash derivation work starts.
 
+Fix commit: `671dd89` (`Harden PBKDF2 verification`)
+
 Regression test:
 
 - Added `test_verify_password_rejects_unexpected_iteration_count_without_hashing` to confirm malformed iteration counts return `False` and do not call PBKDF2.
