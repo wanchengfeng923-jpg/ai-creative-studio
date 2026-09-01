@@ -16,7 +16,7 @@
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
   const els = {
     empty: $("#emptyState"), workspace: $("#projectWorkspace"), list: $("#projectList"), sidebar: $("#projectSidebar"), sidebarBackdrop: $("#sidebarBackdrop"),
-    search: $("#projectSearch"), name: $("#projectName"), taskType: $("#taskType"),
+    search: $("#projectSearch"), taskType: $("#taskType"),
     description: $("#taskDescription"), descriptionLabel: $("#descriptionLabel"),
     evidence: $("#productEvidence"), aspectField: $("#aspectField"), files: $("#referenceFiles"),
     tagControls: $("#tagControls"),
@@ -28,7 +28,7 @@
     imageDialog: $("#imageDialog"), dialogImage: $("#dialogImage"),
     stepper: $("#stepper"), stepBrief: $("#stepBrief"), stepPosition: $("#stepPosition"), stepOutput: $("#stepOutput"),
     briefNext: $("#briefNextButton"), positionBack: $("#positionBackButton"), positionNext: $("#positionNextButton"), outputEdit: $("#outputEditButton"),
-    projectMenu: $("#projectMenuButton"), projectNameEditor: $("#projectNameEditor"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
+    projectMenu: $("#projectMenuButton"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
   };
 
   let currentStep = 1;
@@ -210,7 +210,7 @@
   function collectProject() {
     const tags = collectTagValues();
     return {
-      name: els.name.value.trim() || "未命名创意",
+      name: state.project.name.trim() || "未命名创意",
       script_type: $(".mode-button.active")?.dataset.scriptType || "展示类",
       task_type: els.taskType.value,
       task_description: els.description.value,
@@ -231,13 +231,27 @@
       els.list.innerHTML = '<div style="padding:18px 10px;color:rgba(255,255,255,.4);font-size:11px">还没有创意项目</div>';
       return;
     }
-    els.list.innerHTML = state.projects.map((item) => `
-      <button class="project-item ${state.project?.id === item.id ? "active" : ""}" data-project-id="${item.id}">
-        <strong>${esc(item.name)}</strong>
-        <span><em>${esc(item.script_type)}</em><time>${esc(item.updated_at.slice(5, 16))}</time></span>
-      </button>`).join("");
-    els.list.querySelectorAll("[data-project-id]").forEach((button) => {
+    els.list.innerHTML = state.projects.map((item) => {
+      const isActive = state.project?.id === item.id;
+      if (isActive) return `
+        <div class="project-item active" data-project-id="${item.id}">
+          <label class="project-item-name"><input data-project-name-input value="${esc(item.name)}" maxlength="120" aria-label="重命名当前项目"><span aria-hidden="true">编辑</span></label>
+          <span><em>${esc(item.script_type)}</em><time>${esc(item.updated_at.slice(5, 16))}</time></span>
+        </div>`;
+      return `
+        <button class="project-item" data-project-id="${item.id}">
+          <strong>${esc(item.name)}</strong>
+          <span><em>${esc(item.script_type)}</em><time>${esc(item.updated_at.slice(5, 16))}</time></span>
+        </button>`;
+    }).join("");
+    els.list.querySelectorAll("button[data-project-id]").forEach((button) => {
       button.addEventListener("click", () => openProject(Number(button.dataset.projectId)));
+    });
+    const projectNameInput = els.list.querySelector("[data-project-name-input]");
+    projectNameInput?.addEventListener("input", () => {
+      state.project.name = projectNameInput.value;
+      els.briefProjectName.textContent = projectNameInput.value.trim() || "未命名创意";
+      scheduleSave();
     });
   }
 
@@ -249,7 +263,7 @@
     await loadProjects();
     await openProject(payload.project.id);
     setProjectDrawer(true);
-    setTimeout(() => els.name.select(), 0);
+    setTimeout(() => els.list.querySelector("[data-project-name-input]")?.select(), 0);
   }
 
   async function openProject(projectId) {
@@ -258,7 +272,6 @@
     const payload = await api(`/api/projects/${projectId}`);
     state.project = payload.project;
     state.history = null;
-    setProjectDrawer(false);
     state.activeBatch = 0;
     populateProject();
     renderProjectList();
@@ -269,8 +282,6 @@
     const project = state.project;
     els.empty.classList.add("hidden");
     els.workspace.classList.remove("hidden");
-    els.projectNameEditor.classList.remove("hidden");
-    els.name.value = project.name;
     els.briefProjectName.textContent = project.name;
     els.taskType.value = project.task_type || "";
     els.description.value = project.task_description || "";
@@ -548,7 +559,6 @@
     await api(`/api/projects/${state.project.id}`, { method: "DELETE" });
     state.project = null; state.history = null; stopPolling();
     els.workspace.classList.add("hidden"); els.empty.classList.remove("hidden");
-    els.projectNameEditor.classList.add("hidden");
     await loadProjects(); toast("项目已删除");
   }
 
@@ -567,7 +577,7 @@
     els.stepper.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => { currentStep = Number(button.dataset.step); applyStep(); }));
     els.generate.addEventListener("click", generate);
     els.search.addEventListener("input", () => { clearTimeout(els.search.timer); els.search.timer = setTimeout(loadProjects, 250); });
-    [els.name, els.taskType, els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
+    [els.taskType, els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
     els.tagControls.addEventListener("change", (event) => {
       if (!event.target.matches("[data-tag-select]")) return;
       limitMultiSelect(event.target);
