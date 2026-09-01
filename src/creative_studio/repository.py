@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import json
 import re
 import sqlite3
@@ -282,8 +283,17 @@ class StudioRepository:
                     "SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1"
                 ).fetchone()
                 if existing is not None:
+                    # Bootstrap is intentionally idempotent, but it also
+                    # repairs ownership for projects created between runs.
+                    connection.execute(
+                        "UPDATE projects SET owner_user_id=? WHERE owner_user_id IS NULL",
+                        (int(existing["id"]),),
+                    )
+                    row = connection.execute(
+                        "SELECT * FROM users WHERE id=?", (int(existing["id"]),)
+                    ).fetchone()
                     connection.commit()
-                    return self._safe_user(existing) or {}
+                    return self._safe_user(row) or {}
                 any_user = connection.execute("SELECT id FROM users LIMIT 1").fetchone()
                 if any_user is not None:
                     raise StudioDataError("Bootstrap 管理员只能在账号为空时创建")
@@ -430,8 +440,8 @@ class StudioRepository:
             "user_agent": str(row["user_agent"] or ""),
         }
         # AuthService needs these fields to build a request context.  The
-        # stored CSRF value is a digest and is never the browser token itself.
-        for key in ("username", "role", "is_active", "must_change_password", "csrf_token_digest"):
+        # credential digests remain an implementation detail of this module.
+        for key in ("username", "role", "is_active", "must_change_password"):
             if key in row.keys():
                 value = row[key]
                 result[key] = bool(value) if key in {"is_active", "must_change_password"} else value
@@ -522,6 +532,26 @@ class StudioRepository:
                 (digest, timestamp, timestamp),
             ).fetchone()
         return self._safe_session(row)
+
+    def verify_session_csrf(self, session_token: str, csrf_token: str) -> bool:
+        """Validate a CSRF token for a live session without exposing its digest."""
+        try:
+            session_digest = self._session_digest(session_token)
+            csrf_digest = self._session_digest(csrf_token)
+        except AuthDataError:
+            return False
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT s.csrf_token_digest FROM sessions s
+                JOIN users u ON u.id=s.user_id
+                WHERE s.token_digest=? AND s.revoked_at IS NULL
+                  AND u.is_active=1 AND s.idle_expires_at>? AND s.absolute_expires_at>?
+                """,
+                (session_digest, timestamp, timestamp),
+            ).fetchone()
+        return row is not None and hmac.compare_digest(str(row["csrf_token_digest"]), csrf_digest)
 
     def touch_session(self, session_token: str) -> bool:
         """Refresh idle expiry, capped by the original absolute expiry."""

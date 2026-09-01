@@ -275,6 +275,11 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(users), 1)
         self.assertNotIn("password_hash", users[0])
 
+        late_project = self.repo.create_project("后来创建的项目", "展示类")
+        self.assertIsNone(self.repo.get_project_owner_id(late_project["id"]))
+        self.repo.create_bootstrap_admin("ignored", "abcdefghijkl")
+        self.assertEqual(self.repo.get_project_owner_id(late_project["id"]), admin["id"])
+
     def test_session_login_attempt_and_audit_rows_are_persisted(self):
         admin = self.repo.create_bootstrap_admin("admin", "0123456789ab")
         user = self.repo.create_user("alice", "abcdefghijklm")
@@ -301,7 +306,11 @@ class RepositoryTests(unittest.TestCase):
 
         session_a = self.repo.create_session(user["id"], "token-a", "csrf-a", "127.0.0.1", "pytest")
         session_b = self.repo.create_session(user["id"], "token-b", "csrf-b", "127.0.0.1", "pytest")
-        self.assertEqual(self.repo.get_session("token-a")["user_id"], user["id"])
+        session_context = self.repo.get_session("token-a")
+        self.assertEqual(session_context["user_id"], user["id"])
+        self.assertNotIn("csrf_token_digest", session_context)
+        self.assertTrue(self.repo.verify_session_csrf("token-a", "csrf-a"))
+        self.assertFalse(self.repo.verify_session_csrf("token-a", "wrong-csrf"))
 
         with closing(sqlite3.connect(self.repo.database_path)) as connection:
             before = connection.execute(
