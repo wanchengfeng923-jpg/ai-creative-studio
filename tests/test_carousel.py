@@ -4,6 +4,7 @@ from creative_studio.carousel import (
     CarouselValidationError,
     expand_visual_carousel_rounds,
     normalize_visual_carousel_config,
+    normalize_visual_carousel_frames,
 )
 
 
@@ -90,6 +91,42 @@ class CarouselTests(unittest.TestCase):
         )
         self.assertEqual(config["count_mode"], "ai")
         self.assertEqual(expand_visual_carousel_rounds(config), [])
+
+    def test_normalize_visual_carousel_frames_accepts_nested_frame_descriptions(self):
+        carousel = normalize_visual_carousel_frames(
+            {
+                "count": 3,
+                "form": ["左右滑动"],
+                "frames": [
+                    {"index": 1, "display_description": "第一屏"},
+                    {"index": 2, "display_description": "第二屏"},
+                    {"index": 3, "display_description": "第三屏"},
+                ],
+            }
+        )
+        self.assertEqual(carousel["count"], 3)
+        self.assertEqual(carousel["form"], ["左右滑动"])
+        self.assertEqual(
+            carousel["frames"],
+            [
+                {"index": 1, "display_description": "第一屏"},
+                {"index": 2, "display_description": "第二屏"},
+                {"index": 3, "display_description": "第三屏"},
+            ],
+        )
+
+    def test_normalize_visual_carousel_frames_rejects_gaps(self):
+        with self.assertRaises(CarouselValidationError):
+            normalize_visual_carousel_frames(
+                {
+                    "count": 3,
+                    "frames": [
+                        {"index": 1, "display_description": "第一屏"},
+                        {"index": 3, "display_description": "第三屏"},
+                        {"index": 4, "display_description": "第四屏"},
+                    ],
+                }
+            )
 
     def test_missing_carousel_choice_is_rejected_only_for_generation(self):
         with self.assertRaises(CarouselValidationError):

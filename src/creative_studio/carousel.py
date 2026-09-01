@@ -39,6 +39,47 @@ def _normalize_round_overrides(value: Any) -> dict[str, list[str]]:
     return {key: _clean_list(source.get(key)) for key in _ROUND_FIELDS}
 
 
+def normalize_visual_carousel_frames(carousel: Mapping[str, Any]) -> dict[str, Any]:
+    source = carousel if isinstance(carousel, Mapping) else {}
+    keys = set(source)
+    if not {"count", "frames"} <= keys or not keys <= {"count", "form", "frames"}:
+        raise CarouselValidationError("AI视觉返回的carousel必须只包含count、form和frames")
+
+    count = source.get("count")
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise CarouselValidationError("AI视觉返回的carousel.count必须是有效整数")
+    if not 2 <= count <= 5:
+        raise CarouselValidationError("AI视觉返回的carousel.count必须在2到5之间")
+
+    form = _clean_list(source.get("form"))
+    raw_frames = source.get("frames")
+    if not isinstance(raw_frames, list) or not raw_frames:
+        raise CarouselValidationError("AI视觉返回的carousel.frames必须是非空列表")
+    if len(raw_frames) != count:
+        raise CarouselValidationError("AI视觉返回的carousel.frames数量必须与count一致")
+
+    frames: list[dict[str, Any]] = []
+    for expected_index, frame in enumerate(raw_frames, start=1):
+        if not isinstance(frame, Mapping):
+            raise CarouselValidationError("AI视觉返回的carousel.frames必须是对象列表")
+        if set(frame) != {"index", "display_description"}:
+            raise CarouselValidationError("AI视觉返回的carousel.frames只能包含index和display_description")
+        index = frame.get("index")
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise CarouselValidationError("AI视觉返回的carousel.frames.index必须是有效整数")
+        if index != expected_index:
+            raise CarouselValidationError("AI视觉返回的carousel.frames必须是连续的1-based编号")
+        display_description = str(frame.get("display_description") or "").strip()
+        if not display_description:
+            raise CarouselValidationError("AI视觉返回的carousel.frames.display_description不能为空")
+        frames.append({"index": index, "display_description": display_description})
+
+    normalized = {"count": count, "frames": frames}
+    if form:
+        normalized["form"] = form
+    return normalized
+
+
 def normalize_visual_carousel_config(
     tags: Mapping[str, Any], *, require_enabled: bool = False
 ) -> dict[str, Any]:

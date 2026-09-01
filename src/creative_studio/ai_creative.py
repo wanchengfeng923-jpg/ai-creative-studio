@@ -18,6 +18,7 @@ import requests
 
 from .ai_service_settings import AiServiceSettings
 from .ai_provider import chat_completions_url
+from .carousel import CarouselValidationError, normalize_visual_carousel_config, normalize_visual_carousel_frames
 
 
 AI_LOGGER = logging.getLogger("web_erp.http")
@@ -835,8 +836,8 @@ def validate_visual_creative_recommendations(
 
     if str(config.get("count_mode") or "").strip() == "fixed":
         count = config.get("count")
-        if not isinstance(count, int) or count != 3:
-            raise AiCreativeRequestError("AI视觉轮播固定数量必须与三项方案一致")
+        if not isinstance(count, int) or not 2 <= count <= 5:
+            raise AiCreativeRequestError("AI视觉轮播固定数量必须在2到5之间")
     elif str(config.get("count_mode") or "").strip() == "ai":
         count = config.get("count")
         if count is not None and (not isinstance(count, int) or not 2 <= count <= 5):
@@ -844,12 +845,9 @@ def validate_visual_creative_recommendations(
     else:
         raise AiCreativeRequestError("AI视觉轮播配置无效")
 
-    catalog = _visual_catalog_data(tag_catalog)
-    labels_by_key = catalog["labels_by_key"]
-    id_lookup_by_key = catalog["ids_by_key"]
-    relation_map = catalog["relations"]
     result = []
-    required_fields = set(VISUAL_CREATIVE_ITEM_FIELDS) | {"resolved_tags", "carousel_frames"}
+    ai_expected_count: int | None = None
+    required_fields = set(VISUAL_CREATIVE_ITEM_FIELDS) | {"carousel"}
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict) or set(item) != required_fields:
             raise AiCreativeRequestError("AI视觉返回的每个方案必须符合批准字段结构")
@@ -878,84 +876,22 @@ def validate_visual_creative_recommendations(
                 "note": _visual_text(source.get("note"), "reference_sources.note"),
             })
         cleaned["reference_sources"] = cleaned_sources
-        carousel_frames = item.get("carousel_frames")
-        if not isinstance(carousel_frames, list) or not carousel_frames:
-            raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是非空列表")
-        clean_frames: List[int] = []
-        seen_frames: set[int] = set()
-        for frame in carousel_frames:
-            if isinstance(frame, bool):
-                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是有效整数")
-            try:
-                frame_index = int(frame)
-            except (TypeError, ValueError) as exc:
-                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是有效整数") from exc
-            if frame_index < 1 or (config.get("count") and frame_index > int(config["count"])):
-                raise AiCreativeRequestError("AI视觉返回的carousel_frames超出允许范围")
-            if frame_index not in seen_frames:
-                clean_frames.append(frame_index)
-                seen_frames.add(frame_index)
+        try:
+            clean_carousel = normalize_visual_carousel_frames(item.get("carousel"))
+        except CarouselValidationError as exc:
+            raise AiCreativeRequestError(str(exc)) from exc
+        carousel_count = int(clean_carousel["count"])
         if str(config.get("count_mode") or "").strip() == "fixed":
             expected_count = int(config["count"])
-            expected_frames = list(range(1, expected_count + 1))
-            if len(clean_frames) != expected_count or clean_frames != expected_frames:
-                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须与固定屏数连续一致")
-        resolved_tags = item.get("resolved_tags")
-        if not isinstance(resolved_tags, Mapping):
-            raise AiCreativeRequestError("AI视觉返回的resolved_tags必须是对象")
-        clean_resolved: Dict[str, List[str]] = {}
-        round_item = (config.get("rounds") or [{}])[index - 1] if index - 1 < len(config.get("rounds") or []) else {}
-        overrides = (
-            round_item.get("overrides")
-            if isinstance(round_item, Mapping) and isinstance(round_item.get("overrides"), Mapping)
-            else {}
-        )
-        for key in VISUAL_CAROUSEL_ROUND_KEYS:
-            if key not in overrides:
-                continue
-            requested = _clean_mapping_list(overrides.get(key))
-            resolved_values = _clean_mapping_list(resolved_tags.get(key))
-            allowed_labels = labels_by_key.get(key) or []
-            if requested and allowed_labels:
-                for label in requested:
-                    if label not in allowed_labels:
-                        raise AiCreativeRequestError("AI视觉返回的轮播标签必须来自配置项")
-            if not resolved_values:
-                raise AiCreativeRequestError("AI视觉返回的空白适用标签必须由AI补全")
-            if allowed_labels:
-                for label in resolved_values:
-                    if label not in allowed_labels:
-                        raise AiCreativeRequestError("AI视觉返回的轮播标签必须来自配置项")
-            clean_resolved[key] = resolved_values
-        if (
-            "visual_product_selling_points" in clean_resolved
-            and "visual_display_contents" in clean_resolved
-            and relation_map
-        ):
-            selling_ids = {
-                label_id
-                for label in clean_resolved["visual_product_selling_points"]
-                for label_id, label_text in id_lookup_by_key.get("visual_product_selling_points", {}).items()
-                if label_text == label
-            }
-            display_ids = {
-                label_id
-                for label in clean_resolved["visual_display_contents"]
-                for label_id, label_text in id_lookup_by_key.get("visual_display_contents", {}).items()
-                if label_text == label
-            }
-            if selling_ids and display_ids:
-                allowed_display_ids = set()
-                for selling_id in selling_ids:
-                    allowed_display_ids.update(relation_map.get(selling_id, []))
-                if not display_ids <= allowed_display_ids:
-                    raise AiCreativeRequestError("AI视觉返回的卖点与展示内容关系不合法")
-        cleaned["resolved_tags"] = clean_resolved
-        cleaned["carousel_frames"] = clean_frames
-        result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS} | {
-            "resolved_tags": clean_resolved,
-            "carousel_frames": clean_frames,
-        })
+            if carousel_count != expected_count:
+                raise AiCreativeRequestError("AI视觉返回的carousel.count必须与固定屏数一致")
+        else:
+            if ai_expected_count is None:
+                ai_expected_count = carousel_count
+            elif carousel_count != ai_expected_count:
+                raise AiCreativeRequestError("AI视觉返回的三项方案必须使用统一轮播屏数")
+        cleaned["carousel"] = clean_carousel
+        result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS} | {"carousel": clean_carousel})
     return result
 
 
@@ -1029,7 +965,9 @@ def generate_visual_creative_recommendations(
             )
             response.raise_for_status()
         except requests.RequestException as exc:
-            raise AiCreativeRequestError("AI接口请求失败，请稍后重试") from exc
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            suffix = f"（HTTP {status}，请检查 AI 网关会话）" if status else "，请检查 AI 网关是否运行"
+            raise AiCreativeRequestError(f"AI接口请求失败{suffix}") from exc
         try:
             response_payload = response.json()
             items = validate_visual_creative_recommendations(
@@ -1148,7 +1086,9 @@ def generate_creative_recommendations(
             )
             response.raise_for_status()
         except requests.RequestException as exc:
-            raise AiCreativeRequestError("AI接口请求失败，请稍后重试") from exc
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            suffix = f"（HTTP {status}，请检查 AI 网关会话）" if status else "，请检查 AI 网关是否运行"
+            raise AiCreativeRequestError(f"AI接口请求失败{suffix}") from exc
         try:
             response_payload = response.json()
             items = validate_creative_recommendations(response_payload)

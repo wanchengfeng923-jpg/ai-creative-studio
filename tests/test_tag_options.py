@@ -90,63 +90,35 @@ class TagOptionsTests(unittest.TestCase):
         self.assertIn("round_index", prompt)
         self.assertIn("空白可适用标签由 AI 补全", prompt)
 
-    def test_validate_visual_recommendations_returns_carousel_frames(self):
+    def test_validate_visual_recommendations_accepts_nested_carousel_without_resolved_tags(self):
+        def make_item(title: str, display_prefix: str) -> dict[str, object]:
+            return {
+                "title": title,
+                "subtitle": f"副标题{display_prefix}",
+                "creative_description": f"描述{display_prefix}",
+                "core_subject": f"主体{display_prefix}",
+                "layout": f"布局{display_prefix}",
+                "visual_style": f"风格{display_prefix}",
+                "content_extensions": [f"扩展{display_prefix}"],
+                "reference_sources": [{"name": f"来源{display_prefix}", "note": f"借用机制{display_prefix}"}],
+                "keywords": [f"关键词{display_prefix}"],
+                "image_prompt": f"提示词{display_prefix}",
+                "carousel": {
+                    "count": 3,
+                    "form": ["左右滑动"],
+                    "frames": [
+                        {"index": 1, "display_description": f"第1屏{display_prefix}"},
+                        {"index": 2, "display_description": f"第2屏{display_prefix}"},
+                        {"index": 3, "display_description": f"第3屏{display_prefix}"},
+                    ],
+                },
+            }
+
         value = {
             "items": [
-                {
-                    "title": "方案1",
-                    "subtitle": "副标题1",
-                    "creative_description": "描述1",
-                    "core_subject": "主体1",
-                    "layout": "布局1",
-                    "visual_style": "风格1",
-                    "content_extensions": ["扩展1"],
-                    "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
-                    "keywords": ["关键词1"],
-                    "image_prompt": "提示词1",
-                    "carousel_frames": [1, 2, 3],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["A"],
-                        "visual_display_contents": ["门派"],
-                        "visual_motif": ["M1"],
-                    },
-                },
-                {
-                    "title": "方案2",
-                    "subtitle": "副标题2",
-                    "creative_description": "描述2",
-                    "core_subject": "主体2",
-                    "layout": "布局2",
-                    "visual_style": "风格2",
-                    "content_extensions": ["扩展2"],
-                    "reference_sources": [{"name": "来源2", "note": "借用机制2"}],
-                    "keywords": ["关键词2"],
-                    "image_prompt": "提示词2",
-                    "carousel_frames": [1, 2, 3],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["B"],
-                        "visual_display_contents": ["场景"],
-                        "visual_motif": ["M2"],
-                    },
-                },
-                {
-                    "title": "方案3",
-                    "subtitle": "副标题3",
-                    "creative_description": "描述3",
-                    "core_subject": "主体3",
-                    "layout": "布局3",
-                    "visual_style": "风格3",
-                    "content_extensions": ["扩展3"],
-                    "reference_sources": [{"name": "来源3", "note": "借用机制3"}],
-                    "keywords": ["关键词3"],
-                    "image_prompt": "提示词3",
-                    "carousel_frames": [1, 2, 3],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["A"],
-                        "visual_display_contents": ["门派"],
-                        "visual_motif": ["M3"],
-                    },
-                },
+                make_item("方案1", "1"),
+                make_item("方案2", "2"),
+                make_item("方案3", "3"),
             ]
         }
         items = validate_visual_creative_recommendations(
@@ -163,9 +135,12 @@ class TagOptionsTests(unittest.TestCase):
             },
         )
         self.assertEqual(len(items), 3)
-        self.assertTrue(all("carousel_frames" in item for item in items))
+        self.assertTrue(all("carousel" in item for item in items))
+        self.assertTrue(all("resolved_tags" not in item for item in items))
+        self.assertEqual(items[0]["carousel"]["count"], 3)
+        self.assertEqual(items[0]["carousel"]["frames"][0]["display_description"], "第1屏1")
 
-    def test_validate_visual_recommendations_rejects_fixed_carousel_frame_gap(self):
+    def test_validate_visual_recommendations_rejects_fixed_carousel_length_mismatch(self):
         value = {
             "items": [
                 {
@@ -179,11 +154,12 @@ class TagOptionsTests(unittest.TestCase):
                     "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
                     "keywords": ["关键词1"],
                     "image_prompt": "提示词1",
-                    "carousel_frames": [1, 3],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["A"],
-                        "visual_display_contents": ["门派"],
-                        "visual_motif": ["M1"],
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                        ],
                     },
                 },
                 {
@@ -197,11 +173,12 @@ class TagOptionsTests(unittest.TestCase):
                     "reference_sources": [{"name": "来源2", "note": "借用机制2"}],
                     "keywords": ["关键词2"],
                     "image_prompt": "提示词2",
-                    "carousel_frames": [2],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["B"],
-                        "visual_display_contents": ["场景"],
-                        "visual_motif": ["M2"],
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                        ],
                     },
                 },
                 {
@@ -215,16 +192,175 @@ class TagOptionsTests(unittest.TestCase):
                     "reference_sources": [{"name": "来源3", "note": "借用机制3"}],
                     "keywords": ["关键词3"],
                     "image_prompt": "提示词3",
-                    "carousel_frames": [3],
-                    "resolved_tags": {
-                        "visual_product_selling_points": ["A"],
-                        "visual_display_contents": ["门派"],
-                        "visual_motif": ["M3"],
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                        ],
                     },
                 },
             ]
         }
-        with self.assertRaisesRegex(AiCreativeRequestError, "carousel_frames"):
+        with self.assertRaisesRegex(AiCreativeRequestError, "carousel"):
+            validate_visual_creative_recommendations(
+                value,
+                carousel_config={
+                    "enabled": "是",
+                    "count_mode": "fixed",
+                    "count": 3,
+                    "rounds": [],
+                },
+                tag_catalog={
+                    "visual_product_selling_points": ["A", "B"],
+                    "visual_display_contents": ["门派"],
+                },
+            )
+
+    def test_validate_visual_recommendations_rejects_ai_carousel_count_mismatch(self):
+        value = {
+            "items": [
+                {
+                    "title": "方案1",
+                    "subtitle": "副标题1",
+                    "creative_description": "描述1",
+                    "core_subject": "主体1",
+                    "layout": "布局1",
+                    "visual_style": "风格1",
+                    "content_extensions": ["扩展1"],
+                    "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
+                    "keywords": ["关键词1"],
+                    "image_prompt": "提示词1",
+                    "carousel": {
+                        "count": 2,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                        ],
+                    },
+                },
+                {
+                    "title": "方案2",
+                    "subtitle": "副标题2",
+                    "creative_description": "描述2",
+                    "core_subject": "主体2",
+                    "layout": "布局2",
+                    "visual_style": "风格2",
+                    "content_extensions": ["扩展2"],
+                    "reference_sources": [{"name": "来源2", "note": "借用机制2"}],
+                    "keywords": ["关键词2"],
+                    "image_prompt": "提示词2",
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                            {"index": 3, "display_description": "第三屏"},
+                        ],
+                    },
+                },
+                {
+                    "title": "方案3",
+                    "subtitle": "副标题3",
+                    "creative_description": "描述3",
+                    "core_subject": "主体3",
+                    "layout": "布局3",
+                    "visual_style": "风格3",
+                    "content_extensions": ["扩展3"],
+                    "reference_sources": [{"name": "来源3", "note": "借用机制3"}],
+                    "keywords": ["关键词3"],
+                    "image_prompt": "提示词3",
+                    "carousel": {
+                        "count": 2,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                        ],
+                    },
+                },
+            ]
+        }
+        with self.assertRaisesRegex(AiCreativeRequestError, "统一轮播屏数"):
+            validate_visual_creative_recommendations(
+                value,
+                carousel_config={
+                    "enabled": "是",
+                    "count_mode": "ai",
+                    "count": None,
+                    "rounds": [],
+                },
+                tag_catalog={
+                    "visual_product_selling_points": ["A", "B"],
+                    "visual_display_contents": ["门派"],
+                },
+            )
+
+    def test_validate_visual_recommendations_rejects_fixed_carousel_index_gap(self):
+        value = {
+            "items": [
+                {
+                    "title": "方案1",
+                    "subtitle": "副标题1",
+                    "creative_description": "描述1",
+                    "core_subject": "主体1",
+                    "layout": "布局1",
+                    "visual_style": "风格1",
+                    "content_extensions": ["扩展1"],
+                    "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
+                    "keywords": ["关键词1"],
+                    "image_prompt": "提示词1",
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 3, "display_description": "第三屏"},
+                            {"index": 4, "display_description": "第四屏"},
+                        ],
+                    },
+                },
+                {
+                    "title": "方案2",
+                    "subtitle": "副标题2",
+                    "creative_description": "描述2",
+                    "core_subject": "主体2",
+                    "layout": "布局2",
+                    "visual_style": "风格2",
+                    "content_extensions": ["扩展2"],
+                    "reference_sources": [{"name": "来源2", "note": "借用机制2"}],
+                    "keywords": ["关键词2"],
+                    "image_prompt": "提示词2",
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                            {"index": 3, "display_description": "第三屏"},
+                        ],
+                    },
+                },
+                {
+                    "title": "方案3",
+                    "subtitle": "副标题3",
+                    "creative_description": "描述3",
+                    "core_subject": "主体3",
+                    "layout": "布局3",
+                    "visual_style": "风格3",
+                    "content_extensions": ["扩展3"],
+                    "reference_sources": [{"name": "来源3", "note": "借用机制3"}],
+                    "keywords": ["关键词3"],
+                    "image_prompt": "提示词3",
+                    "carousel": {
+                        "count": 3,
+                        "frames": [
+                            {"index": 1, "display_description": "第一屏"},
+                            {"index": 2, "display_description": "第二屏"},
+                            {"index": 3, "display_description": "第三屏"},
+                        ],
+                    },
+                },
+            ]
+        }
+        with self.assertRaisesRegex(AiCreativeRequestError, "carousel"):
             validate_visual_creative_recommendations(
                 value,
                 carousel_config={
