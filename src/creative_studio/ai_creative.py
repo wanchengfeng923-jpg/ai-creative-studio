@@ -895,6 +895,11 @@ def validate_visual_creative_recommendations(
             if frame_index not in seen_frames:
                 clean_frames.append(frame_index)
                 seen_frames.add(frame_index)
+        if str(config.get("count_mode") or "").strip() == "fixed":
+            expected_count = int(config["count"])
+            expected_frames = list(range(1, expected_count + 1))
+            if len(clean_frames) != expected_count or clean_frames != expected_frames:
+                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须与固定屏数连续一致")
         resolved_tags = item.get("resolved_tags")
         if not isinstance(resolved_tags, Mapping):
             raise AiCreativeRequestError("AI视觉返回的resolved_tags必须是对象")

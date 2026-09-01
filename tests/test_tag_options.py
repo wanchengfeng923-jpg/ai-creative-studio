@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from creative_studio.ai_creative import (
+    AiCreativeRequestError,
     build_visual_creative_prompt,
     format_creative_tags_for_prompt,
     load_ai_visual_creative_config,
@@ -103,7 +104,82 @@ class TagOptionsTests(unittest.TestCase):
                     "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
                     "keywords": ["关键词1"],
                     "image_prompt": "提示词1",
-                    "carousel_frames": [1],
+                    "carousel_frames": [1, 2, 3],
+                    "resolved_tags": {
+                        "visual_product_selling_points": ["A"],
+                        "visual_display_contents": ["门派"],
+                        "visual_motif": ["M1"],
+                    },
+                },
+                {
+                    "title": "方案2",
+                    "subtitle": "副标题2",
+                    "creative_description": "描述2",
+                    "core_subject": "主体2",
+                    "layout": "布局2",
+                    "visual_style": "风格2",
+                    "content_extensions": ["扩展2"],
+                    "reference_sources": [{"name": "来源2", "note": "借用机制2"}],
+                    "keywords": ["关键词2"],
+                    "image_prompt": "提示词2",
+                    "carousel_frames": [1, 2, 3],
+                    "resolved_tags": {
+                        "visual_product_selling_points": ["B"],
+                        "visual_display_contents": ["场景"],
+                        "visual_motif": ["M2"],
+                    },
+                },
+                {
+                    "title": "方案3",
+                    "subtitle": "副标题3",
+                    "creative_description": "描述3",
+                    "core_subject": "主体3",
+                    "layout": "布局3",
+                    "visual_style": "风格3",
+                    "content_extensions": ["扩展3"],
+                    "reference_sources": [{"name": "来源3", "note": "借用机制3"}],
+                    "keywords": ["关键词3"],
+                    "image_prompt": "提示词3",
+                    "carousel_frames": [1, 2, 3],
+                    "resolved_tags": {
+                        "visual_product_selling_points": ["A"],
+                        "visual_display_contents": ["门派"],
+                        "visual_motif": ["M3"],
+                    },
+                },
+            ]
+        }
+        items = validate_visual_creative_recommendations(
+            value,
+            carousel_config={
+                "enabled": "是",
+                "count_mode": "fixed",
+                "count": 3,
+                "rounds": [],
+            },
+            tag_catalog={
+                "visual_product_selling_points": ["A", "B"],
+                "visual_display_contents": ["门派"],
+            },
+        )
+        self.assertEqual(len(items), 3)
+        self.assertTrue(all("carousel_frames" in item for item in items))
+
+    def test_validate_visual_recommendations_rejects_fixed_carousel_frame_gap(self):
+        value = {
+            "items": [
+                {
+                    "title": "方案1",
+                    "subtitle": "副标题1",
+                    "creative_description": "描述1",
+                    "core_subject": "主体1",
+                    "layout": "布局1",
+                    "visual_style": "风格1",
+                    "content_extensions": ["扩展1"],
+                    "reference_sources": [{"name": "来源1", "note": "借用机制1"}],
+                    "keywords": ["关键词1"],
+                    "image_prompt": "提示词1",
+                    "carousel_frames": [1, 3],
                     "resolved_tags": {
                         "visual_product_selling_points": ["A"],
                         "visual_display_contents": ["门派"],
@@ -148,21 +224,20 @@ class TagOptionsTests(unittest.TestCase):
                 },
             ]
         }
-        items = validate_visual_creative_recommendations(
-            value,
-            carousel_config={
-                "enabled": "是",
-                "count_mode": "fixed",
-                "count": 3,
-                "rounds": [],
-            },
-            tag_catalog={
-                "visual_product_selling_points": ["A", "B"],
-                "visual_display_contents": ["门派"],
-            },
-        )
-        self.assertEqual(len(items), 3)
-        self.assertTrue(all("carousel_frames" in item for item in items))
+        with self.assertRaisesRegex(AiCreativeRequestError, "carousel_frames"):
+            validate_visual_creative_recommendations(
+                value,
+                carousel_config={
+                    "enabled": "是",
+                    "count_mode": "fixed",
+                    "count": 3,
+                    "rounds": [],
+                },
+                tag_catalog={
+                    "visual_product_selling_points": ["A", "B"],
+                    "visual_display_contents": ["门派"],
+                },
+            )
 
     def test_load_ai_visual_config_uses_carousel_prompt_version(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
