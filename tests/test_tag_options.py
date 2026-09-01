@@ -136,9 +136,11 @@ class TagOptionsTests(unittest.TestCase):
         )
         self.assertEqual(len(items), 3)
         self.assertTrue(all("carousel" in item for item in items))
+        self.assertTrue(all("carousel_frames" in item for item in items))
         self.assertTrue(all("resolved_tags" not in item for item in items))
         self.assertEqual(items[0]["carousel"]["count"], 3)
         self.assertEqual(items[0]["carousel"]["frames"][0]["display_description"], "第1屏1")
+        self.assertEqual(items[0]["carousel_frames"], [1, 2, 3])
 
     def test_validate_visual_recommendations_rejects_fixed_carousel_length_mismatch(self):
         value = {

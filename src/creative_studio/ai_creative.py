@@ -891,7 +891,12 @@ def validate_visual_creative_recommendations(
             elif carousel_count != ai_expected_count:
                 raise AiCreativeRequestError("AI视觉返回的三项方案必须使用统一轮播屏数")
         cleaned["carousel"] = clean_carousel
-        result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS} | {"carousel": clean_carousel})
+        result.append({
+            field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS
+        } | {
+            "carousel": clean_carousel,
+            "carousel_frames": [frame["index"] for frame in clean_carousel["frames"]],
+        })
     return result
 
 
