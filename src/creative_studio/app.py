@@ -30,6 +30,8 @@ from .ai_creative import (
     recommendation_kind_for_script_type,
 )
 from .carousel import CarouselValidationError, normalize_visual_carousel_config
+from .generation_models import CreativeGenerationRequest
+from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
 from .repository import StudioDataError, StudioRepository
 
@@ -53,6 +55,10 @@ class StudioApplication:
                 gateway_base_from_environment(),
                 os.environ.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
             ),
+        )
+        self.generation_service = CreativeGenerationService(
+            self.repository,
+            image_runner=self.image_runner,
         )
 
     @staticmethod
@@ -91,62 +97,8 @@ class StudioApplication:
         return result
 
     def generate(self, project_id: int) -> dict[str, Any]:
-        project = self.repository.get_project(project_id)
-        if project is None:
-            raise StudioDataError("项目不存在")
-        if not str(project.get("task_description") or "").strip():
-            raise StudioDataError("请先填写创意说明")
-        tag_options = load_tag_options()
-        kind = recommendation_kind_for_script_type(project["script_type"])
-        carousel_config = None
-        if kind == "visual":
-            try:
-                carousel_config = normalize_visual_carousel_config(
-                    project.get("creative_tags"),
-                    require_enabled=True,
-                )
-            except CarouselValidationError as exc:
-                raise StudioDataError(str(exc)) from exc
-        fingerprint = self._fingerprint(project)
-        carousel_enabled = bool(carousel_config and carousel_config.get("enabled") == "是")
-        schema_version = "visual.carousel.v1" if carousel_enabled else ("visual.v1" if kind == "visual" else "narrative.v1")
-        reservation = self.repository.reserve_generation(project_id, kind, schema_version, fingerprint)
-        try:
-            if kind == "visual":
-                result = generate_visual_creative_recommendations(
-                    normalize_creative_tags(project["creative_tags"]),
-                    config=load_ai_visual_creative_config(carousel=carousel_enabled),
-                    task_type=project["task_type"],
-                    task_description=project["task_description"],
-                    aspect_ratio=project["aspect_ratio"],
-                    product_evidence_summary=project["product_evidence_summary"],
-                    reference_file_names=self.repository.reference_file_names(project_id),
-                    carousel_config=carousel_config if carousel_enabled else None,
-                    tag_catalog=tag_options,
-                    conversation_id=reservation["conversation_id"],
-                    parent_message_id=reservation["parent_message_id"],
-                )
-                item_ids = self.repository.complete_visual_generation(
-                    reservation["id"], result, project["aspect_ratio"]
-                )
-                self.image_runner.enqueue(item_ids)
-            else:
-                game_info = load_ai_creative_game_info()
-                result = generate_creative_recommendations(
-                    normalize_creative_tags(project["creative_tags"]),
-                    config=load_ai_creative_config(),
-                    game_info=game_info.content,
-                    task_type=project["task_type"],
-                    task_description=project["task_description"],
-                    script_type=project["script_type"],
-                    conversation_id=reservation["conversation_id"],
-                    parent_message_id=reservation["parent_message_id"],
-                )
-                self.repository.complete_narrative_generation(reservation["id"], result)
-        except Exception as exc:
-            self.repository.fail_generation(reservation["id"], str(exc))
-            raise
-        return self.history(project_id)
+        outcome = self.generation_service.generate(CreativeGenerationRequest(project_id=project_id))
+        return outcome.history
 
 
 APP = StudioApplication()

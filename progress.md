@@ -1,5 +1,20 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-01 独立网络代理工作台
+
+### 已完成
+
+- 新增独立 `proxy_workbench.py` 入口，也可从启动控制台打开独立窗口；代理配置不再混入登录配置。
+- 支持 HTTP、HTTPS、SOCKS5/SOCKS5H、地址、端口、可选账号密码的可视化编辑。
+- 支持代理 URL 构造、解析、密码脱敏、保存/清除 `PROXY_URL` 和通过公网回显服务测试出口 IP。
+- 新增 `tests/test_launcher_proxy.py`，覆盖凭据编码、解析和脱敏。
+
+### 验证
+
+- 代理定向测试 3 项通过；`python -m py_compile launcher.py proxy_workbench.py`、`python -m compileall -q src chat2api launcher.py proxy_workbench.py` 通过。
+- 全量测试仍受工作树既有 `creative_studio.generation_models` 缺失、认证仓储接口缺失及 SQLite Windows 文件锁测试失败影响，与本次代理功能无关。
+- 未修改当前 `.env` 的代理值，未发起 ClipProxy 真实代理测试。
+
 ## 2026-09-01 报表式标签编辑器
 
 ### 已完成
@@ -605,3 +620,24 @@
 - 按复核意见补回生成结果中的顶层 `carousel_frames` 兼容字段，保持 `carousel` 作为新契约的唯一权威来源。
 - 新增回归测试，确认新生成结果可经由现有历史路径继续渲染，且 `resolved_tags` 仍不作为生成时必填用户事实。
 - 最新代码提交为 `9142923`，验证覆盖 `31` 项测试全部通过。
+
+## 2026-09-01 生成服务拆分（任务2）
+
+### 已完成
+
+- 新增 `src/creative_studio/generation_models.py`，把生成请求、归一化输入快照、生成上下文和生成结果收敛为冻结数据类。
+- 新增 `src/creative_studio/generation_service.py`，把项目加载、输入归一化、指纹、schema 选择、预留、完成、失败回填和视觉队列派发从 `app.py` 中移出。
+- `StudioApplication.generate(project_id)` 已改为 HTTP 入口薄封装，保留历史返回包络和现有 API 行为。
+- 新增 `tests/test_generation_service.py`，用 fake 适配器和 fake 图片队列验证单次模型调用、空白轮播提示词可通过、叙事类不入队、展示类只入队 3 个首帧任务、异常会回填 `fail_generation`。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest tests.test_generation_service -v`
+- `PYTHONPATH=src python -m unittest tests.test_generation_service tests.test_repository.RepositoryTests.test_project_round_trip_and_search tests.test_repository.RepositoryTests.test_visual_history_hides_image_prompt_and_exposes_carousel_frames tests.test_repository.RepositoryTests.test_new_visual_generation_remains_renderable_through_history_path tests.test_tag_options -v`
+- `python -m compileall -q src chat2api`
+- `git diff --check`
+
+### 未完成
+
+- `python -m unittest discover -s tests -v` 仍存在与本任务无关的既有仓库失败：`create_bootstrap_admin` 缺失，以及两项旧迁移测试在 Windows 上清理临时 SQLite 文件时的锁定问题。
+- 未发起真实 AI 文字或图片生成调用。
