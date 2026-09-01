@@ -72,6 +72,8 @@ def verify_password(password: str, encoded: str) -> bool:
         if algorithm != _PBKDF2_ALGORITHM:
             return False
         iterations = int(iterations_text)
+        if iterations != _PBKDF2_ITERATIONS:
+            return False
         salt = _b64decode(salt_text)
         expected_digest = _b64decode(digest_text)
         actual_digest = hashlib.pbkdf2_hmac(

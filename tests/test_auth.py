@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from creative_studio.auth import (
     AuthDataError,
@@ -45,6 +46,12 @@ class AuthHelpersTests(unittest.TestCase):
 
     def test_verify_password_rejects_unknown_format_without_raising(self):
         self.assertFalse(verify_password("password", "unexpected-format"))
+
+    def test_verify_password_rejects_unexpected_iteration_count_without_hashing(self):
+        encoded = "pbkdf2_sha256$1$YWJjZGVmZ2hpamtsbW5vcA$YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXo"
+        with patch("creative_studio.auth.hashlib.pbkdf2_hmac") as pbkdf2_hmac:
+            self.assertFalse(verify_password("correct horse battery staple", encoded))
+        pbkdf2_hmac.assert_not_called()
 
     def test_new_token_is_url_safe_and_unique(self):
         tokens = {new_token() for _ in range(32)}
