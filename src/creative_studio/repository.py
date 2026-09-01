@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+from .auth import AuthDataError, hash_password, normalize_username, token_digest
 
 
 PROJECT_FIELDS = {
@@ -20,6 +23,13 @@ PROJECT_FIELDS = {
     "product_evidence_summary",
 }
 
+SCHEMA_VERSION = 1
+SESSION_IDLE_SECONDS = 12 * 60 * 60
+SESSION_ABSOLUTE_SECONDS = 7 * 24 * 60 * 60
+LOGIN_WINDOW_SECONDS = 15 * 60
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+LOGIN_LOCKOUT_THRESHOLD = 5
+
 
 class StudioDataError(RuntimeError):
     """可安全展示给本地用户的业务错误。"""
@@ -27,6 +37,10 @@ class StudioDataError(RuntimeError):
 
 def now_text() -> str:
     return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def future_text(seconds: int) -> str:
+    return (datetime.now(timezone(timedelta(hours=8))) + timedelta(seconds=int(seconds))).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _json(value: Any) -> str:
@@ -55,9 +69,11 @@ class StudioRepository:
 
     def _initialize(self) -> None:
         with closing(self._connect()) as connection:
-            connection.executescript(
-                """
-                PRAGMA journal_mode = WAL;
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                statements = (
+                    """
                 CREATE TABLE IF NOT EXISTS projects (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
@@ -69,7 +85,9 @@ class StudioRepository:
                     product_evidence_summary TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
-                );
+                )
+                """,
+                    """
                 CREATE TABLE IF NOT EXISTS project_files (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -77,7 +95,9 @@ class StudioRepository:
                     stored_name TEXT NOT NULL,
                     size_bytes INTEGER NOT NULL,
                     created_at TEXT NOT NULL
-                );
+                )
+                """,
+                    """
                 CREATE TABLE IF NOT EXISTS generations (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -94,7 +114,9 @@ class StudioRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(project_id, recommendation_kind, input_fingerprint, batch_index)
-                );
+                )
+                """,
+                    """
                 CREATE TABLE IF NOT EXISTS visual_items (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     generation_id INTEGER NOT NULL REFERENCES generations(id) ON DELETE CASCADE,
@@ -110,28 +132,658 @@ class StudioRepository:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(generation_id, item_index)
-                );
+                )
+                """,
+                    """
                 CREATE TABLE IF NOT EXISTS adoptions (
                     project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
                     recommendation_kind TEXT NOT NULL,
                     reference_id TEXT NOT NULL,
                     snapshot_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
+                )
+                """,
+                    "CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC)",
+                    """
                 CREATE INDEX IF NOT EXISTS idx_generations_history
                     ON generations(project_id, recommendation_kind, input_fingerprint, batch_index);
-                CREATE INDEX IF NOT EXISTS idx_visual_items_status ON visual_items(image_status, updated_at);
-                """
-            )
+                """,
+                    "CREATE INDEX IF NOT EXISTS idx_visual_items_status ON visual_items(image_status, updated_at)",
+                )
+                for statement in statements:
+                    connection.execute(statement)
+                self._migrate_schema(connection)
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
 
-    def create_project(self, name: str = "未命名创意", script_type: str = "展示类") -> dict[str, Any]:
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        """Apply repeatable, transactional authentication schema migrations."""
+        current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        # Keep every statement idempotent.  A database can have an optimistic
+        # user_version from an interrupted/older migration while still missing
+        # one of the objects below, so the version check must not short-circuit
+        # the existence checks.
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+                is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                must_change_password INTEGER NOT NULL DEFAULT 0 CHECK(must_change_password IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                last_login_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_digest TEXT NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                csrf_token_digest TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_active_at TEXT NOT NULL,
+                idle_expires_at TEXT NOT NULL,
+                absolute_expires_at TEXT NOT NULL,
+                revoked_at TEXT,
+                source_ip TEXT NOT NULL DEFAULT '',
+                user_agent TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                client_ip TEXT NOT NULL,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                window_started_at TEXT NOT NULL,
+                locked_until TEXT,
+                UNIQUE(username, client_ip)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                action TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL DEFAULT '',
+                result TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(projects)")}
+        if "owner_user_id" not in columns:
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_projects_owner_user ON projects(owner_user_id)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_digest)")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_login_attempts_lookup ON login_attempts(username, client_ip)"
+        )
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)")
+        if current_version < SCHEMA_VERSION:
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    @staticmethod
+    def _safe_user(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        return {
+            "id": int(row["id"]),
+            "username": str(row["username"]),
+            "role": str(row["role"]),
+            "is_active": bool(row["is_active"]),
+            "must_change_password": bool(row["must_change_password"]),
+            "created_at": str(row["created_at"]),
+            "updated_at": str(row["updated_at"]),
+            "last_login_at": row["last_login_at"],
+        }
+
+    @staticmethod
+    def _password_hash(value: str) -> str:
+        """Return a PBKDF2 hash while accepting a pre-hashed AuthService value."""
+        if not isinstance(value, str):
+            raise AuthDataError("invalid password")
+        if value.startswith("pbkdf2_sha256$"):
+            parts = value.split("$")
+            if len(parts) != 4 or not parts[1].isdigit() or not parts[2] or not parts[3]:
+                raise AuthDataError("invalid password")
+            return value
+        return hash_password(value)
+
+    def create_bootstrap_admin(self, username: str, password: str) -> dict[str, Any]:
+        """Create the first administrator and claim all currently unowned projects."""
+        try:
+            normalized = normalize_username(username)
+            password_hash = self._password_hash(password)
+        except AuthDataError:
+            raise
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                existing = connection.execute(
+                    "SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1"
+                ).fetchone()
+                if existing is not None:
+                    connection.commit()
+                    return self._safe_user(existing) or {}
+                any_user = connection.execute("SELECT id FROM users LIMIT 1").fetchone()
+                if any_user is not None:
+                    raise StudioDataError("Bootstrap 管理员只能在账号为空时创建")
+                cursor = connection.execute(
+                    """
+                    INSERT INTO users(username,password_hash,role,is_active,must_change_password,
+                                      created_at,updated_at,last_login_at)
+                    VALUES(?,?, 'admin',1,0,?,?,NULL)
+                    """,
+                    (normalized, password_hash, timestamp, timestamp),
+                )
+                user_id = int(cursor.lastrowid)
+                connection.execute(
+                    "UPDATE projects SET owner_user_id=? WHERE owner_user_id IS NULL", (user_id,)
+                )
+                row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_user(row) or {}
+
+    def create_user(self, username: str, password: str) -> dict[str, Any]:
+        """Create an active ordinary user; role assignment is intentionally fixed."""
+        normalized = normalize_username(username)
+        password_hash = self._password_hash(password)
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO users(username,password_hash,role,is_active,must_change_password,
+                                      created_at,updated_at,last_login_at)
+                    VALUES(?,?, 'user',1,0,?,?,NULL)
+                    """,
+                    (normalized, password_hash, timestamp, timestamp),
+                )
+                row = connection.execute(
+                    "SELECT * FROM users WHERE id=?", (int(cursor.lastrowid),)
+                ).fetchone()
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise StudioDataError("用户名已存在") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_user(row) or {}
+
+    def list_users(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute("SELECT * FROM users ORDER BY id").fetchall()
+        return [self._safe_user(row) or {} for row in rows]
+
+    def get_user(self, user_id_or_username: int | str) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            if isinstance(user_id_or_username, int):
+                row = connection.execute(
+                    "SELECT * FROM users WHERE id=?", (int(user_id_or_username),)
+                ).fetchone()
+            else:
+                try:
+                    username = normalize_username(str(user_id_or_username))
+                except AuthDataError:
+                    return None
+                row = connection.execute(
+                    "SELECT * FROM users WHERE username=?", (username,)
+                ).fetchone()
+        return self._safe_user(row)
+
+    def set_user_active(self, user_id: int, is_active: bool) -> dict[str, Any]:
+        """Toggle account availability and revoke sessions when disabling an account."""
+        active = 1 if bool(is_active) else 0
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT * FROM users WHERE id=?", (int(user_id),)).fetchone()
+                if row is None:
+                    raise StudioDataError("用户不存在")
+                if active == 0 and row["role"] == "admin" and row["is_active"]:
+                    count = connection.execute(
+                        "SELECT COUNT(*) FROM users WHERE role='admin' AND is_active=1"
+                    ).fetchone()[0]
+                    if int(count) <= 1:
+                        raise StudioDataError("不能停用最后一个管理员")
+                connection.execute(
+                    "UPDATE users SET is_active=?,updated_at=? WHERE id=?",
+                    (active, timestamp, int(user_id)),
+                )
+                if active == 0:
+                    connection.execute(
+                        "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                        (timestamp, int(user_id)),
+                    )
+                updated = connection.execute("SELECT * FROM users WHERE id=?", (int(user_id),)).fetchone()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_user(updated) or {}
+
+    def reset_user_password(
+        self, user_id: int, password: str, must_change_password: bool = True
+    ) -> dict[str, Any]:
+        """Replace a password and revoke every existing session for the account."""
+        password_hash = self._password_hash(password)
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT id FROM users WHERE id=?", (int(user_id),)).fetchone()
+                if row is None:
+                    raise StudioDataError("用户不存在")
+                connection.execute(
+                    "UPDATE users SET password_hash=?,must_change_password=?,updated_at=? WHERE id=?",
+                    (password_hash, 1 if must_change_password else 0, timestamp, int(user_id)),
+                )
+                connection.execute(
+                    "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                    (timestamp, int(user_id)),
+                )
+                updated = connection.execute("SELECT * FROM users WHERE id=?", (int(user_id),)).fetchone()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_user(updated) or {}
+
+    @staticmethod
+    def _safe_session(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        """Expose session context without either bearer or CSRF secrets."""
+        if row is None:
+            return None
+        result: dict[str, Any] = {
+            "id": int(row["id"]),
+            "user_id": int(row["user_id"]),
+            "created_at": str(row["created_at"]),
+            "last_active_at": str(row["last_active_at"]),
+            "idle_expires_at": str(row["idle_expires_at"]),
+            "absolute_expires_at": str(row["absolute_expires_at"]),
+            "source_ip": str(row["source_ip"] or ""),
+            "user_agent": str(row["user_agent"] or ""),
+        }
+        # AuthService needs these fields to build a request context.  The
+        # stored CSRF value is a digest and is never the browser token itself.
+        for key in ("username", "role", "is_active", "must_change_password", "csrf_token_digest"):
+            if key in row.keys():
+                value = row[key]
+                result[key] = bool(value) if key in {"is_active", "must_change_password"} else value
+        return result
+
+    @staticmethod
+    def _session_digest(value: str) -> str:
+        if not isinstance(value, str) or not value:
+            raise AuthDataError("invalid token")
+        return token_digest(value)
+
+    def create_session(
+        self,
+        user_id: int,
+        session_token: str,
+        csrf_token: str,
+        source_ip: str = "",
+        user_agent: str = "",
+        idle_seconds: int = SESSION_IDLE_SECONDS,
+        absolute_seconds: int = SESSION_ABSOLUTE_SECONDS,
+    ) -> dict[str, Any]:
+        """Persist a session using digests of both client-held tokens."""
+        session_digest = self._session_digest(session_token)
+        csrf_digest = self._session_digest(csrf_token)
+        idle_seconds = max(0, int(idle_seconds))
+        absolute_seconds = max(0, int(absolute_seconds))
+        created = datetime.now(timezone(timedelta(hours=8)))
+        created_text = created.strftime("%Y-%m-%d %H:%M:%S")
+        idle_expires = (created + timedelta(seconds=idle_seconds)).strftime("%Y-%m-%d %H:%M:%S")
+        absolute_expires = (created + timedelta(seconds=absolute_seconds)).strftime("%Y-%m-%d %H:%M:%S")
+        source_ip = " ".join(str(source_ip or "").split())[:128]
+        user_agent = " ".join(str(user_agent or "").split())[:512]
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                user = connection.execute(
+                    "SELECT id,is_active FROM users WHERE id=?", (int(user_id),)
+                ).fetchone()
+                if user is None:
+                    raise StudioDataError("用户不存在")
+                if not bool(user["is_active"]):
+                    raise StudioDataError("用户已停用")
+                cursor = connection.execute(
+                    """
+                    INSERT INTO sessions(token_digest,user_id,csrf_token_digest,created_at,last_active_at,
+                                         idle_expires_at,absolute_expires_at,source_ip,user_agent)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        session_digest,
+                        int(user_id),
+                        csrf_digest,
+                        created_text,
+                        created_text,
+                        idle_expires,
+                        absolute_expires,
+                        source_ip,
+                        user_agent,
+                    ),
+                )
+                row = connection.execute(
+                    "SELECT * FROM sessions WHERE id=?", (int(cursor.lastrowid),)
+                ).fetchone()
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise StudioDataError("会话已存在") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_session(row) or {}
+
+    def get_session(self, session_token: str) -> dict[str, Any] | None:
+        """Return only a currently valid session for an active user."""
+        try:
+            digest = self._session_digest(session_token)
+        except AuthDataError:
+            return None
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT s.*,u.username,u.role,u.is_active,u.must_change_password FROM sessions s
+                JOIN users u ON u.id=s.user_id
+                WHERE s.token_digest=? AND s.revoked_at IS NULL
+                  AND u.is_active=1 AND s.idle_expires_at>? AND s.absolute_expires_at>?
+                """,
+                (digest, timestamp, timestamp),
+            ).fetchone()
+        return self._safe_session(row)
+
+    def touch_session(self, session_token: str) -> bool:
+        """Refresh idle expiry, capped by the original absolute expiry."""
+        try:
+            digest = self._session_digest(session_token)
+        except AuthDataError:
+            return False
+        timestamp = now_text()
+        now_value = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone(timedelta(hours=8))
+        )
+        idle_until = (now_value + timedelta(seconds=SESSION_IDLE_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    """
+                    SELECT s.absolute_expires_at FROM sessions s
+                    JOIN users u ON u.id=s.user_id
+                    WHERE s.token_digest=? AND s.revoked_at IS NULL
+                      AND u.is_active=1 AND s.idle_expires_at>? AND s.absolute_expires_at>?
+                    """,
+                    (digest, timestamp, timestamp),
+                ).fetchone()
+                if row is None:
+                    connection.rollback()
+                    return False
+                new_idle = min(idle_until, str(row["absolute_expires_at"]))
+                cursor = connection.execute(
+                    """
+                    UPDATE sessions SET last_active_at=?,idle_expires_at=?
+                    WHERE token_digest=? AND revoked_at IS NULL
+                    """,
+                    (timestamp, new_idle, digest),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return cursor.rowcount == 1
+
+    def revoke_session(self, session_token: str) -> bool:
+        try:
+            digest = self._session_digest(session_token)
+        except AuthDataError:
+            return False
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET revoked_at=? WHERE token_digest=? AND revoked_at IS NULL",
+                (now_text(), digest),
+            )
+        return cursor.rowcount == 1
+
+    def revoke_sessions_for_user(self, user_id: int) -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                (now_text(), int(user_id)),
+            )
+        return cursor.rowcount > 0
+
+    @staticmethod
+    def _safe_login_attempt(row: sqlite3.Row | None, timestamp: str | None = None) -> dict[str, Any] | None:
+        if row is None:
+            return None
+        current = timestamp or now_text()
+        locked_until = row["locked_until"]
+        return {
+            "username": str(row["username"]),
+            "client_ip": str(row["client_ip"]),
+            "failure_count": int(row["failure_count"]),
+            "window_started_at": str(row["window_started_at"]),
+            "locked_until": str(locked_until) if locked_until else None,
+            "is_locked": bool(locked_until and str(locked_until) > current),
+        }
+
+    def get_login_attempt(self, username: str, client_ip: str) -> dict[str, Any] | None:
+        normalized = normalize_username(username)
+        client_ip = " ".join(str(client_ip or "").split())[:128]
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM login_attempts WHERE username=? AND client_ip=?",
+                (normalized, client_ip),
+            ).fetchone()
+        return self._safe_login_attempt(row)
+
+    def record_login_failure(self, username: str, client_ip: str) -> dict[str, Any]:
+        normalized = normalize_username(username)
+        client_ip = " ".join(str(client_ip or "").split())[:128]
+        timestamp = now_text()
+        current = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute(
+                    "SELECT * FROM login_attempts WHERE username=? AND client_ip=?",
+                    (normalized, client_ip),
+                ).fetchone()
+                expired = True
+                if row is not None:
+                    try:
+                        started = datetime.strptime(str(row["window_started_at"]), "%Y-%m-%d %H:%M:%S")
+                        expired = (current - started).total_seconds() >= LOGIN_WINDOW_SECONDS
+                    except ValueError:
+                        expired = True
+                if row is None or expired:
+                    count = 1
+                    window_started = timestamp
+                else:
+                    count = int(row["failure_count"]) + 1
+                    window_started = str(row["window_started_at"])
+                locked_until = (
+                    (current + timedelta(seconds=LOGIN_LOCKOUT_SECONDS)).strftime("%Y-%m-%d %H:%M:%S")
+                    if count >= LOGIN_LOCKOUT_THRESHOLD
+                    else None
+                )
+                connection.execute(
+                    """
+                    INSERT INTO login_attempts(username,client_ip,failure_count,window_started_at,locked_until)
+                    VALUES(?,?,?,?,?)
+                    ON CONFLICT(username,client_ip) DO UPDATE SET
+                        failure_count=excluded.failure_count,
+                        window_started_at=excluded.window_started_at,
+                        locked_until=excluded.locked_until
+                    """,
+                    (normalized, client_ip, count, window_started, locked_until),
+                )
+                saved = connection.execute(
+                    "SELECT * FROM login_attempts WHERE username=? AND client_ip=?",
+                    (normalized, client_ip),
+                ).fetchone()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_login_attempt(saved, timestamp) or {}
+
+    def clear_login_attempt_window(self, username: str, client_ip: str) -> bool:
+        normalized = normalize_username(username)
+        client_ip = " ".join(str(client_ip or "").split())[:128]
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                "DELETE FROM login_attempts WHERE username=? AND client_ip=?",
+                (normalized, client_ip),
+            )
+        return cursor.rowcount > 0
+
+    _AUDIT_SENSITIVE_KEY = re.compile(
+        r"(?:password|passwd|secret|token|cookie|csrf|authorization|credential|request|response|file|content|body|header|hash)",
+        re.IGNORECASE,
+    )
+    _AUDIT_SAFE_KEYS = {
+        "ip", "source_ip", "user_agent", "method", "status", "reason", "latency_ms", "count", "kind", "target"
+    }
+
+    @classmethod
+    def _safe_audit_metadata(cls, metadata: Any) -> dict[str, Any]:
+        if not isinstance(metadata, dict):
+            return {}
+
+        def clean(value: Any, key: str = "") -> Any:
+            if key and (key not in cls._AUDIT_SAFE_KEYS or cls._AUDIT_SENSITIVE_KEY.search(key)):
+                return None
+            if isinstance(value, dict):
+                result: dict[str, Any] = {}
+                for child_key, child_value in value.items():
+                    child_name = str(child_key)[:64]
+                    cleaned = clean(child_value, child_name)
+                    if cleaned is not None:
+                        result[child_name] = cleaned
+                return result
+            if isinstance(value, (list, tuple)):
+                return [item for item in (clean(item) for item in value[:10]) if item is not None]
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value
+            if isinstance(value, str):
+                if cls._AUDIT_SENSITIVE_KEY.search(value):
+                    return None
+                return " ".join(value.split())[:256]
+            return None
+
+        cleaned = clean(metadata)
+        if not isinstance(cleaned, dict):
+            return {}
+        # Keep audit records bounded even when callers supply a large safe map.
+        encoded = _json(cleaned)
+        if len(encoded.encode("utf-8")) > 4096:
+            return {}
+        return cleaned
+
+    def record_audit(
+        self,
+        actor_user_id: int | None,
+        action: str,
+        target_type: str,
+        target_id: str = "",
+        result: str = "success",
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
+        safe_metadata = self._safe_audit_metadata(metadata)
+        actor = int(actor_user_id) if actor_user_id is not None else None
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO audit_logs(actor_user_id,action,target_type,target_id,result,metadata_json,created_at)
+                VALUES(?,?,?,?,?,?,?)
+                """,
+                (
+                    actor,
+                    str(action or "")[:120],
+                    str(target_type or "")[:120],
+                    str(target_id or "")[:255],
+                    str(result or "")[:40],
+                    _json(safe_metadata),
+                    now_text(),
+                ),
+            )
+        return int(cursor.lastrowid)
+
+    def get_project_owner_id(self, project_id: int) -> int | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT owner_user_id FROM projects WHERE id=?", (int(project_id),)
+            ).fetchone()
+        if row is None or row["owner_user_id"] is None:
+            return None
+        return int(row["owner_user_id"])
+
+    def get_visual_item_owner_id(self, item_id: int) -> int | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                """
+                SELECT p.owner_user_id FROM visual_items v
+                JOIN generations g ON g.id=v.generation_id
+                JOIN projects p ON p.id=g.project_id
+                WHERE v.id=?
+                """,
+                (int(item_id),),
+            ).fetchone()
+        if row is None or row["owner_user_id"] is None:
+            return None
+        return int(row["owner_user_id"])
+
+    def create_project(
+        self, name: str = "未命名创意", script_type: str = "展示类", owner_user_id: int | None = None
+    ) -> dict[str, Any]:
         timestamp = now_text()
         normalized_type = "叙事类" if str(script_type).strip() == "叙事类" else "展示类"
         with closing(self._connect()) as connection:
+            if owner_user_id is not None:
+                owner = connection.execute(
+                    "SELECT id,is_active FROM users WHERE id=?", (int(owner_user_id),)
+                ).fetchone()
+                if owner is None:
+                    raise StudioDataError("用户不存在")
+                if not bool(owner["is_active"]):
+                    raise StudioDataError("用户已停用")
             cursor = connection.execute(
-                "INSERT INTO projects(name, script_type, created_at, updated_at) VALUES(?,?,?,?)",
-                (str(name or "").strip()[:120] or "未命名创意", normalized_type, timestamp, timestamp),
+                "INSERT INTO projects(name, script_type, owner_user_id, created_at, updated_at) VALUES(?,?,?,?,?)",
+                (str(name or "").strip()[:120] or "未命名创意", normalized_type, owner_user_id, timestamp, timestamp),
             )
             project_id = int(cursor.lastrowid)
         project = self.get_project(project_id)
@@ -161,6 +813,7 @@ class StudioRepository:
                 "id": int(row["id"]),
                 "name": row["name"],
                 "script_type": row["script_type"],
+                "owner_user_id": row["owner_user_id"],
                 "updated_at": row["updated_at"],
                 "adopted_kind": str(row["adopted_kind"] or ""),
                 "adopted_title": title,
@@ -189,6 +842,7 @@ class StudioRepository:
             "creative_tags": _loads(row["creative_tags_json"], {}),
             "aspect_ratio": row["aspect_ratio"],
             "product_evidence_summary": row["product_evidence_summary"],
+            "owner_user_id": row["owner_user_id"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "reference_files": [dict(item) for item in files],
