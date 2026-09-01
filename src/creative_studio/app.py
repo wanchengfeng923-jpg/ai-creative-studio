@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import os
@@ -18,7 +19,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from .ai_creative import (
     AiCreativeConfigurationError,
     AiCreativeRequestError,
-    build_creative_input_fingerprint,
+    NARRATIVE_TAG_KEYS,
+    VISUAL_TAG_KEYS,
     generate_creative_recommendations,
     generate_visual_creative_recommendations,
     load_ai_creative_config,
@@ -27,6 +29,7 @@ from .ai_creative import (
     normalize_creative_tags,
     recommendation_kind_for_script_type,
 )
+from .carousel import CarouselValidationError, normalize_visual_carousel_config
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
 from .repository import StudioDataError, StudioRepository
 
@@ -54,14 +57,24 @@ class StudioApplication:
 
     @staticmethod
     def _fingerprint(project: dict[str, Any]) -> str:
-        return build_creative_input_fingerprint(
-            script_type=project.get("script_type"),
-            creative_tags=project.get("creative_tags"),
-            task_type=project.get("task_type"),
-            task_description=project.get("task_description"),
-            product_evidence_summary=project.get("product_evidence_summary"),
-            aspect_ratio=project.get("aspect_ratio"),
-        )
+        script_type = str(project.get("script_type") or "").strip()
+        normalized_tags = normalize_creative_tags(project.get("creative_tags"))
+        active_keys = VISUAL_TAG_KEYS if script_type == "展示类" else NARRATIVE_TAG_KEYS
+        value: dict[str, Any] = {
+            "script_type": script_type,
+            "creative_tags": {
+                key: sorted(normalized_tags[key])
+                for key in active_keys
+            },
+            "task_type": str(project.get("task_type") or "").strip(),
+            "task_description": str(project.get("task_description") or "").strip(),
+            "product_evidence_summary": str(project.get("product_evidence_summary") or "").strip(),
+            "aspect_ratio": str(project.get("aspect_ratio") or "").strip(),
+        }
+        if script_type == "展示类":
+            value["visual_carousel"] = normalize_visual_carousel_config(project.get("creative_tags"))
+        canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     def history(self, project_id: int) -> dict[str, Any]:
         project = self.repository.get_project(project_id)
@@ -83,20 +96,33 @@ class StudioApplication:
             raise StudioDataError("项目不存在")
         if not str(project.get("task_description") or "").strip():
             raise StudioDataError("请先填写创意说明")
+        tag_options = load_tag_options()
         kind = recommendation_kind_for_script_type(project["script_type"])
+        carousel_config = None
+        if kind == "visual":
+            try:
+                carousel_config = normalize_visual_carousel_config(
+                    project.get("creative_tags"),
+                    require_enabled=True,
+                )
+            except CarouselValidationError as exc:
+                raise StudioDataError(str(exc)) from exc
         fingerprint = self._fingerprint(project)
-        schema_version = "visual.v1" if kind == "visual" else "narrative.v1"
+        carousel_enabled = bool(carousel_config and carousel_config.get("enabled") == "是")
+        schema_version = "visual.carousel.v1" if carousel_enabled else ("visual.v1" if kind == "visual" else "narrative.v1")
         reservation = self.repository.reserve_generation(project_id, kind, schema_version, fingerprint)
         try:
             if kind == "visual":
                 result = generate_visual_creative_recommendations(
                     normalize_creative_tags(project["creative_tags"]),
-                    config=load_ai_visual_creative_config(),
+                    config=load_ai_visual_creative_config(carousel=carousel_enabled),
                     task_type=project["task_type"],
                     task_description=project["task_description"],
                     aspect_ratio=project["aspect_ratio"],
                     product_evidence_summary=project["product_evidence_summary"],
                     reference_file_names=self.repository.reference_file_names(project_id),
+                    carousel_config=carousel_config if carousel_enabled else None,
+                    tag_catalog=tag_options,
                     conversation_id=reservation["conversation_id"],
                     parent_message_id=reservation["parent_message_id"],
                 )

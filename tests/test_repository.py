@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from creative_studio.app import StudioApplication
 from creative_studio.repository import StudioDataError, StudioRepository
 
 
@@ -19,6 +21,7 @@ VISUAL_ITEM = {
     "reference_sources": [{"name": "互动广告", "note": "借鉴即时反馈机制"}],
     "keywords": ["界面穿透", "即时反馈"],
     "image_prompt": "一张横版静态广告首帧",
+    "carousel_frames": [1, 2, 3],
 }
 
 
@@ -47,14 +50,27 @@ class RepositoryTests(unittest.TestCase):
     def test_project_round_trip_and_search(self):
         updated = self.repo.update_project(self.project["id"], {
             "task_description": "测试说明",
-            "creative_tags": {"target_audiences": ["武侠玩家"]},
+            "creative_tags": {
+                "target_audiences": ["武侠玩家"],
+                "visual_carousel": ["是"],
+                "visual_carousel_count": ["3屏"],
+                "visual_carousel_form": ["左右滑动"],
+                "visual_carousel_rounds": [
+                    {
+                        "index": 1,
+                        "mode": "base",
+                        "overrides": {"visual_product_selling_points": ["卖点A"]},
+                    }
+                ],
+            },
             "aspect_ratio": "9:16",
         })
         self.assertEqual(updated["aspect_ratio"], "9:16")
         self.assertEqual(updated["creative_tags"]["target_audiences"], ["武侠玩家"])
+        self.assertEqual(updated["creative_tags"]["visual_carousel_rounds"][0]["overrides"]["visual_product_selling_points"], ["卖点A"])
         self.assertEqual(len(self.repo.list_projects("测试")), 1)
 
-    def test_visual_history_hides_image_prompt_and_enforces_two_batches(self):
+    def test_visual_history_hides_image_prompt_and_exposes_carousel_frames(self):
         for expected_batch in (1, 2):
             reservation = self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
             self.assertEqual(reservation["batch_index"], expected_batch)
@@ -62,6 +78,7 @@ class RepositoryTests(unittest.TestCase):
         history = self.repo.generation_history(self.project["id"], "visual", "fingerprint")
         self.assertEqual(len(history["batches"]), 2)
         self.assertEqual(len(history["batches"][0]["items"]), 3)
+        self.assertEqual(history["batches"][0]["items"][0]["carousel_frames"], [1, 2, 3])
         self.assertNotIn("image_prompt", history["batches"][0]["items"][0])
         with self.assertRaises(StudioDataError):
             self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
@@ -73,6 +90,28 @@ class RepositoryTests(unittest.TestCase):
         self.repo.adopt_visual(self.project["id"], ids[1])
         project = self.repo.get_project(self.project["id"])
         self.assertEqual(project["adoption"]["reference_id"], str(ids[1]))
+
+    def test_fingerprint_changes_when_visual_carousel_round_override_changes(self):
+        base_project = self.repo.update_project(self.project["id"], {
+            "creative_tags": {
+                "visual_carousel": ["是"],
+                "visual_carousel_count": ["3屏"],
+                "visual_carousel_form": ["左右滑动"],
+                "visual_carousel_rounds": [
+                    {
+                        "index": 1,
+                        "mode": "base",
+                        "overrides": {"visual_product_selling_points": ["卖点A"]},
+                    }
+                ],
+            }
+        })
+        changed_project = copy.deepcopy(base_project)
+        changed_project["creative_tags"]["visual_carousel_rounds"][0]["overrides"]["visual_product_selling_points"] = ["卖点B"]
+        self.assertNotEqual(
+            StudioApplication._fingerprint(base_project),
+            StudioApplication._fingerprint(changed_project),
+        )
 
 
 if __name__ == "__main__":
