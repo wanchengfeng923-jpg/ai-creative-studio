@@ -73,6 +73,11 @@ VISUAL_CREATIVE_ITEM_FIELDS = (
     "keywords",
     "image_prompt",
 )
+VISUAL_CAROUSEL_ROUND_KEYS = (
+    "visual_product_selling_points",
+    "visual_display_contents",
+    "visual_motif",
+)
 VISUAL_BARE_DOMAIN_URL_PATTERN = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?::\d+)?(?:[/?#][^\s]*)?",
     re.IGNORECASE,
@@ -286,6 +291,186 @@ def _bounded_context_text(value: Any, limit: int) -> str:
     return value.strip()[:limit]
 
 
+def _clean_mapping_list(value: Any) -> List[str]:
+    if isinstance(value, str):
+        return _clean_text_list([value])
+    if isinstance(value, (list, tuple)):
+        return _clean_text_list(value)
+    return []
+
+
+def _normalize_visual_carousel_request(carousel_config: Mapping[str, Any] | None) -> Dict[str, Any] | None:
+    if not isinstance(carousel_config, Mapping):
+        return None
+    source = dict(carousel_config)
+    if {"enabled", "count_mode", "rounds"} & set(source):
+        rounds: List[Dict[str, Any]] = []
+        for item in source.get("rounds") or []:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                index = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            overrides_source = item.get("overrides") if isinstance(item.get("overrides"), Mapping) else {}
+            rounds.append(
+                {
+                    "index": index,
+                    "mode": str(item.get("mode") or "").strip(),
+                    "overrides": {
+                        key: _clean_mapping_list(overrides_source.get(key))
+                        for key in VISUAL_CAROUSEL_ROUND_KEYS
+                    },
+                }
+            )
+        count_value = source.get("count")
+        try:
+            count = int(count_value) if count_value is not None and str(count_value).strip() else None
+        except (TypeError, ValueError):
+            count = None
+        if isinstance(count, int) and count < 2:
+            count = None
+        return {
+            "enabled": str(source.get("enabled") or "").strip(),
+            "count_mode": str(source.get("count_mode") or "").strip(),
+            "count": count,
+            "form": _clean_mapping_list(source.get("form")),
+            "rounds": rounds,
+        }
+    try:
+        from .carousel import normalize_visual_carousel_config
+
+        normalized = normalize_visual_carousel_config(source)
+    except Exception:
+        return None
+    return {
+        "enabled": str(normalized.get("enabled") or "").strip(),
+        "count_mode": str(normalized.get("count_mode") or "").strip(),
+        "count": normalized.get("count"),
+        "form": _clean_mapping_list(normalized.get("form")),
+        "rounds": [
+            {
+                "index": int(item.get("index")),
+                "mode": str(item.get("mode") or "").strip(),
+                "overrides": {
+                    key: _clean_mapping_list((item.get("overrides") or {}).get(key))
+                    for key in VISUAL_CAROUSEL_ROUND_KEYS
+                },
+            }
+            for item in normalized.get("rounds") or []
+            if isinstance(item, Mapping)
+        ],
+    }
+
+
+def _visual_catalog_data(tag_catalog: Mapping[str, Any] | None) -> Dict[str, Any]:
+    source = tag_catalog if isinstance(tag_catalog, Mapping) else {}
+    visual = source.get("visual") if isinstance(source.get("visual"), Mapping) else source
+    groups = []
+    if isinstance(visual, Mapping) and isinstance(visual.get("groups"), list):
+        groups = visual.get("groups") or []
+    elif isinstance(source.get("groups"), list):
+        groups = source.get("groups") or []
+    labels_by_key: Dict[str, List[str]] = {}
+    ids_by_key: Dict[str, Dict[str, str]] = {}
+    if groups:
+        for group in groups:
+            if not isinstance(group, Mapping):
+                continue
+            key = str(group.get("key") or "").strip()
+            if not key:
+                continue
+            labels: List[str] = []
+            ids: Dict[str, str] = {}
+            for option in group.get("options") or []:
+                if not isinstance(option, Mapping):
+                    continue
+                label = str(option.get("label") or "").strip()
+                option_id = str(option.get("id") or "").strip()
+                if label and label not in labels:
+                    labels.append(label)
+                if label and option_id and option_id not in ids:
+                    ids[option_id] = label
+            labels_by_key[key] = labels
+            ids_by_key[key] = ids
+    else:
+        for key, value in source.items():
+            if isinstance(key, str) and isinstance(value, (list, tuple, str)):
+                labels_by_key[key] = _clean_mapping_list(value)
+    relations = {}
+    relation_source = visual.get("relations") if isinstance(visual, Mapping) else source.get("relations")
+    if isinstance(relation_source, Mapping):
+        product_display = relation_source.get("product_display")
+        if isinstance(product_display, Mapping):
+            relations = {
+                str(key): [str(item or "").strip() for item in value if str(item or "").strip()]
+                for key, value in product_display.items()
+                if isinstance(key, str) and isinstance(value, list)
+            }
+    return {"labels_by_key": labels_by_key, "ids_by_key": ids_by_key, "relations": relations}
+
+
+def _visual_carousel_context_text(
+    carousel_config: Mapping[str, Any] | None,
+    tag_catalog: Mapping[str, Any] | None,
+) -> str:
+    config = _normalize_visual_carousel_request(carousel_config)
+    if not config:
+        return ""
+    catalog = _visual_catalog_data(tag_catalog)
+    labels_by_key = catalog["labels_by_key"]
+    lines = [
+        "轮播上下文：",
+        f"- count_mode: {config.get('count_mode') or 'unknown'}",
+    ]
+    if isinstance(config.get("count"), int):
+        lines.append(f"- count: {config['count']}")
+    if config.get("form"):
+        lines.append(f"- form: {'、'.join(config['form'])}")
+    for round_item in config.get("rounds") or []:
+        overrides = round_item.get("overrides") if isinstance(round_item, Mapping) else {}
+        parts = [
+            f"round_index={round_item.get('index')}",
+            f"mode={round_item.get('mode') or 'base'}",
+        ]
+        for key in VISUAL_CAROUSEL_ROUND_KEYS:
+            values = _clean_mapping_list((overrides or {}).get(key))
+            if values:
+                parts.append(f"{key}={'、'.join(values)}")
+            else:
+                parts.append(f"{key}=（空白可适用标签由 AI 补全）")
+        lines.append("- " + "; ".join(parts))
+    if labels_by_key:
+        lines.append("- 有效标签目录：")
+        for key in VISUAL_CAROUSEL_ROUND_KEYS:
+            labels = labels_by_key.get(key) or []
+            if labels:
+                lines.append(f"  - {key}: {'、'.join(labels)}")
+    return "\n".join(lines)
+
+
+def _visual_catalog_labels_for_key(tag_catalog: Mapping[str, Any] | None, key: str) -> List[str]:
+    catalog = _visual_catalog_data(tag_catalog)
+    labels = catalog["labels_by_key"].get(key) or []
+    return list(labels)
+
+
+def _visual_label_is_allowed(tag_catalog: Mapping[str, Any] | None, key: str, label: str) -> bool:
+    allowed = _visual_catalog_labels_for_key(tag_catalog, key)
+    return not allowed or label in allowed
+
+
+def _visual_id_lookup(tag_catalog: Mapping[str, Any] | None, key: str) -> Dict[str, str]:
+    catalog = _visual_catalog_data(tag_catalog)
+    return dict(catalog["ids_by_key"].get(key) or {})
+
+
+def _validate_visual_text_list(value: Any, label: str) -> List[str]:
+    if not isinstance(value, list) or not value:
+        raise AiCreativeRequestError(f"AI视觉返回的{label}必须是非空列表")
+    return [_visual_text(item, label) for item in value]
+
+
 def _default_game_info_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "ai_creative_game_info_v1.json"
 
@@ -412,23 +597,38 @@ def _default_ai_visual_creative_prompt_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "ai_visual_creative_prompt_v2.txt"
 
 
+def _default_ai_visual_carousel_prompt_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "ai_visual_carousel_prompt_v1.txt"
+
+
 def load_ai_visual_creative_config(
     environ: Mapping[str, str] | None = None,
     *,
     service_settings: AiServiceSettings | None = None,
+    carousel: bool = False,
 ) -> AiCreativeConfig:
     """加载展示类 AI 的独立提示词配置，复用同一服务商配置。"""
 
     source = dict(environ if environ is not None else os.environ)
     source.pop("WEB_ERP_AI_PROMPT_TEMPLATE", None)
-    source["WEB_ERP_AI_PROMPT_PATH"] = (
-        str(source.get("WEB_ERP_AI_VISUAL_PROMPT_PATH") or "").strip()
-        or str(_default_ai_visual_creative_prompt_path())
-    )
-    source["WEB_ERP_AI_PROMPT_VERSION"] = (
-        str(source.get("WEB_ERP_AI_VISUAL_PROMPT_VERSION") or "").strip()
-        or "visual-v2.3"
-    )
+    if carousel:
+        source["WEB_ERP_AI_PROMPT_PATH"] = (
+            str(source.get("WEB_ERP_AI_VISUAL_CAROUSEL_PROMPT_PATH") or "").strip()
+            or str(_default_ai_visual_carousel_prompt_path())
+        )
+        source["WEB_ERP_AI_PROMPT_VERSION"] = (
+            str(source.get("WEB_ERP_AI_VISUAL_CAROUSEL_PROMPT_VERSION") or "").strip()
+            or "visual-carousel-v1"
+        )
+    else:
+        source["WEB_ERP_AI_PROMPT_PATH"] = (
+            str(source.get("WEB_ERP_AI_VISUAL_PROMPT_PATH") or "").strip()
+            or str(_default_ai_visual_creative_prompt_path())
+        )
+        source["WEB_ERP_AI_PROMPT_VERSION"] = (
+            str(source.get("WEB_ERP_AI_VISUAL_PROMPT_VERSION") or "").strip()
+            or "visual-v2.3"
+        )
     return load_ai_creative_config(source, service_settings=service_settings)
 
 
@@ -441,6 +641,8 @@ def build_visual_creative_prompt(
     aspect_ratio: str = "16:9",
     product_evidence_summary: str = "",
     reference_file_names: Any = None,
+    carousel_config: Mapping[str, Any] | None = None,
+    tag_catalog: Mapping[str, Any] | None = None,
 ) -> str:
     """以批准的展示类上下文填充视觉创意提示词。"""
 
@@ -459,6 +661,11 @@ def build_visual_creative_prompt(
     content = template
     for marker, replacement in replacements.items():
         content = content.replace(marker, replacement)
+    carousel_context = _visual_carousel_context_text(carousel_config, tag_catalog)
+    if "{{carousel_context}}" in content:
+        content = content.replace("{{carousel_context}}", carousel_context)
+    elif carousel_context:
+        content = f"{content}\n\n{carousel_context}"
     return content
 
 
@@ -580,30 +787,85 @@ def _visual_text_list(value: Any, label: str) -> List[str]:
     return [_visual_text(item, label) for item in value]
 
 
-def validate_visual_creative_recommendations(value: Any) -> List[Dict[str, Any]]:
+def validate_visual_creative_recommendations(
+    value: Any,
+    *,
+    carousel_config: Mapping[str, Any] | None = None,
+    tag_catalog: Mapping[str, Any] | None = None,
+) -> List[Dict[str, Any]]:
     """严格验证展示类视觉创意的三项完整 schema。"""
 
+    config = _normalize_visual_carousel_request(carousel_config)
     items = _visual_recommendation_payload(value)
     if not isinstance(items, list) or len(items) != 3:
         raise AiCreativeRequestError("AI视觉返回结果必须正好包含3个方案")
-    result: List[Dict[str, Any]] = []
-    text_fields = (
-        "title",
-        "subtitle",
-        "creative_description",
-        "core_subject",
-        "layout",
-        "visual_style",
-        "image_prompt",
-    )
-    for item in items:
-        if not isinstance(item, dict) or set(item) != set(VISUAL_CREATIVE_ITEM_FIELDS):
+    if not config:
+        result: List[Dict[str, Any]] = []
+        text_fields = (
+            "title",
+            "subtitle",
+            "creative_description",
+            "core_subject",
+            "layout",
+            "visual_style",
+            "image_prompt",
+        )
+        for item in items:
+            if not isinstance(item, dict) or set(item) != set(VISUAL_CREATIVE_ITEM_FIELDS):
+                raise AiCreativeRequestError("AI视觉返回的每个方案必须符合批准字段结构")
+            cleaned = {field: _visual_text(item.get(field), field) for field in text_fields}
+            cleaned["content_extensions"] = _validate_visual_text_list(
+                item.get("content_extensions"), "content_extensions"
+            )
+            cleaned["keywords"] = _validate_visual_text_list(item.get("keywords"), "keywords")
+            sources = item.get("reference_sources")
+            if not isinstance(sources, list) or not sources:
+                raise AiCreativeRequestError("AI视觉返回的reference_sources必须是非空列表")
+            cleaned_sources: List[Dict[str, str]] = []
+            for source in sources:
+                if not isinstance(source, dict) or set(source) != {"name", "note"}:
+                    raise AiCreativeRequestError("AI视觉返回的参考来源只能包含name和note")
+                cleaned_sources.append({
+                    "name": _visual_text(source.get("name"), "reference_sources.name"),
+                    "note": _visual_text(source.get("note"), "reference_sources.note"),
+                })
+            cleaned["reference_sources"] = cleaned_sources
+            result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS})
+        return result
+
+    if str(config.get("count_mode") or "").strip() == "fixed":
+        count = config.get("count")
+        if not isinstance(count, int) or count != 3:
+            raise AiCreativeRequestError("AI视觉轮播固定数量必须与三项方案一致")
+    elif str(config.get("count_mode") or "").strip() == "ai":
+        count = config.get("count")
+        if count is not None and (not isinstance(count, int) or not 2 <= count <= 5):
+            raise AiCreativeRequestError("AI视觉轮播数量必须在2到5之间")
+    else:
+        raise AiCreativeRequestError("AI视觉轮播配置无效")
+
+    catalog = _visual_catalog_data(tag_catalog)
+    labels_by_key = catalog["labels_by_key"]
+    id_lookup_by_key = catalog["ids_by_key"]
+    relation_map = catalog["relations"]
+    result = []
+    required_fields = set(VISUAL_CREATIVE_ITEM_FIELDS) | {"resolved_tags", "carousel_frames"}
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict) or set(item) != required_fields:
             raise AiCreativeRequestError("AI视觉返回的每个方案必须符合批准字段结构")
-        cleaned = {field: _visual_text(item.get(field), field) for field in text_fields}
-        cleaned["content_extensions"] = _visual_text_list(
+        cleaned = {field: _visual_text(item.get(field), field) for field in (
+            "title",
+            "subtitle",
+            "creative_description",
+            "core_subject",
+            "layout",
+            "visual_style",
+            "image_prompt",
+        )}
+        cleaned["content_extensions"] = _validate_visual_text_list(
             item.get("content_extensions"), "content_extensions"
         )
-        cleaned["keywords"] = _visual_text_list(item.get("keywords"), "keywords")
+        cleaned["keywords"] = _validate_visual_text_list(item.get("keywords"), "keywords")
         sources = item.get("reference_sources")
         if not isinstance(sources, list) or not sources:
             raise AiCreativeRequestError("AI视觉返回的reference_sources必须是非空列表")
@@ -616,7 +878,79 @@ def validate_visual_creative_recommendations(value: Any) -> List[Dict[str, Any]]
                 "note": _visual_text(source.get("note"), "reference_sources.note"),
             })
         cleaned["reference_sources"] = cleaned_sources
-        result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS})
+        carousel_frames = item.get("carousel_frames")
+        if not isinstance(carousel_frames, list) or not carousel_frames:
+            raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是非空列表")
+        clean_frames: List[int] = []
+        seen_frames: set[int] = set()
+        for frame in carousel_frames:
+            if isinstance(frame, bool):
+                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是有效整数")
+            try:
+                frame_index = int(frame)
+            except (TypeError, ValueError) as exc:
+                raise AiCreativeRequestError("AI视觉返回的carousel_frames必须是有效整数") from exc
+            if frame_index < 1 or (config.get("count") and frame_index > int(config["count"])):
+                raise AiCreativeRequestError("AI视觉返回的carousel_frames超出允许范围")
+            if frame_index not in seen_frames:
+                clean_frames.append(frame_index)
+                seen_frames.add(frame_index)
+        resolved_tags = item.get("resolved_tags")
+        if not isinstance(resolved_tags, Mapping):
+            raise AiCreativeRequestError("AI视觉返回的resolved_tags必须是对象")
+        clean_resolved: Dict[str, List[str]] = {}
+        round_item = (config.get("rounds") or [{}])[index - 1] if index - 1 < len(config.get("rounds") or []) else {}
+        overrides = (
+            round_item.get("overrides")
+            if isinstance(round_item, Mapping) and isinstance(round_item.get("overrides"), Mapping)
+            else {}
+        )
+        for key in VISUAL_CAROUSEL_ROUND_KEYS:
+            if key not in overrides:
+                continue
+            requested = _clean_mapping_list(overrides.get(key))
+            resolved_values = _clean_mapping_list(resolved_tags.get(key))
+            allowed_labels = labels_by_key.get(key) or []
+            if requested and allowed_labels:
+                for label in requested:
+                    if label not in allowed_labels:
+                        raise AiCreativeRequestError("AI视觉返回的轮播标签必须来自配置项")
+            if not resolved_values:
+                raise AiCreativeRequestError("AI视觉返回的空白适用标签必须由AI补全")
+            if allowed_labels:
+                for label in resolved_values:
+                    if label not in allowed_labels:
+                        raise AiCreativeRequestError("AI视觉返回的轮播标签必须来自配置项")
+            clean_resolved[key] = resolved_values
+        if (
+            "visual_product_selling_points" in clean_resolved
+            and "visual_display_contents" in clean_resolved
+            and relation_map
+        ):
+            selling_ids = {
+                label_id
+                for label in clean_resolved["visual_product_selling_points"]
+                for label_id, label_text in id_lookup_by_key.get("visual_product_selling_points", {}).items()
+                if label_text == label
+            }
+            display_ids = {
+                label_id
+                for label in clean_resolved["visual_display_contents"]
+                for label_id, label_text in id_lookup_by_key.get("visual_display_contents", {}).items()
+                if label_text == label
+            }
+            if selling_ids and display_ids:
+                allowed_display_ids = set()
+                for selling_id in selling_ids:
+                    allowed_display_ids.update(relation_map.get(selling_id, []))
+                if not display_ids <= allowed_display_ids:
+                    raise AiCreativeRequestError("AI视觉返回的卖点与展示内容关系不合法")
+        cleaned["resolved_tags"] = clean_resolved
+        cleaned["carousel_frames"] = clean_frames
+        result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS} | {
+            "resolved_tags": clean_resolved,
+            "carousel_frames": clean_frames,
+        })
     return result
 
 
@@ -637,6 +971,8 @@ def generate_visual_creative_recommendations(
     aspect_ratio: str = "16:9",
     product_evidence_summary: str = "",
     reference_file_names: Any = None,
+    carousel_config: Mapping[str, Any] | None = None,
+    tag_catalog: Mapping[str, Any] | None = None,
     conversation_id: str = "",
     parent_message_id: str = "",
     continuation_prompt: str = "",
@@ -659,6 +995,8 @@ def generate_visual_creative_recommendations(
             aspect_ratio=aspect_ratio,
             product_evidence_summary=product_evidence_summary,
             reference_file_names=reference_file_names,
+            carousel_config=carousel_config,
+            tag_catalog=tag_catalog,
         )
     payload = {
         "model": config.model,
@@ -672,7 +1010,8 @@ def generate_visual_creative_recommendations(
     started_at = time.perf_counter()
     response_payload: Any = None
     items: List[Dict[str, Any]] | None = None
-    for attempt in range(1, 3):
+    attempt_limit = 1 if _normalize_visual_carousel_request(carousel_config) else 2
+    for attempt in range(1, attempt_limit + 1):
         try:
             response = transport(
                 config.api_url,
@@ -688,7 +1027,11 @@ def generate_visual_creative_recommendations(
             raise AiCreativeRequestError("AI接口请求失败，请稍后重试") from exc
         try:
             response_payload = response.json()
-            items = validate_visual_creative_recommendations(response_payload)
+            items = validate_visual_creative_recommendations(
+                response_payload,
+                carousel_config=carousel_config,
+                tag_catalog=tag_catalog,
+            )
             response_conversation_id = str(
                 response_payload.get("conversation_id") or ""
             ).strip() if isinstance(response_payload, dict) else ""
@@ -703,11 +1046,11 @@ def generate_visual_creative_recommendations(
             break
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             _log_ai_response_diagnostics(config, None, attempt=attempt, outcome="response_json_error")
-            if attempt == 2:
+            if attempt == attempt_limit:
                 raise AiCreativeRequestError("AI接口返回内容无法解析") from exc
         except AiCreativeRequestError:
             _log_ai_response_diagnostics(config, response_payload, attempt=attempt, outcome="format_error")
-            if attempt == 2:
+            if attempt == attempt_limit:
                 raise
     if items is None:
         raise AiCreativeRequestError("AI返回结果无法解析")
