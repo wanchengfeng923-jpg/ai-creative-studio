@@ -48,7 +48,7 @@
 
 ### 账号初始化与会话
 
-- 首次部署使用 `PYTHONPATH=src python -m creative_studio.auth_cli init-admin --username <name> --password-stdin`，通过标准输入提供至少 12 位密码；命令不会打印密码。
+- 首次部署使用 `PYTHONPATH=src python -m creative_studio.auth_cli init-admin --username <name> --password-stdin`，通过标准输入提供至少 3 位密码；公网环境建议使用更长的随机密码，命令不会打印密码。
 - 也可仅在首次启动时设置 `CREATIVE_STUDIO_BOOTSTRAP_USERNAME` 与 `CREATIVE_STUDIO_BOOTSTRAP_PASSWORD`。数据库已有任意账号后，这两个变量不会创建或覆盖账号。
 - 管理员在网页中管理普通账号。停用或重置密码会立即撤销该账号的全部会话；重置密码只在响应中显示一次，随后必须修改密码。
 - 备份数据库前先停止服务；升级前先复制数据库到临时路径并验证迁移，禁止直接覆盖运行库。

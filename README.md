@@ -59,7 +59,7 @@ $env:PYTHONPATH = "D:\\code\\ai_creative_studio\\src"
 Read-Host -AsSecureString | ConvertFrom-SecureString -AsPlainText | python -m creative_studio.auth_cli init-admin --username admin --password-stdin
 ```
 
-也可在首次启动时临时设置 `CREATIVE_STUDIO_BOOTSTRAP_USERNAME` 和 `CREATIVE_STUDIO_BOOTSTRAP_PASSWORD`；账号表非空后不会再次使用。管理员可在网页中创建、停用、启用和重置普通账号；普通账号只能访问自己创建的项目。当前服务仍默认只监听 `127.0.0.1`，公网部署前还必须配置 HTTPS、反向代理、密钥管理、备份和外部限流。
+也可在首次启动时临时设置 `CREATIVE_STUDIO_BOOTSTRAP_USERNAME` 和 `CREATIVE_STUDIO_BOOTSTRAP_PASSWORD`；账号表非空后不会再次使用。密码最少 3 位，但公网部署强烈建议使用更长的随机密码。管理员可在网页中创建、停用、启用和重置普通账号；普通账号只能访问自己创建的项目。当前服务仍默认只监听 `127.0.0.1`，公网部署前还必须配置 HTTPS、反向代理、密钥管理、备份和外部限流。
 ## 网络代理工作台
 
 启动控制台中的“网络代理工作台”可以独立配置 ChatGPT 网关的出站代理，也可以直接运行：

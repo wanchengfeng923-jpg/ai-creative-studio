@@ -36,8 +36,8 @@ class AuthHelpersTests(unittest.TestCase):
             normalize_username(" user ")
 
     def test_validate_password_requires_minimum_length_and_string_value(self):
-        validate_password("0123456789ab")
-        for value in ("short", "", None):  # type: ignore[arg-type]
+        validate_password("abc")
+        for value in ("ab", "", None):  # type: ignore[arg-type]
             with self.assertRaises(AuthDataError):
                 validate_password(value)  # type: ignore[arg-type]
 

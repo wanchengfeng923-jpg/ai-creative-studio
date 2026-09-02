@@ -62,7 +62,7 @@ def normalize_username(value: str) -> str:
 
 
 def validate_password(value: str) -> None:
-    if not isinstance(value, str) or len(value) < 12:
+    if not isinstance(value, str) or len(value) < 3:
         raise AuthDataError("invalid password")
 
 
