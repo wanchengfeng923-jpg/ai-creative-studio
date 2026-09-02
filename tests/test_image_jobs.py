@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from creative_studio.image_jobs import GatewayJob, GptWebImageClient, ImageJobRunner
 from creative_studio.repository import StudioRepository
 
@@ -94,6 +96,32 @@ class ImageJobTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(gateway.calls, ["creative-studio-7-attempt-1"])
+
+    def test_transient_submit_failure_does_not_poison_same_key_retry(self) -> None:
+        client = GptWebImageClient("http://gateway")
+        calls: list[str] = []
+
+        def post(*args, **kwargs):
+            calls.append(str(kwargs["json"]["request_id"]))
+            if len(calls) == 1:
+                raise requests.Timeout("timeout")
+            return FakeResponse(
+                {
+                    "job_id": "job-success",
+                    "status": "queued",
+                    "image_url": "",
+                    "error": "",
+                }
+            )
+
+        request_id = GptWebImageClient.submission_key_for_item_attempt(7, 1)
+        with patch("creative_studio.image_jobs.requests.post", side_effect=post):
+            with self.assertRaises(requests.Timeout):
+                client.submit("prompt", "16:9", request_id)
+            job = client.submit("prompt", "16:9", request_id)
+
+        self.assertEqual(job.job_id, "job-success")
+        self.assertEqual(calls, [request_id, request_id])
 
     def test_recovery_requeues_only_stale_generating_items(self) -> None:
         with TemporaryDirectory() as tempdir:

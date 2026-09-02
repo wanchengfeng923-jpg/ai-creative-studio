@@ -30,7 +30,6 @@ class GptWebImageClient:
         self.control_token = str(control_token or "").strip()
         self._submit_lock = threading.Lock()
         self._submitted_jobs: dict[str, GatewayJob] = {}
-        self._submit_failures: dict[str, Exception] = {}
         self._submit_inflight: dict[str, threading.Event] = {}
 
     def _headers(self) -> dict[str, str]:
@@ -60,9 +59,6 @@ class GptWebImageClient:
             cached = self._submitted_jobs.get(request_id)
             if cached is not None:
                 return cached
-            failure = self._submit_failures.pop(request_id, None)
-            if failure is not None:
-                raise failure
             event = self._submit_inflight.get(request_id)
             if event is None:
                 event = threading.Event()
@@ -76,9 +72,6 @@ class GptWebImageClient:
                 cached = self._submitted_jobs.get(request_id)
                 if cached is not None:
                     return cached
-                failure = self._submit_failures.pop(request_id, None)
-                if failure is not None:
-                    raise failure
             raise RuntimeError("图片网关提交状态丢失")
         try:
             response = requests.post(
@@ -98,10 +91,6 @@ class GptWebImageClient:
             with self._submit_lock:
                 self._submitted_jobs[request_id] = job
             return job
-        except Exception as exc:
-            with self._submit_lock:
-                self._submit_failures[request_id] = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
-            raise
         finally:
             with self._submit_lock:
                 inflight = self._submit_inflight.pop(request_id, None)
