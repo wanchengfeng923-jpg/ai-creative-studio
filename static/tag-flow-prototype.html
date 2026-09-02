@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>标签折叠流程 · 视觉原型</title>
+  <link rel="stylesheet" href="/tag-flow-prototype.css">
+</head>
+<body>
+  <!-- PROTOTYPE — 三个标签折叠流程变体，通过 ?variant=A|B|C 切换。 -->
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" role="img"><path d="M7.5 18.5c3.1-8.4 12.8-11.4 18-5.1-4.6.2-8.5 2-11.2 5.1-2.3 2.7-4.5 3.8-6.8 3.7"/><circle cx="23.5" cy="8.5" r="2.25"/></svg>
+      </span>
+      <strong>辅助创意工具</strong>
+      <span class="prototype-badge">PROTOTYPE</span>
+    </div>
+    <div class="save-state"><span></span> 仅内存演示</div>
+  </header>
+
+  <main>
+    <section class="page-intro">
+      <div>
+        <p class="eyebrow">CREATIVE POSITIONING</p>
+        <h1>把创意定位，拆成一次一个决定</h1>
+        <p>完成当前模块后继续向前，也可以随时返回调整已选内容。</p>
+      </div>
+      <div class="mode-switch" aria-label="创意类型">
+        <button class="mode-button is-active" data-mode="visual"><span>视觉</span> 展示类</button>
+        <button class="mode-button" data-mode="narrative"><span>故事</span> 叙事类</button>
+      </div>
+    </section>
+
+    <nav class="stage-stepper" aria-label="创意工作流">
+      <div class="stage is-done"><span>✓</span><strong>任务说明<small>BRIEF</small></strong></div>
+      <i></i>
+      <div class="stage is-current"><span>2</span><strong>创意定位<small>POSITION</small></strong></div>
+      <i></i>
+      <div class="stage"><span>3</span><strong>生成与采用<small>OUTPUT</small></strong></div>
+    </nav>
+
+    <section class="flow-shell">
+      <aside class="progress-zone" aria-label="配置进度">
+        <div class="progress-main">
+          <div class="progress-ring" aria-hidden="true"><span id="progress-percent">22%</span></div>
+          <div class="progress-copy">
+            <span class="progress-kicker">定位完成度</span>
+            <strong><span id="completed-count">2</span> / <span id="total-count">9</span> 个模块</strong>
+            <p id="remaining-text">还有 7 个必填模块未完成</p>
+          </div>
+        </div>
+        <div class="current-note">
+          <span>当前</span>
+          <strong id="current-module">产品卖点</strong>
+          <small id="current-index">第 3 项</small>
+        </div>
+        <div class="progress-actions">
+          <button class="text-button" id="open-summary" type="button">查看全部配置</button>
+          <button class="submit-button" id="submit-button" type="button" disabled>进入生成</button>
+        </div>
+      </aside>
+
+      <div class="module-region">
+        <div class="variant-caption">
+          <span id="variant-letter">A</span>
+          <div><strong id="variant-name">聚焦卡片</strong><small id="variant-note">最克制，适合正式默认方案</small></div>
+        </div>
+        <div class="module-list" id="module-list"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="mobile-action" id="mobile-action">
+    <button class="mobile-clear" id="mobile-secondary-action" data-action="secondary" type="button">清空</button>
+    <button class="mobile-next" data-action="complete" type="button">完成并继续 <span>→</span></button>
+  </div>
+
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="summary-drawer" id="summary-drawer" aria-hidden="true" aria-labelledby="summary-title">
+    <div class="drawer-header">
+      <div><span>CONFIGURATION</span><h2 id="summary-title">全部定位配置</h2></div>
+      <button id="close-summary" type="button" aria-label="关闭配置摘要">×</button>
+    </div>
+    <div class="drawer-list" id="drawer-list"></div>
+  </aside>
+
+  <div class="prototype-switcher" aria-label="原型方案切换">
+    <button id="previous-variant" type="button" aria-label="上一个方案">←</button>
+    <div><span>视觉方案</span><strong id="switcher-label">A · 聚焦卡片</strong></div>
+    <div class="switcher-dots" id="switcher-dots"></div>
+    <button id="next-variant" type="button" aria-label="下一个方案">→</button>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/tag-flow-prototype.js"></script>
+</body>
+</html>

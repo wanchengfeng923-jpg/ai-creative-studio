@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from http import HTTPStatus
 import unittest
+from unittest.mock import patch
 
 from creative_studio.ai_creative import (
     AiCreativeConfigurationError,
     AiCreativeQueueTimeoutError,
     AiCreativeRequestError,
 )
-from creative_studio.app import StudioHandler
+from creative_studio.app import StudioApplication, StudioHandler
 from creative_studio.generation_models import (
     GenerationConflictError,
     GenerationInputError,
@@ -27,6 +28,21 @@ class DummyHandler:
 
 
 class AppApiTests(unittest.TestCase):
+    def test_model_client_defaults_to_local_gateway_when_launcher_env_is_absent(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "WEB_ERP_AI_API_URL": "",
+                "WEB_ERP_AI_API_KEY": "",
+                "WEB_ERP_AI_MODEL": "",
+            },
+            clear=False,
+        ):
+            client = StudioApplication._load_model_client()
+        self.assertIsNotNone(client)
+        self.assertEqual(client.api_url, "http://127.0.0.1:8780/v1/chat/completions")
+        self.assertEqual(client.api_key, "local-chatgpt-gateway")
+
     def test_require_auth_blocks_password_reset_user_for_business_requests(self) -> None:
         class Auth:
             def authenticate_session(self, session, csrf=None):

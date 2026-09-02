@@ -250,9 +250,6 @@ class VisualRecommendationSchema:
                     carousel=carousel,
                 )
             )
-        carousel_counts = [item.carousel.count for item in normalized_items]
-        if len(set(carousel_counts)) != 1:
-            raise SchemaValidationError("visual recommendation carousel.count must be uniform across all items")
         return VisualRecommendation(items=tuple(normalized_items))
 
 

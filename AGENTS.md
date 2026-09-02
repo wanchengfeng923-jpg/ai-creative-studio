@@ -11,6 +11,8 @@
 3. `docs/operations.md`：启动、数据、备份和故障边界。
 4. `docs/research/`：需要设计工程流程、AI评估、安全或发布方案时读取对应研究笔记。
 
+修改代码前再读 `CODE_STYLE.md`，按其中的技术边界、命名、注释和验证规则执行；若规范与本文件冲突，以本文件的项目安全和工作流门禁为准。
+
 ## 工作方式
 
 - 默认用简体中文沟通；先给结论，再给必要依据。
@@ -76,17 +78,3 @@ git diff --check
 - 发送真实平台写请求、发布、投放或通知。
 
 当前项目没有独立访问网址；本地启动后访问 `http://127.0.0.1:8775/`。
-
-## Agent skills
-
-### Issue tracker
-
-Issue 使用本地 Markdown，存放在 `.scratch/<feature-slug>/`。参见 `docs/agents/issue-tracker.md`。
-
-### Triage labels
-
-分类使用五个默认角色标签。参见 `docs/agents/triage-labels.md`。
-
-### Domain docs
-
-采用单上下文领域文档布局。参见 `docs/agents/domain.md`。

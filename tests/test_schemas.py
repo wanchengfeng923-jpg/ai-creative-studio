@@ -96,7 +96,7 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(result.count, 3)
         self.assertEqual([frame.index for frame in result.frames], [1, 2, 3])
 
-    def test_visual_schema_rejects_mixed_ai_carousel_counts(self) -> None:
+    def test_visual_schema_accepts_independent_ai_carousel_counts(self) -> None:
         payload = {"items": [_visual_item(index) for index in range(1, 4)]}
         payload["items"][0]["carousel"]["count"] = 2
         payload["items"][0]["carousel"]["frames"] = [
@@ -115,8 +115,8 @@ class SchemaTests(unittest.TestCase):
             {"index": 2, "display_description": "第2屏3"},
         ]
 
-        with self.assertRaises(SchemaValidationError):
-            VisualRecommendationSchema.validate(payload)
+        result = VisualRecommendationSchema.validate(payload)
+        self.assertEqual([item.carousel.count for item in result.items], [2, 3, 2])
 
     def test_visual_schema_rejects_missing_ai_carousel(self) -> None:
         payload = {"items": [_visual_item(index) for index in range(1, 4)]}

@@ -9,6 +9,10 @@
     activeBatch: 0,
     saveTimer: 0,
     pollTimer: 0,
+    generationStartedAt: 0,
+    generationTimer: 0,
+    continuingSchemes: new Set(),
+    carouselIndexes: new Map(),
     saving: false,
     tagConfig: null,
     tagUi: { openKey: "", query: "", confirmed: new Set(), confirmationProjectId: 0, confirmationScriptType: "", lastStep: 0, roundIndex: 1 },
@@ -19,7 +23,7 @@
   const els = {
     authGate: $("#authGate"), appShell: $("#appShell"), loginForm: $("#loginForm"), passwordForm: $("#passwordForm"), authMessage: $("#authMessage"), loginButton: $("#loginButton"), passwordButton: $("#passwordButton"), userBar: $("#userBar"), currentUserLabel: $("#currentUserLabel"), logout: $("#logoutButton"), adminUsersButton: $("#adminUsersButton"), adminDialog: $("#adminDialog"), closeAdminButton: $("#closeAdminButton"), adminUsersList: $("#adminUsersList"), adminUserSearch: $("#adminUserSearch"), adminRoleFilter: $("#adminRoleFilter"), openCreateUserButton: $("#openCreateUserButton"), createUserDialog: $("#createUserDialog"), closeCreateUserButton: $("#closeCreateUserButton"), cancelCreateUserButton: $("#cancelCreateUserButton"), createUserForm: $("#createUserForm"),
     empty: $("#emptyState"), workspace: $("#projectWorkspace"), list: $("#projectList"), sidebar: $("#projectSidebar"), sidebarBackdrop: $("#sidebarBackdrop"),
-    search: $("#projectSearch"), taskType: $("#taskType"),
+    search: $("#projectSearch"),
     description: $("#taskDescription"), descriptionLabel: $("#descriptionLabel"),
     evidence: $("#productEvidence"), aspectField: $("#aspectField"), files: $("#referenceFiles"),
     tagControls: $("#tagControls"),
@@ -29,9 +33,9 @@
     resultsMeta: $("#resultsMeta"), batchTabs: $("#batchTabs"), stale: $("#staleResults"),
     staleBody: $("#staleResultsBody"), adoption: $("#adoptionPanel"), toast: $("#toast"),
     imageDialog: $("#imageDialog"), dialogImage: $("#dialogImage"),
-    stepper: $("#stepper"), stepBrief: $("#stepBrief"), stepPosition: $("#stepPosition"), stepOutput: $("#stepOutput"),
-    briefNext: $("#briefNextButton"), positionBack: $("#positionBackButton"), positionNext: $("#positionNextButton"), outputEdit: $("#outputEditButton"),
-    projectMenu: $("#projectMenuButton"), briefSummary: $("#briefSummary"), briefProjectName: $("#briefProjectName"), briefTaskType: $("#briefTaskType"), briefDescription: $("#briefDescription"), briefScriptType: $("#briefScriptType"), briefAspect: $("#briefAspect"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
+    stepper: $("#stepper"), stepPosition: $("#stepPosition"), stepOutput: $("#stepOutput"),
+    positionNext: $("#positionNextButton"), outputEdit: $("#outputEditButton"),
+    projectMenu: $("#projectMenuButton"), outputBriefSummary: $("#outputBriefSummary"), outputModeSummary: $("#outputModeSummary"),
   };
 
   let currentStep = 1;
@@ -106,6 +110,16 @@
 
   function splitTags(value) {
     return String(value || "").split(/[，,、\n]/).map((item) => item.trim()).filter(Boolean);
+  }
+
+  function selectWithReplacement(values, value, max) {
+    const next = values.slice();
+    const index = next.indexOf(value);
+    if (index >= 0) { next.splice(index, 1); return next; }
+    if (max <= 0) return next;
+    if (next.length >= max) next.shift();
+    next.push(value);
+    return next;
   }
 
   function activeTagMode() {
@@ -195,7 +209,7 @@
     const categories = new Map();
     options.filter((option) => !blocked.has(option.label)).forEach((option) => { const category = option.category || "未分组"; if (!categories.has(category)) categories.set(category, []); categories.get(category).push(option); });
     const max = maxOverride ?? group.max ?? group.main_max ?? 1;
-    return Array.from(categories.entries()).map(([category, items]) => `<section class="tag-category"><div class="tag-category-header"><strong>${esc(category)}</strong><small>${items.length} 项</small></div><div class="tag-option-grid">${items.map((option) => optionButton(group, option, key, { selected: selected.includes(option.label), disabled: !selected.includes(option.label) && selected.length >= max })).join("")}</div></section>`).join("");
+    return Array.from(categories.entries()).map(([category, items]) => `<section class="tag-category"><div class="tag-category-header"><strong>${esc(category)}</strong><small>${items.length} 项</small></div><div class="tag-option-grid">${items.map((option) => optionButton(group, option, key, { selected: selected.includes(option.label) })).join("")}</div></section>`).join("");
   }
 
   function selectedHeadingText(values) {
@@ -243,7 +257,7 @@
     });
     const max = maxOverride ?? group.max ?? group.main_max ?? 1;
     const columns = Array.from(categories.entries()).map(([category, items]) => `<th scope="col">${esc(category)}</th>`).join("");
-    const cells = Array.from(categories.values()).map((items) => `<td><div class="report-choice-list">${items.map((option) => optionButton(group, option, key, { selected: selected.has(option.label), disabled: !selected.has(option.label) && selected.size >= max })).join("")}</div></td>`).join("");
+    const cells = Array.from(categories.values()).map((items) => `<td><div class="report-choice-list">${items.map((option) => optionButton(group, option, key, { selected: selected.has(option.label) })).join("")}</div></td>`).join("");
     return `<div class="creative-position-table-scroll"><table class="creative-position-table"><tbody><tr><th scope="row">定位名称</th>${columns}</tr><tr><th scope="row">选项</th>${cells}</tr></tbody></table></div>`;
   }
 
@@ -283,7 +297,7 @@
 
   function renderStyleChapter(group, draft) {
     const relevance = draft.visual_art_style_relevance || []; const styles = group.options.filter((option) => !relevance.length || relevance.includes(option.category)); const selectedStyle = draft.visual_art_style || []; const currentStyle = group.options.find((option) => selectedStyle.includes(option.label)); const refs = currentStyle?.references || [];
-    return `<div class="cascade-step"><strong>1 · 与产品视觉的相关度</strong><div class="tag-option-grid">${Array.from(new Set(group.options.map((option) => option.category))).map((value) => optionButton(group, { label: value, description: "一级相关度，用于表达与真实产品视觉的距离" }, "visual_art_style_relevance", { selected: relevance.includes(value) })).join("")}</div></div><div class="cascade-step"><strong>2 · 具体美术风格</strong><div class="tag-option-grid">${styles.map((option) => optionButton(group, option, "visual_art_style", { selected: selectedStyle.includes(option.label) })).join("")}</div></div>${currentStyle ? `<div class="cascade-step"><strong>3 · 参考作品 <small>可选，最多 2 项</small></strong><div class="tag-option-grid">${refs.map((option) => optionButton(group, option, "visual_art_style_references", { selected: (draft.visual_art_style_references || []).includes(option.label), disabled: !(draft.visual_art_style_references || []).includes(option.label) && (draft.visual_art_style_references || []).length >= 2 })).join("")}</div></div>` : ""}`;
+    return `<div class="cascade-step"><strong>1 · 与产品视觉的相关度</strong><div class="tag-option-grid">${Array.from(new Set(group.options.map((option) => option.category))).map((value) => optionButton(group, { label: value, description: "一级相关度，用于表达与真实产品视觉的距离" }, "visual_art_style_relevance", { selected: relevance.includes(value) })).join("")}</div></div><div class="cascade-step"><strong>2 · 具体美术风格</strong><div class="tag-option-grid">${styles.map((option) => optionButton(group, option, "visual_art_style", { selected: selectedStyle.includes(option.label) })).join("")}</div></div>${currentStyle ? `<div class="cascade-step"><strong>3 · 参考作品 <small>可选，最多 2 项</small></strong><div class="tag-option-grid">${refs.map((option) => optionButton(group, option, "visual_art_style_references", { selected: (draft.visual_art_style_references || []).includes(option.label) })).join("")}</div></div>` : ""}`;
   }
 
   function buildChapters(mode, groups) {
@@ -370,7 +384,7 @@
     const fieldMarkup = fields.map((field) => {
       const values = current.mode === "inherit" && current.index > 1 ? (inherited.overrides[field.key] || []) : (current.overrides[field.key] || []);
       const options = field.options;
-      return `<section class="carousel-round-field"><div class="carousel-round-field-heading"><strong>${esc(field.label)}</strong><small>${current.mode === "inherit" && current.index > 1 ? "跟随第1轮" : "可选，留空由AI补全"}</small></div><div class="tag-option-grid">${options.map((option) => optionButton(null, option, `round:${current.index}:${field.key}`, { selected: values.includes(option.label), disabled: !values.includes(option.label) && values.length >= field.max })).join("")}</div></section>`;
+      return `<section class="carousel-round-field"><div class="carousel-round-field-heading"><strong>${esc(field.label)}</strong><small>${current.mode === "inherit" && current.index > 1 ? "跟随第1轮" : "可选，留空由AI补全"}</small></div><div class="tag-option-grid">${options.map((option) => optionButton(null, option, `round:${current.index}:${field.key}`, { selected: values.includes(option.label) })).join("")}</div></section>`;
     }).join("");
     return `<section class="carousel-round-editor"><div class="carousel-round-heading"><div><strong>逐轮创意定位</strong><small>固定 ${count} 屏；第2轮起默认继承第1轮，可随时改为自定义</small></div><span>仅最终生成时调用AI</span></div><div class="carousel-round-tabs">${rounds.map((round) => `<button type="button" class="${round.index === current.index ? "active" : ""}" data-carousel-round="${round.index}">第${round.index}轮${round.index > 1 && round.mode === "inherit" ? " · 继承" : ""}</button>`).join("")}</div>${current.index > 1 ? `<div class="carousel-round-mode"><button type="button" class="${current.mode === "inherit" ? "active" : ""}" data-carousel-mode="inherit">跟随第1轮</button><button type="button" class="${current.mode === "custom" ? "active" : ""}" data-carousel-mode="custom">本轮自定义</button></div>` : ""}<div class="carousel-round-fields">${fieldMarkup}</div></section>`;
   }
@@ -380,7 +394,7 @@
     return {
       name: state.project.name.trim() || "未命名创意",
       script_type: selectedScriptType(),
-      task_type: els.taskType.value,
+      task_type: "",
       task_description: els.description.value,
       product_evidence_summary: els.evidence.value,
       aspect_ratio: $("[data-aspect].active")?.dataset.aspect || "16:9",
@@ -418,7 +432,6 @@
     const projectNameInput = els.list.querySelector("[data-project-name-input]");
     projectNameInput?.addEventListener("input", () => {
       state.project.name = projectNameInput.value;
-      els.briefProjectName.textContent = projectNameInput.value.trim() || "未命名创意";
       scheduleSave();
     });
   }
@@ -452,8 +465,6 @@
     const project = state.project;
     els.empty.classList.add("hidden");
     els.workspace.classList.remove("hidden");
-    els.briefProjectName.textContent = project.name;
-    els.taskType.value = project.task_type || "";
     els.description.value = project.task_description || "";
     els.evidence.value = project.product_evidence_summary || "";
     $$('[data-aspect]').forEach((button) => button.classList.toggle("active", button.dataset.aspect === project.aspect_ratio));
@@ -462,7 +473,7 @@
     updateModeCopy();
     renderAdoption();
     els.saveState.textContent = "已保存";
-    currentStep = state.history?.batches?.length ? 3 : (project.task_description ? 2 : 1);
+    currentStep = state.history?.batches?.length ? 2 : 1;
     applyStep();
   }
 
@@ -470,10 +481,8 @@
     if (!state.project) return;
     if (currentStep === 2 && state.tagUi.lastStep !== 2) { state.tagUi.openKey = ""; renderTagControls(); }
     state.tagUi.lastStep = currentStep;
-    els.stepBrief.classList.toggle("hidden", currentStep !== 1);
-    els.stepPosition.classList.toggle("hidden", currentStep !== 2);
-    els.stepOutput.classList.toggle("hidden", currentStep !== 3);
-    els.briefSummary.classList.toggle("hidden", currentStep === 3);
+    els.stepPosition.classList.toggle("hidden", currentStep !== 1);
+    els.stepOutput.classList.toggle("hidden", currentStep !== 2);
     els.stepper.querySelectorAll("[data-step]").forEach((button) => {
       const step = Number(button.dataset.step);
       button.classList.toggle("active", step === currentStep);
@@ -481,10 +490,6 @@
       button.querySelector("span").textContent = step < currentStep ? "✓" : String(step);
     });
     const description = (els.description.value || "").trim();
-    els.briefTaskType.textContent = els.taskType.value.trim() || "尚未填写";
-    els.briefDescription.textContent = description || "尚未填写";
-    els.briefScriptType.textContent = state.project.script_type || "展示类";
-    els.briefAspect.textContent = state.project.aspect_ratio === "9:16" ? "竖版 9:16" : "横版 16:9";
     els.outputBriefSummary.textContent = description ? description.slice(0, 42) : "目标尚未填写";
     els.outputModeSummary.textContent = state.project.script_type || "展示类";
   }
@@ -516,7 +521,6 @@
       });
       state.project = payload.project;
       els.saveState.textContent = "已保存";
-      els.briefProjectName.textContent = state.project.name;
       applyStep();
       await loadProjects();
       if (!quiet) await loadHistory(false);
@@ -537,7 +541,7 @@
     els.generationHint.textContent = visual ? "每个定位最多生成2批，每批3套方案" : "每个定位最多生成2批，每批5个故事";
     els.generate.innerHTML = visual ? "<span>✦</span> 生成视觉方案" : "<span>✦</span> 生成叙事方案";
     els.resultsTitle.textContent = visual ? "视觉方案" : "叙事方案";
-    if (state.project) { els.briefScriptType.textContent = state.project.script_type; els.outputModeSummary.textContent = state.project.script_type; }
+    if (state.project) { els.outputModeSummary.textContent = state.project.script_type; }
     applyStep();
   }
 
@@ -549,7 +553,7 @@
     state.activeBatch = Math.max(0, Math.min(state.activeBatch, Math.max(0, history.batches.length - 1)));
     if (history.adoption) state.project.adoption = history.adoption;
     renderHistory();
-    if (history.batches.length && currentStep < 3) { currentStep = 3; applyStep(); }
+    if (history.batches.length && currentStep < 2) { currentStep = 2; applyStep(); }
   }
 
   function renderHistory() {
@@ -583,8 +587,10 @@
     els.resultsGrid.innerHTML = batch.items.map((item, index) => {
       const image = visualImageMarkup(item);
       const sources = (item.reference_sources || []).map((source) => `${esc(source.name)}：${esc(source.note)}`).join("<br>");
-      const frames = Array.isArray(item.carousel_frames) && item.carousel_frames.length > 1 ? `<div class="carousel-result"><b>轮播定位</b>${item.carousel_frames.map((frame) => `<span>第${esc(frame)}轮</span>`).join("")}</div>` : "";
+      const carouselFramesMarkup = Array.isArray(item.carousel_frames) && item.carousel_frames.length > 1 ? `<div class="carousel-result"><b>轮播定位</b>${item.carousel_frames.map((frame) => `<span>第${esc(frame)}轮</span>`).join("")}</div>` : "";
       const resolvedTags = item.resolved_tags && typeof item.resolved_tags === "object" ? Object.entries(item.resolved_tags).filter(([, values]) => Array.isArray(values) && values.length).map(([key, values]) => `<div><b>${esc({ visual_product_selling_points: "产品卖点", visual_display_contents: "展示内容", visual_motif: "视觉母题" }[key] || key)}：</b>${esc(values.join("、"))}</div>`).join("") : "";
+      const frames = Array.isArray(item.frames) ? item.frames : [];
+      const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${frames.map((frame) => `<div class="display-frame-row"><div>第${esc(frame.frame_index)}张：${esc(frame.planned_content)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}?v=${Date.now()}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frame.frame_index)}张轮播画面">` : ""}</div>`).join("")}</div>` : "";
       return `<article class="creative-card">
         ${image}
         <div class="card-body">
@@ -595,25 +601,43 @@
             <p><b>核心主体：</b>${esc(item.core_subject)}</p><p><b>画面布局：</b>${esc(item.layout)}</p>
             <p><b>视觉风格：</b>${esc(item.visual_style)}</p><p><b>内容延展：</b>${esc((item.content_extensions || []).join("；"))}</p>
             <p><b>参考来源：</b><br>${sources}</p>
-            ${frames}${resolvedTags ? `<div class="resolved-tags"><b>最终定位（用户未填写项由AI补全）：</b>${resolvedTags}</div>` : ""}
+            ${carouselFramesMarkup}${frameSummary}${resolvedTags ? `<div class="resolved-tags"><b>最终定位（用户未填写项由AI补全）：</b>${resolvedTags}</div>` : ""}
           </details>
           <div class="keywords">${(item.keywords || []).map((key) => `<span>${esc(key)}</span>`).join("")}</div>
           <div class="card-actions">
             ${item.image_status === "failed" ? `<button data-retry-item="${item.id}">重新生成此图</button>` : ""}
+            ${frames.length > 1 ? `<button data-continue-scheme="${item.id}" ${state.continuingSchemes.has(item.id) ? "disabled" : ""}>${state.continuingSchemes.has(item.id) ? "继续生成中…" : "继续生成"}</button>` : ""}
             <button data-adopt-visual="${item.id}">${isAdopted("visual", String(item.id)) ? "已采用" : "采用此方案"}</button>
           </div>
         </div></article>`;
     }).join("");
     els.resultsGrid.querySelectorAll("[data-image-url]").forEach((image) => image.addEventListener("click", () => openImage(image.dataset.imageUrl)));
+    els.resultsGrid.querySelectorAll("[data-carousel-prev], [data-carousel-next]").forEach((button) => button.addEventListener("click", () => {
+      const itemId = Number(button.dataset.carouselPrev || button.dataset.carouselNext);
+      const item = batch.items.find((entry) => Number(entry.id) === itemId);
+      const count = item && Array.isArray(item.frames) && item.frames.length ? item.frames.length : 1;
+      const current = state.carouselIndexes.get(itemId) || 0;
+      const delta = button.hasAttribute("data-carousel-next") ? 1 : -1;
+      state.carouselIndexes.set(itemId, (current + delta + count) % count);
+      renderHistory();
+    }));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
+    els.resultsGrid.querySelectorAll("[data-continue-scheme]").forEach((button) => button.addEventListener("click", () => continueScheme(Number(button.dataset.continueScheme))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
   }
 
   function visualImageMarkup(item) {
     const portrait = item.aspect_ratio === "9:16" ? " portrait" : "";
-    if (item.image_status === "success") return `<div class="image-frame${portrait}"><img src="${esc(item.image_url)}?v=${Date.now()}" data-image-url="${esc(item.image_url)}" alt="${esc(item.title)} AI参考图"></div>`;
-    if (item.image_status === "failed") return `<div class="image-frame${portrait}"><div class="image-state">生成失败<br><small>${esc(item.image_error || "可单独重试")}</small></div></div>`;
-    return `<div class="image-frame${portrait}"><div class="image-state"><i></i>${item.image_status === "generating" ? "AI参考图生成中" : "AI参考图排队中"}</div></div>`;
+    const frames = Array.isArray(item.frames) && item.frames.length ? item.frames : [{ frame_index: 1, image_status: item.image_status, image_url: item.image_url, image_error: item.image_error }];
+    const currentIndex = Math.min(state.carouselIndexes.get(Number(item.id)) || 0, frames.length - 1);
+    const frame = frames[currentIndex];
+    const image = frame.image_status === "success" && frame.image_url
+      ? `<img src="${esc(frame.image_url)}?v=${Date.now()}" data-image-url="${esc(frame.image_url)}" alt="${esc(item.title)} 第${esc(frame.frame_index)}张画面">`
+      : frame.image_status === "failed"
+        ? `<div class="image-state">生成失败<br><small>${esc(frame.image_error || "可重试")}</small></div>`
+        : `<div class="image-state"><i></i>${frame.image_status === "generating" ? "AI参考图生成中" : "AI参考图排队中"}</div>`;
+    const controls = frames.length > 1 ? `<button class="carousel-arrow prev" data-carousel-prev="${esc(item.id)}" aria-label="上一张">‹</button><span class="carousel-index">第${esc(frame.frame_index)}张 / ${frames.length}张</span><button class="carousel-arrow next" data-carousel-next="${esc(item.id)}" aria-label="下一张">›</button>` : "";
+    return `<div class="image-frame${portrait} carousel-viewer">${image}${controls ? `<div class="carousel-controls">${controls}</div>` : ""}</div>`;
   }
 
   function renderNarrativeBatch(batch) {
@@ -646,6 +670,10 @@
     els.adoption.innerHTML = `<strong>✓ 当前采用方案</strong><p>${esc(snapshot.title || snapshot.story || "已采用方案")} · ${adoption.recommendation_kind === "visual" ? "展示类" : "叙事类"}</p>`;
   }
 
+  function displayFrameStatusLabel(status) {
+    return ({ queued: "排队中", pending: "等待中", generating: "生成中", success: "已完成", failed: "生成失败" })[status] || "处理中";
+  }
+
   function updateGenerateState() {
     if (!state.history) return;
     els.generate.disabled = state.history.remaining_generations <= 0;
@@ -654,20 +682,48 @@
     else updateModeCopy();
   }
 
+  function formatGenerationElapsed(elapsedMs) {
+    const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    const seconds = elapsedSeconds % 60;
+    const minutes = Math.floor(elapsedSeconds / 60) % 60;
+    const hours = Math.floor(elapsedSeconds / 3600);
+    const clock = [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+    return hours ? clock : clock.slice(3);
+  }
+
+  function updateGenerationWaitLabel() {
+    if (!state.generationStartedAt) return;
+    els.generate.innerHTML = `<span>✦</span> 正在生成文字方案 · 已等待 ${formatGenerationElapsed(Date.now() - state.generationStartedAt)}`;
+  }
+
+  function startGenerationWait() {
+    clearInterval(state.generationTimer);
+    state.generationStartedAt = Date.now();
+    updateGenerationWaitLabel();
+    state.generationTimer = setInterval(updateGenerationWaitLabel, 1000);
+  }
+
+  function stopGenerationWait() {
+    clearInterval(state.generationTimer);
+    state.generationTimer = 0;
+    state.generationStartedAt = 0;
+  }
+
   async function generate() {
     try {
+      startGenerationWait();
       await saveProject(true);
       els.generate.disabled = true;
-      els.generate.textContent = "正在生成文字方案…";
-      state.history = await api(`/api/projects/${state.project.id}/generate`, { method: "POST" });
-      state.activeBatch = Math.max(0, state.history.batches.length - 1);
-      renderHistory();
+      updateGenerationWaitLabel();
+      await api(`/api/projects/${state.project.id}/generate`, { method: "POST" });
+      await loadHistory(true);
       await loadProjects();
       toast("方案已生成，参考图会继续在后台完成");
     } catch (error) {
       toast(error.message, true);
       await loadHistory(false).catch(() => {});
     } finally {
+      stopGenerationWait();
       updateGenerateState();
     }
   }
@@ -678,6 +734,20 @@
       toast("已重新生成这张参考图");
       await loadHistory(false);
     } catch (error) { toast(error.message, true); }
+  }
+
+  async function continueScheme(itemId) {
+    if (state.continuingSchemes.has(itemId)) return;
+    state.continuingSchemes.add(itemId);
+    renderHistory();
+    try {
+      toast("正在按方案路线生成后续画面");
+      await api(`/api/visual-items/${itemId}/continue`, { method: "POST" });
+    } catch (error) { toast(error.message, true); }
+    finally {
+      state.continuingSchemes.delete(itemId);
+      await loadHistory(false).catch(() => {});
+    }
   }
 
   async function adoptVisual(itemId) {
@@ -770,14 +840,12 @@
     $("#deleteProjectButton").addEventListener("click", deleteProject);
     els.projectMenu.addEventListener("click", () => setProjectDrawer(!els.sidebar.classList.contains("drawer-open")));
     els.sidebarBackdrop.addEventListener("click", () => setProjectDrawer(false));
-    els.briefNext.addEventListener("click", () => { currentStep = 2; applyStep(); });
-    els.positionBack.addEventListener("click", () => { currentStep = 1; applyStep(); });
-    els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 3; applyStep(); await loadHistory(false).catch(() => {}); });
-    els.outputEdit.addEventListener("click", () => { currentStep = 2; applyStep(); });
+    els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 2; applyStep(); await loadHistory(false).catch(() => {}); });
+    els.outputEdit.addEventListener("click", () => { currentStep = 1; applyStep(); });
     els.stepper.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => { currentStep = Number(button.dataset.step); applyStep(); }));
     els.generate.addEventListener("click", generate);
     els.search.addEventListener("input", () => { clearTimeout(els.search.timer); els.search.timer = setTimeout(loadProjects, 250); });
-    [els.taskType, els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
+    [els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
     els.tagControls.addEventListener("click", (event) => {
       const info = event.target.closest("[data-tooltip]");
       if (info) { event.stopPropagation(); toast(info.dataset.tooltip); return; }
@@ -816,13 +884,13 @@
       const roundOption = event.target.closest("[data-tag-key^='round:'][data-tag-value]");
       if (roundOption) {
         const [, indexText, key] = roundOption.dataset.tagKey.split(":"); const index = Number(indexText); const draft = collectTagValues(); const rounds = ensureCarouselRounds(draft); const round = rounds[index - 1]; const field = carouselFieldGroups().find((item) => item.key === key);
-        if (round && field && (index === 1 || round.mode === "custom")) { const values = round.overrides[key] || []; const position = values.indexOf(roundOption.dataset.tagValue); if (position >= 0) values.splice(position, 1); else if (values.length < field.max) { if (field.max === 1) values.splice(0, values.length, roundOption.dataset.tagValue); else values.push(roundOption.dataset.tagValue); } round.overrides[key] = values; }
+        if (round && field && (index === 1 || round.mode === "custom")) { const values = round.overrides[key] || []; round.overrides[key] = selectWithReplacement(values, roundOption.dataset.tagValue, field.max); }
         state.tagUi.draft = draft; renderTagControls(); scheduleSave(); return;
       }
       const option = event.target.closest("[data-tag-key][data-tag-value]");
       if (option) {
         const key = option.dataset.tagKey; const value = option.dataset.tagValue; const draft = collectTagValues(); const current = draft[key] || [];
-        const index = current.indexOf(value); const group = (state.tagConfig[activeTagMode()]?.groups || []).find((item) => item.key === key || item.secondary_key === key);
+        const group = (state.tagConfig[activeTagMode()]?.groups || []).find((item) => item.key === key || item.secondary_key === key);
         if (group?.type === "primary_secondary" || group?.secondary_key === key) {
           const main = draft[group.key] || []; const secondary = draft[group.secondary_key] || [];
           const mainIndex = main.indexOf(value); const secondaryIndex = secondary.indexOf(value);
@@ -830,14 +898,17 @@
           else if (secondaryIndex >= 0) secondary.splice(secondaryIndex, 1);
           else {
             const totalMax = (group.main_max || 0) + (group.secondary_max || 0);
-            if (main.length + secondary.length < totalMax) (main.length ? secondary : main).push(value);
+            const ordered = [...main, ...secondary];
+            if (ordered.length >= totalMax) ordered.shift();
+            ordered.push(value);
+            main.splice(0, main.length, ...ordered.slice(0, group.main_max || 0));
+            secondary.splice(0, secondary.length, ...ordered.slice(group.main_max || 0, totalMax));
           }
           if (!main.length && secondary.length) main.push(secondary.shift());
           draft[group.key] = main; draft[group.secondary_key] = secondary;
         } else {
-          const max = group?.max || group?.main_max || 1;
-          if (index >= 0) current.splice(index, 1); else if (current.length < max) { if (max === 1) current.splice(0, current.length, value); else current.push(value); }
-          draft[key] = current;
+          const max = key === "visual_art_style_references" ? 2 : (group?.max || group?.main_max || 1);
+          draft[key] = selectWithReplacement(current, value, max);
         }
         if (key === "visual_art_style_relevance") { draft.visual_art_style = []; draft.visual_art_style_references = []; }
         if (key === "visual_art_style") draft.visual_art_style_references = [];

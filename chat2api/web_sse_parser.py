@@ -15,20 +15,21 @@ _ASSET_URL_RE = re.compile(
 )
 
 
-def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str], str]:
+def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str], str, str]:
     """解析 Web 端图片生成的 SSE 流。
 
-    返回: (conversation_id, file_ids, sediment_ids, direct_urls, last_text)
+    返回: (conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id)
     """
     conversation_id = ""
     last_text = ""
+    assistant_message_id = ""
     file_ids: list[str] = []
     sediment_ids: list[str] = []
     direct_urls: list[str] = []
     data_lines: list[str] = []
 
     def flush():
-        nonlocal conversation_id, last_text
+        nonlocal conversation_id, last_text, assistant_message_id
         if not data_lines:
             return
         data = "\n".join(data_lines).strip()
@@ -48,6 +49,9 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
         try:
             parsed = json.loads(data)
             if isinstance(parsed, dict):
+                message_id = _extract_assistant_message_id(parsed)
+                if message_id:
+                    assistant_message_id = message_id
                 tool_fids, tool_sids = extract_web_image_tool_ids(parsed)
                 _add_unique(file_ids, *tool_fids)
                 _add_unique(sediment_ids, *tool_sids)
@@ -70,8 +74,8 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
             ev_type = ev.get("type", "")
 
             if ev_type == "response.output_item.done":
-                item = ev.get("item", {})
-                if item.get("type"):
+                item = ev.get("item")
+                if isinstance(item, dict) and item.get("type"):
                     b64, url = _output_image_payload(item)
                     if url:
                         _add_unique_urls(direct_urls, url)
@@ -80,7 +84,11 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
                         _add_unique(direct_urls, f"data:{mime};base64,{b64}")
 
             elif ev_type == "response.completed":
-                for out in ev.get("response", {}).get("output", []):
+                response_obj = ev.get("response")
+                outputs = response_obj.get("output", []) if isinstance(response_obj, dict) else []
+                for out in outputs:
+                    if not isinstance(out, dict):
+                        continue
                     b64, url = _output_image_payload(out)
                     if url:
                         _add_unique_urls(direct_urls, url)
@@ -95,7 +103,7 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
                     _add_unique(direct_urls, f"data:{mime};base64,{b64}")
 
             # 也检查顶层 output 字段
-            direct_output = ev.get("output", [])
+            direct_output = ev.get("output") or []
             if isinstance(direct_output, list) and direct_output and ev_type == "":
                 for out in direct_output:
                     if isinstance(out, dict):
@@ -106,7 +114,9 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
                             mime = _mime_for_format(out.get("output_format", ""))
                             _add_unique(direct_urls, f"data:{mime};base64,{b64}")
 
-        except (json.JSONDecodeError, TypeError, KeyError):
+        except Exception:
+            # A provider event may contain null or provider-specific shapes;
+            # ignore that event and keep parsing later image events.
             pass
 
     for line in text.split("\n"):
@@ -117,7 +127,30 @@ def parse_web_image_sse(text: str) -> tuple[str, list[str], list[str], list[str]
             data_lines.append(line[5:].strip())
 
     flush()
-    return conversation_id, file_ids, sediment_ids, direct_urls, last_text
+    return conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id
+
+
+def _extract_assistant_message_id(value: Any) -> str:
+    """从 SSE 事件中提取最新 assistant 消息 ID，用于后续续聊。"""
+    if isinstance(value, dict):
+        explicit_message_id = str(value.get("message_id") or "").strip()
+        if explicit_message_id:
+            return explicit_message_id
+        author = value.get("author")
+        if isinstance(author, dict) and author.get("role") == "assistant":
+            message_id = str(value.get("id") or value.get("message_id") or "").strip()
+            if message_id:
+                return message_id
+        for child in value.values():
+            found = _extract_assistant_message_id(child)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _extract_assistant_message_id(child)
+            if found:
+                return found
+    return ""
 
 
 def extract_web_image_ids(payload: str) -> tuple[str, list[str], list[str], list[str]]:
@@ -226,9 +259,9 @@ def _as_web_message_map(m: dict) -> dict | None:
 
 
 def _is_web_image_asset_message(msg: dict) -> bool:
-    author = msg.get("author", {})
-    metadata = msg.get("metadata", {})
-    content = msg.get("content", {})
+    author = msg.get("author") if isinstance(msg.get("author"), dict) else {}
+    metadata = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+    content = msg.get("content") if isinstance(msg.get("content"), dict) else {}
     role = str(author.get("role", "")).lower().strip()
     task_type = str(metadata.get("async_task_type", "") or metadata.get("task_type", "")).lower().strip()
     content_type = str(content.get("content_type", "")).lower().strip()

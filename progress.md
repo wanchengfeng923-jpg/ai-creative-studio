@@ -1,5 +1,399 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-02 补齐轮播提示词上下文与图片模式约束
+
+### 已完成
+
+- 展示方案持久化保留核心主体、画面布局、视觉风格、内容延展、参考来源、关键词及任务/产品证据，继续生成时完整注入同一方案上下文。
+- 首帧和后续画面提示词明确区分规划 JSON 与图片执行指令；图片指令要求直接生成图片，不返回文字、JSON、Markdown 或解释。
+- 图片网关入口统一增加图片模式前缀，降低上游模型将生图请求误判为文字问答的概率。
+- 继续生成不再向可见文字会话发送后续 JSON 请求，直接依据锁定路线生成图片提示词并提交图片网关；上一张成功图片继续作为参考图。
+- 网页服务在未由启动器注入环境变量时，自动回退到本项目本地 AI 网关和版本化提示词路径；不读取或改写令牌配置。
+
+### 验证
+
+- 轮播继续生成、图片任务、生成服务和仓储回归测试通过。
+- 全量确定性测试：127 项中 126 项通过；唯一错误仍为当前环境缺少 `pydantic_settings`，导致既有 `test_auth_refresh` 无法导入。
+
+## 2026-09-02 修正轮播继续生成会话路线
+
+### 已完成
+
+- 将展示类轮播批次固定为一次共享文字会话输出三套方案和完整画面路线。
+- 每套方案在独立的新文字会话中重新生成第 1 帧，持久化独立 `conversation_id` / `parent_message_id`，首帧图片再进入该方案任务。
+- 继续生成复用方案自己的会话，按帧序串行生成后续画面；旧历史方案缺少会话时也会先补建首帧并等待首图完成。
+- 前端继续按钮增加“继续生成中”状态和重复点击保护；隐藏图片指令仍不进入公开响应。
+
+### 验证
+
+- 新增生成服务回归测试：确认 1 次共享方案请求后有 3 次无会话首帧请求，三套方案会话游标各不相同，首帧内容来自独立会话。
+- 连续画面会话测试、仓储测试和前端契约测试通过；`node --check static/app.js`、`python -m compileall -q src chat2api`、`git diff --check` 通过。
+- 全量确定性测试：127 项中 126 项通过；唯一错误为当前环境缺少 `pydantic_settings`，导致既有 `test_auth_refresh` 无法导入。
+
+### 未完成
+
+- 未在真实浏览器和有效 AI 凭据下执行轮播首帧/继续生成；真实网关和图片质量仍未验证。
+
+## 2026-09-02 修正竖版画面显示比例
+
+### 已完成
+
+- 将竖版图片容器比例从 `9:12` 修正为 `9:16`，与项目竖版画幅一致。
+- 保持图片使用 `object-fit: contain`，完整显示画面内容。
+
+### 验证
+
+- `tests.test_frontend_tag_reports.FrontendTagReportTests.test_portrait_image_frame_uses_full_9_by_16_ratio`：通过。
+- `node --check static/app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 未发起真实 AI 图片请求；未进行带认证的浏览器人工验收。
+
+## 2026-09-02 生成成功后自动刷新结果
+
+### 已完成
+
+- 生成接口成功返回后，前端自动重新读取规范化历史数据并渲染最新方案。
+- 修复 POST 生成响应缺少类型字段时误用叙事卡片渲染展示类方案的问题。
+- 保留图片后台生成和状态轮询，不需要用户手动刷新浏览器。
+
+### 验证
+
+- `tests.test_generation_service` 与 `tests.test_frontend_tag_reports`：28 项通过。
+- `python -m compileall -q src chat2api`、`node --check static/app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 未发起真实 AI 文字或图片请求；未进行带认证的浏览器人工验收。
+
+## 2026-09-02 展示类文字结果优先返回
+
+### 已完成
+
+- 展示类文字方案完成校验和图片任务入队后立即返回，不再等待全部图片进入终态。
+- 前端先渲染方案文字与图片占位，图片继续由后台任务和已有轮询更新。
+- 叙事类生成和连续画面继续生成逻辑保持不变。
+
+### 验证
+
+- `tests.test_generation_service` 与 `tests.test_frontend_tag_reports`：26 项通过。
+- `python -m compileall -q src chat2api`、`node --check static/app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 未发起真实 AI 文字或图片请求；未进行带认证的浏览器人工验收。
+
+## 2026-09-02 方案细节状态中文化
+
+### 已完成
+
+- 方案细节中的画面状态由内部英文值转换为中文：排队中、等待中、生成中、已完成、生成失败。
+- 未知状态统一显示为“处理中”，避免内部枚举直接泄漏到界面。
+
+### 验证
+
+- `tests.test_frontend_tag_reports.FrontendTagReportTests.test_frame_statuses_are_translated_for_scheme_details`：通过。
+- `node --check static/app.js`：通过。
+
+### 未完成
+
+- 未发起真实 AI 文字或图片请求；未进行带认证的浏览器人工验收。
+
+## 2026-09-02 展示方案操作收敛
+
+### 已完成
+
+- 移除展示类轮播方案卡上独立的“选择方案”按钮及其前端监听器。
+- 每套方案只保留“继续生成”和“采用此方案”；继续生成直接调用对应方案接口，由后端自动建立/复用该方案独立会话并按序推进后续画面。
+- 保持多套方案可同时点击继续生成，各方案使用独立会话和状态锁，任务不会互相串线。
+
+### 验证
+
+- 新增前端契约测试，确认不存在选择方案入口且继续/采用动作仍存在。
+- `tests.test_frontend_tag_reports`：10 项通过。
+- `node --check static/app.js`、`git diff --check`：通过。
+- 全量确定性测试：122 项中 121 项通过；唯一错误为当前环境缺少 `pydantic_settings`，导致既有 `test_auth_refresh` 无法导入。
+
+### 未完成
+
+- 未在真实浏览器会话中点击多套方案的并行继续生成。
+- 未发起真实 AI 文字或图片请求。
+
+## 2026-09-02 生成阶段显示等待时长
+
+### 已完成
+
+- 最终生成按钮从点击开始显示已等待时长，并每秒刷新一次。
+- 等待时长支持持续累计（超过 1 小时显示小时），不增加超时、重试或生成次数限制。
+- 请求成功、失败后清理计时器，避免页面残留后台定时任务。
+
+### 验证
+
+- `tests.test_frontend_tag_reports.FrontendTagReportTests.test_generation_button_shows_unlimited_elapsed_wait_time`：通过。
+- `node --check static/app.js`：通过。
+
+### 未完成
+
+- 未发起真实 AI 文字或图片请求；未进行带认证的浏览器人工验收。
+
+## 2026-09-02 移除实时创意简报并改为单列工作区
+
+### 已完成
+
+- 删除创意定位页面右侧“实时创意简报”栏及其前端状态绑定。
+- 桌面和移动端统一使用单列主工作区，释放横向空间并保留任务描述、标签、画幅、历史、生成与采用功能。
+- 清理桌面媒体查询中遗留的双列和简报定位规则，避免空侧栏占位。
+
+### 验证
+
+- `tests.test_frontend_tag_reports`：前端契约测试通过。
+- `node --check static/app.js`、`git diff --check`：通过。
+- 浏览器静态检查确认简报 DOM 不存在、桌面实际计算为单列且 1280x720/390x844 无横向溢出。
+
+### 未完成
+
+- 未发起真实 AI 文字或图片请求。
+
+## 2026-09-02 最新 Session Cookie 验证与连接检测修复
+
+### 已完成
+
+- 确认用户新填的 Session Cookie 能换出与旧 Token 不同的新 Token，并通过真实 `chat-requirements` 认证探测。
+- 定位启动器问题：旧 Token 只要 JWT 未到期，检测就跳过 Cookie 换 Token，导致新 Cookie 未被当前网关使用。
+- 修正检测流程：先验证 `/v1/models`；仅当上游未验证且存在 Cookie 时，才用 Cookie 更新 Token 并重新验证。
+- 当前网关通过新 Cookie 更新后，`/v1/models` 返回 `detected=true`、模型列表非空；最小真实 `/v1/chat/completions` 返回 `OK`，会话标识正常。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest tests.test_launcher_proxy tests.test_auth_refresh -v`：28 项全部通过。
+- 全量确定性测试：121 项中 120 项通过；唯一失败为既有前端契约测试 `test_workspace_drops_realtime_brief_sidebar`，与本次认证/启动器修复无关。
+- `python -m compileall -q src chat2api launcher.py`、`node --check static/app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 当前启动控制台进程仍是旧代码；需重启启动控制台后，点击“检测连接”才能使用新的 Cookie 回退验证逻辑。
+- 三条业务路径的真实文字/图片生成尚未在本次复测中展开；网关认证和最小文字调用已恢复。
+
+## 2026-09-02 标签满额后可继续选择
+
+### 已完成
+
+- 对照展示类、叙事类标签 Excel 规则，修正单选、主+辅选择和多选达到上限后的交互。
+- 取消未选项的满额禁用；再次选择会自动替换最早选中的标签，主选/副选槽位同步重排；美术参考作品和逐轮定位字段也遵循同一规则。
+- 保留取消已选项、选项上限、级联清理和服务端字段结构。
+
+### 验证
+
+- `tests.test_frontend_tag_reports`：新增满额替换契约测试并通过。
+- `node --check static/app.js`、`git diff --check`：通过。
+- 已核对两份 Excel 的交互形式与选择规则，未修改 Excel 原文件或标签配置 JSON。
+
+### 未完成
+
+- 未在带认证的正式页面中逐项人工点击验收；未发起真实 AI 请求。
+
+## 2026-09-02 修复启动器连接状态误报
+
+### 已完成
+
+- 修复“检测连接”只检查本地 `/health` 的 Token 存在和到期时间、却不验证上游可用性的逻辑。
+- 现在检测会额外检查 `/v1/models` 的 `detected=true` 和非空模型列表；上游返回 `token_revoked` 或探测失败时显示连接失败并保留错误原因。
+- 区分“已通过上游验证”和“Access Token 已自动填入”，不再在未刷新 Token 时误称已自动填入。
+- 新增启动器连接验证回归测试。
+
+### 验证
+
+- 当前真实网关 `/v1/models` 返回 `detected=false` 时，`gateway_upstream_verified()` 返回 `False`，与上游 Token 已撤销的真实状态一致。
+- `PYTHONPATH=src python -m unittest tests.test_launcher_proxy tests.test_auth_refresh -v`：28 项全部通过。
+- 全量确定性测试：121 项中 120 项通过；唯一失败为既有前端契约测试 `test_workspace_drops_realtime_brief_sidebar`，与本次启动器/认证修复无关，保留用户现有前端改动。
+- `python -m compileall -q src chat2api`、`node --check static/app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 账号 Access Token 仍被上游撤销；更新有效凭据并重启网关后，检测才会显示“已通过上游验证”。
+
+## 2026-09-02 真实 AI 请求认证问题修复与复测
+
+### 已完成
+
+- 定位并修复 ChatGPT Session Cookie 头组装问题：旧的未分片值与 NextAuth `.0/.1` 分片同时存在时，服务端可能优先读取已失效的旧值；现在分片值优先，Cookie 轮换后也保持同一规则。
+- 新增脱敏回归测试，覆盖 Cookie 规范化和轮换场景；未记录任何令牌、Cookie 或完整模型响应。
+- 通过项目专用 ClipProxy 中转真实调用 `/api/auth/session`，修复后返回 `200` 且拿到 access token。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest discover -s tests -v`：117 项全部通过。
+- `python -m compileall -q src chat2api`、`node --check static/app.js`、`git diff --check`：通过。
+- 修复后的真实 `/v1/chat/completions` 最小请求仍返回上游 `401 token_revoked`；说明代理、Cookie 头和网关链路可达，但当前 Access Token 已被 ChatGPT 撤销，Session Cookie 返回的 token 也仍是该失效 token。
+- 临时真实测试网关和中转已停止；现有本地网页/网关进程未被停止。
+
+### 未完成
+
+- 当前账号凭据不可用于真实文字或图片生成，叙事类、展示类首帧和连续画面三条业务路径均在网关认证层之前被同一 `token_revoked` 阻断，未继续重复请求消耗额度。
+- 需要用户在启动控制台重新登录并提供有效 Session Cookie、Access Token 或可用的 Auth0 refresh token 后，再做三条业务路径的真实冒烟。
+
+## 2026-09-02 任务描述输入框收紧
+
+### 已完成
+
+- 将“创意定位”顶部任务描述从多行文本框改为单行输入框，限制最大长度为 500 字符。
+- 保持 `taskDescription`、自动保存和后端 `task_description` 字段不变。
+
+### 验证
+
+- `tests.test_frontend_tag_reports`：6 项通过。
+- `node --check static/app.js`、`git diff --check`：通过。
+- 静态页面结构检查确认输入元素为 `INPUT`，桌面和移动端页面宽度无溢出。
+
+### 未完成
+
+- 未发起真实 AI 请求；未在带认证的正式服务中执行完整生成流程。
+
+## 2026-09-02 任务描述并入创意定位
+
+### 已完成
+
+- 删除独立的“任务说明”步骤和“任务类型”输入框。
+- 将唯一的任务描述输入框放到“创意定位”流程顶部，画幅控件同步保留在该标题区域。
+- 工作流步骤调整为“创意定位 → 生成与采用”，后端仍兼容发送空 `task_type` 字段。
+
+### 验证
+
+- `tests.test_frontend_tag_reports`：5 项通过。
+- `node --check static/app.js`、`python -m compileall -q src chat2api`、`git diff --check`：通过。
+- 浏览器结构冒烟：`1280x720`、`390x844` 均无横向溢出，步骤条为两步，任务描述位于标签控件之前。
+
+### 未完成
+
+- 未发起真实 AI 请求；未在带认证的正式服务中执行完整生成流程。
+
+## 2026-09-02 修正固定出口被普通节点替换
+
+### 已完成
+
+- 定位到启动器把已配置的 ClipProxy `38.248.239.46` 替换成普通 Clash `127.0.0.1:7897`，导致出口 IP 错误。
+- 已修正为：有 `PROXY_URL` 时始终使用已配置的 ClipProxy 固定出口；仅在没有固定代理时才探测 Clash 入口。
+- 不再把普通 Clash 节点冒充固定出口；固定代理场景由轻量转发器占用 `7896`，最终出口仍由 ClipProxy 决定。
+- 新增只监听 `127.0.0.1:7896` 的轻量转发器：Clash HTTP 隧道 -> ClipProxy SOCKS5 认证 -> 目标连接；替代旧 Mihomo 链式实现。
+
+### 验证
+
+- `tests.test_launcher_proxy`：修正后定向测试通过。
+- 当前机器真实出口测试成功：返回固定 IP `38.248.239.46`；停止后 `7896` 无监听进程。
+- 尚未进行真实 Chat2API AI 生成请求验证；公网出口和代理链路已验证。
+
+## 2026-09-02 展示类连续画面生成流程实现
+
+### 已完成
+
+- 新增展示类画面领域模型，支持不轮播 1 张、固定 2～5 张和每套方案独立 AI 决定 2～5 张。
+- SQLite 增加画面级状态表和方案级继续操作锁，兼容旧 `visual_items` 首图历史；服务端公开历史过滤图片生成隐藏字段和本地路径。
+- 首次展示生成保留三套方案和三张首图并行任务，并等待首图分别进入成功/失败终态后返回；单套失败不影响其他方案。
+- 新增方案选择、独立会话游标、按序继续生成和上一张实际图片参考输入；一次继续操作在后端逐画面串行执行。
+- 图片网关参考图以受控 data URL 传递；首图失败自动重试一次，连续画面失败后可从失败序号恢复；新增服务端选择/继续接口。
+- 同步修正展示类 AI 输出校验，允许 AI 模式三套方案独立锁定不同画面数量。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest discover -s tests -v`：106 项全部通过。
+- 定向连续画面、仓储、图片任务和 API 测试通过。
+- `python -m compileall -q src chat2api`、`node --check static\\app.js`、`git diff --check`：通过。
+- 未发起真实 AI 文字/图片请求；未验证真实网关对连续参考图的实际生成质量。
+
+### 未完成
+
+- 需要在真实 AI 网关可用时验证三套首图部分失败、后续串行图片参考和人工恢复链路。
+- 前端尚未接入选择/继续接口，当前仅完成后端业务流程。
+
+## 2026-09-02 Clash 端口自动发现
+
+### 已完成
+
+- 代理中转启动前自动读取 `CLASH_CONFIG_PATH`、`CLASH_HOME` 和 Clash Verge 常见配置文件。
+- 支持从配置识别 `mixed-port`/`port` 的 HTTP 入口和 `socks-port` 的 SOCKS5 入口，不再固定依赖 `7897`。
+- 保留 `CHAT2API_CLASH_PORT` 覆盖；可用 `CHAT2API_CLASH_PROTOCOL=http|socks5` 指定覆盖端口协议。
+- 中转日志现在显示实际使用的协议和端口。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_launcher_proxy -v`：19 项通过。
+- `python -m py_compile launcher.py`、`python -m compileall -q src chat2api launcher.py`、`node --check static\\app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 未发起真实 AI 请求；不同电脑的实际 Clash 配置需在对应机器上首次启动时确认日志。
+
+## 2026-09-02 展示类连续画面流程设计复审修订
+
+### 已完成
+
+- 根据已确认业务逻辑补充展示类连续画面设计：三套首图部分成功返回、后续逐画面调用和串行等待、方案级继续操作幂等、独立 GPT 会话持久化、上一张实际图片输入、图片/文字失败恢复和服务端隐藏字段过滤。
+- 明确方案路线锁定、首图/后续画面数据结构、方案状态和画面状态，并补充选择、继续、首图重试、失败恢复和状态查询接口边界。
+- 修正整体 AI 架构设计中“AI 决定后统一数量”的冲突，统一为每套方案独立决定并锁定 2～5 张。
+
+### 验证
+
+- 设计文档和相关研究笔记已按项目要求完整阅读。
+- `git diff --check`：通过（仅有 Windows 换行转换提示）。
+- 未修改业务代码、数据库、运行数据或 `.env`；未发起真实 AI 请求。
+
+### 未完成
+
+- 等待用户确认修订后的设计；确认后再使用 `writing-plans` skill 编写实现计划。
+
+## 2026-09-02 连接检测避免无条件刷新 Cookie
+
+### 已完成
+
+- 连接检测现在先依据网关健康状态和 Token 到期时间判断是否需要刷新会话。
+- 已有明确有效的 Access Token 时直接完成检测，不再因失效 Cookie 刷新失败误报连接失败。
+- Token 缺失、过期或到期时间无法判断时，仍会使用 Session Cookie 尝试换取新 Token。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_launcher_proxy -v`：17 项通过。
+- `python -m py_compile launcher.py`、`git diff --check`：通过。
+
+### 未完成
+
+- 需要重启当前启动控制台后重新检测；未发起真实 AI 生成请求。
+
+## 2026-09-02 检测失败显示真实原因
+
+### 已完成
+
+- 修复启动器连接检测只显示 `RuntimeError` 的问题。
+- 现在日志会显示异常正文的脱敏前 240 个字符，保留 HTTP 状态或会话刷新失败原因，同时隐藏 Cookie/Token。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_launcher_proxy -v`：15 项通过。
+- `python -m py_compile launcher.py`、`git diff --check`：通过。
+
+### 未完成
+
+- 需要重启当前启动控制台后再点击“检测连接”，才能加载新的错误显示逻辑；未发起真实 AI 请求。
+
+## 2026-09-02 项目代理中转孤儿进程清理
+
+### 已完成
+
+- 定位 `7896` 端口被遗留 `verge-mihomo.exe` 占用的原因；确认其命令行指向本项目 `.runtime/proxy-bridge.yaml`。
+- 启动项目代理中转前读取端口 PID 和进程命令行，仅对明确属于本项目的旧中转执行 `taskkill /T /F` 回收。
+- 其他程序或 Clash Verge 主进程占用 `7896` 时保持失败并提示确认，不自动误杀。
+- 已清理本机现场孤儿进程 PID `23276`，确认 `7896` 释放。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_launcher_proxy -v`：13 项通过。
+- `python -m py_compile launcher.py`、`python -m compileall -q src chat2api launcher.py`、`node --check static\\app.js`、`git diff --check`：通过。
+- 当前 `7896` 无监听；未发起真实 AI 请求。
+
+### 未完成
+
+- 尚未在带桌面的真实 Windows 会话中完整验证“关闭后再启动”的人工流程。
+
 ## 2026-09-02 整体架构复审问题修复
 
 ### 已完成
@@ -833,3 +1227,122 @@
 ### 未完成
 
 - 公网 HTTPS、反向代理、外部限流、生产备份和真实公网冒烟尚未配置；当前仍默认绑定 `127.0.0.1`。
+# 2026-09-02 展示类提示词输出契约统一
+
+### 已完成
+
+- 首帧展示提示词改为输出 `creative_summary`、`creative_sources`、锁定的 `frame_count`、`visual_continuity_rules`、完整 `frame_plan` 和 `first_frame`。
+- 明确 `none`、`fixed`、`ai` 三种数量规则；AI 决定数量时三套方案可独立返回 2 至 5 张。
+- 轮播提示词删除旧的 `carousel`、`carousel_frames`、`resolved_tags` 和“三套方案统一屏数”要求。
+- 新增版本化后续画面提示词，单次只输出一个 `frame`，包含承接和收束字段。
+- 校验器、展示画面入库和公开历史过滤同步支持新结构；服务端隐藏 `image_generation_instruction` 不进入公开数据。
+
+### 验证
+
+- `python -m pytest -q`：107 项通过。
+- `python -m compileall -q src chat2api`
+- `node --check static\\app.js`
+- `git diff --check`
+
+### 说明
+
+- 未发起真实 AI 文字或图片请求。
+# 2026-09-02 展示类连续画面架构复审与 P0/P1 修复
+
+### 已完成
+
+- 继续接口改为返回公开逐帧 DTO，过滤 `image_generation_instruction`、本地 `image_path` 和内部会话字段。
+- 新增展示方案逐帧状态查询接口 `/api/visual-items/{id}/frames/status` 和逐帧图片接口 `/api/visual-items/{id}/frames/{frame_index}/image`。
+- 首帧 `first_frame.content` 写入 `display_frames.actual_content`，后续规划可读取首帧实际画面信息。
+- 进程恢复时回收过期的方案继续锁和连续画面生成状态；首图失败时继续操作返回可操作冲突，不错误调用后续画面提示词。
+- 新增继续接口脱敏回归断言。
+- 选择方案时通过文字模型创建独立 GPT 会话，持久化供应商返回的 `conversation_id` 和 `assistant_message_id`，后续画面复用该游标。
+- 历史响应补充逐帧公开状态，新增逐帧图片接口；正式页面已接入方案选择、继续生成和画面路线展示。
+
+### 验证
+
+- `python -m pytest -q`：109 项通过。
+- `python -m compileall -q src chat2api`
+- `node --check static\\app.js`
+- `git diff --check`
+
+### 未完成风险
+
+- 后续文字模型请求仍未通过现有 Chat2API 多模态链路传递上一张实际图片；目前上一张图片只传给图片生成网关。
+- 正式前端已接入新的选择、继续和逐帧状态接口，但未进行真实浏览器流程验证。
+- 经确认，本阶段采用降级连续性方案：GPT 只依据上一张画面信息和已完成记录规划；图片模型继续接收上一张实际图片作为 `ref_assets`。暂不改造 Chat2API 多模态文字链路。
+- 未发起真实 AI 文字或图片请求。
+
+# 2026-09-02 创意类提示词工程研究（进行中）
+
+### 已完成
+
+- 收集并核对 OpenAI、Anthropic、Google、Microsoft 的官方提示词工程与评测指南，以及 Promptfoo、DSPy、DAIR.AI Prompt Engineering Guide、prompts.chat 等社区/开源实践信号。
+- 新增研究笔记 `docs/research/2026-09-02-creative-prompt-engineering-research.md`，记录来源、日期、可执行结论和社区证据边界。
+- 初步形成创意提示词设计方向：将创意机制与执行细节分离；先发散生成候选，再按事实、受众、差异化、可执行性和风险收敛；用固定评估集验证提示词迭代。
+
+### 验证
+
+- 已通过浏览器读取官方文档和公开论文摘要；未发起真实 AI 生成请求。
+
+### 未完成
+
+- 尚未确定第一版优先优化展示类还是叙事类提示词。
+- 尚未把研究结论改写为正式配置提示词或新增评估样例。
+# 2026-09-02 AI 辅助功能三路径全链路验证
+
+### 真实请求补充验证
+
+- 已使用当前 `chat2api/.env` 启动临时网关并发起真实 `/v1/chat/completions` 请求。
+- 通过现有 SOCKS 代理请求失败：代理握手被关闭，网关返回 `502`。
+- 临时绕过代理再次请求失败：无法连接 `chatgpt.com:443`，网关返回 `502`。
+- 两个临时网关进程均已停止；未修改 `.env`。
+
+### 验证结果
+
+- 叙事类：假模型生成、结果落库、无图片任务，`2 passed`。
+- 展示类不轮播/首帧：假模型生成三套方案、三张首图任务，`2 passed`。
+- 展示类连续画面：方案选择、独立会话游标、按序继续、上一张图片引用、状态恢复，`4 passed`。
+
+### 限制
+
+- 本机 `127.0.0.1:8775` 和 `127.0.0.1:8780` 当前未启动。
+- 当前进程环境未配置 AI 网关变量；未读取或修改 `chat2api/.env`，因此未发起真实 AI 文字/图片请求。
+
+# 2026-09-02 第一套展示类静态创意提示词
+
+### 已完成
+
+- 新增单文件 `config/ai_visual_static_creative_prompt_v1.txt`，目标为非轮播、单核心静态画面的展示类广告创意。
+- 在同一个提示词文件内用模块标题分隔接口契约、字段语义、业务上下文、创意生成引擎、候选筛选和执行约束；接口区块可单独抽取给接口层。
+- 输出结构面向创意和制作评审：三套机制不同的方案、用户张力、产品价值、证据台账、静态首帧、素材计划、制作风险、首轮验证动作和服务端私有图片指令。
+- 该文件可直接作为单一提示词发送；其余模块只需在不同系统中按区块手动复制，不要求拆成多个附件。
+
+### 验证
+
+- 已完成文本结构和字段边界的人工复核，确认单文件内接口层与业务规则层分离。
+- 未修改现有业务代码、数据库、API、前端或旧提示词；未发起真实 AI 文字/图片请求。
+
+### 未完成
+
+- 尚未用固定脱敏业务样例进行真实模型质量评审。
+- 尚未决定是否将该新结构迁移到现有 `ai_creative.py` 校验器和展示历史；后续迁移需另行评审兼容性。
+# 2026-09-02 临时开放局域网访问
+
+### 已完成
+
+- 网页启动器改为绑定 `0.0.0.0:8775`，启动链接为 `http://192.168.1.135:8775/`。
+- Windows 防火墙新增仅允许 `LocalSubnet` 的 TCP 8775 入站规则；AI 网关 8780 仍只监听回环地址。
+- 本机验证首页和 `/api/health` 的回环及局域网地址均返回 200。
+
+### 风险与回滚
+
+- 当前内网用户可访问网页并按账号权限操作项目；不应将端口暴露到公网。
+- 结束共享时，将 `launcher.py` 的 `WEB_BIND_HOST` 恢复为 `127.0.0.1`、`WEB_URL` 恢复为 `http://127.0.0.1:8775/`，删除防火墙规则 `AI创意工作台网页 8775（局域网）`，再重启网页服务。
+# 2026-09-02 撤回局域网访问
+
+### 已完成
+
+- 停止网页服务并释放 `8775` 监听端口。
+- 删除 Windows 防火墙规则 `AI创意工作台网页 8775（局域网）`。
+- 启动器恢复为 `127.0.0.1:8775`，后续启动不会再次自动开放内网。

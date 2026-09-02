@@ -37,6 +37,8 @@ class ImageJobStore:
                 "status": "queued",
                 "image_url": "",
                 "error": "",
+                "conversation_id": "",
+                "parent_message_id": "",
                 "created_at": timestamp,
                 "updated_at": timestamp,
             }
@@ -57,6 +59,8 @@ class ImageJobStore:
         status: str,
         image_url: str = "",
         error: str = "",
+        conversation_id: str = "",
+        parent_message_id: str = "",
     ) -> dict[str, Any]:
         normalized_status = str(status or "").strip().lower()
         if normalized_status not in VALID_STATUSES:
@@ -71,6 +75,10 @@ class ImageJobStore:
                 error=str(error or "")[:500] if normalized_status == "failed" else "",
                 updated_at=float(self.now()),
             )
+            if conversation_id:
+                record["conversation_id"] = str(conversation_id)
+            if parent_message_id:
+                record["parent_message_id"] = str(parent_message_id)
             self._write(record)
             return dict(record)
 

@@ -281,7 +281,7 @@ CarouselRecommendationSchema
 
 - 3 个方案。
 - 每个方案拥有自己的 `frames`。
-- `frames` 的数量为 2 至 5，或由 AI 决定后统一为同一个数量。
+- `frames` 的数量为 2 至 5；`count_mode="ai"` 时每个方案独立决定并锁定自己的数量，不要求三套方案统一。
 - `frames[].index` 从 1 连续递增。
 - 每个 frame 有可展示的创意描述。
 
@@ -546,7 +546,7 @@ queued -> generating -> success
 
 - JSON 解析成功率。
 - 叙事类和展示类数量约束。
-- 轮播 frames 连续性和统一屏数。
+- 轮播 frames 连续性、每套方案独立的 2 至 5 屏数量和统一屏数模式下的固定数量。
 - 用户已填输入是否被正确参考。
 - 未填输入是否可以自然补足，而不是输出空结果。
 

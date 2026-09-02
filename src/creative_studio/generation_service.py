@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -201,6 +202,168 @@ class CreativeGenerationService:
         except Exception as exc:
             self.repository.fail_generation(context.reservation_id, str(exc))
             raise
+
+    def select_scheme(self, scheme_id: int) -> dict[str, Any]:
+        """兼容旧接口：首帧已由共享方案响应直接进入图片队列。"""
+
+        scheme = self.repository.get_display_scheme(int(scheme_id))
+        if scheme is None:
+            raise GenerationNotFoundError("展示方案不存在")
+        conversation_id = str(scheme.get("conversation_id") or "").strip()
+        parent_message_id = str(scheme.get("parent_message_id") or "").strip()
+        self._enqueue_first_frame_if_needed(scheme)
+        return {"scheme_id": int(scheme_id), "conversation_id": conversation_id}
+
+    @staticmethod
+    def _validate_first_frame_payload(payload: Any) -> Mapping[str, Any]:
+        """校验独立首帧响应，并只把单帧对象交给编排层。"""
+
+        frame = payload.get("frame") if isinstance(payload, Mapping) else None
+        if not isinstance(frame, Mapping) or int(frame.get("frame_index") or 0) != 1:
+            raise AiCreativeRequestError("AI首帧返回序号无效")
+        if not str(frame.get("content") or "").strip() or not str(
+            frame.get("image_generation_instruction") or ""
+        ).strip():
+            raise AiCreativeRequestError("AI首帧内容不完整")
+        return frame
+
+    def _enqueue_first_frame_if_needed(self, scheme: Mapping[str, Any]) -> None:
+        """把方案首帧交给图片队列；重复调用只依赖数据库状态。"""
+
+        frames = scheme.get("frames", [])
+        first = next((frame for frame in frames if int(frame.get("frame_index") or 0) == 1), None)
+        if not isinstance(first, Mapping) or str(first.get("image_status") or "") == "success":
+            return
+        visual_item = self.repository.visual_item(int(scheme["scheme_id"]))
+        if visual_item is not None and str(visual_item.get("image_status") or "") == "failed":
+            self.repository.retry_visual_item(int(scheme["scheme_id"]))
+        enqueue = getattr(self.image_runner, "enqueue", None)
+        if callable(enqueue):
+            enqueue([int(scheme["scheme_id"])])
+
+    def continue_scheme(self, scheme_id: int) -> dict[str, Any]:
+        """按序生成一套方案的剩余画面；每次只调用一个后续画面提示词。"""
+
+        scheme_id = int(scheme_id)
+        self.select_scheme(scheme_id)
+        selected_scheme = self.repository.get_display_scheme(scheme_id)
+        first_frame = next(
+            (
+                frame
+                for frame in (selected_scheme or {}).get("frames", [])
+                if int(frame.get("frame_index") or 0) == 1
+            ),
+            None,
+        )
+        if isinstance(first_frame, Mapping) and str(first_frame.get("image_status") or "") != "success":
+            if not self._wait_for_frame(scheme_id, 1):
+                raise GenerationConflictError("首图未成功，请先重试首图")
+        token = uuid.uuid4().hex
+        self.repository.reserve_scheme_continuation(scheme_id, token)
+        failure_status = "ready"
+        try:
+            scheme = self.repository.get_display_scheme(scheme_id)
+            if scheme is None:
+                raise GenerationNotFoundError("展示方案不存在")
+            enqueue_frame = getattr(self.image_runner, "enqueue_frame", None)
+            if not callable(enqueue_frame):
+                raise AiCreativeRequestError("图片网关暂不支持连续画面参考图")
+            while True:
+                frames = [dict(frame) for frame in scheme.get("frames", [])]
+                pending = next((frame for frame in frames if str(frame.get("image_status")) != "success"), None)
+                if pending is None:
+                    self.repository.release_scheme_continuation(scheme_id, token, "completed")
+                    return self.repository.public_display_scheme(scheme_id) or {
+                        "scheme_id": scheme_id,
+                        "scheme_status": "completed",
+                        "frames": [],
+                    }
+                frame_index = int(pending["frame_index"])
+                if frame_index == 1:
+                    self.repository.release_scheme_continuation(scheme_id, token, "ready")
+                    raise GenerationConflictError("首图未成功，请先单独重试首图")
+                previous = next((frame for frame in frames if int(frame["frame_index"]) == frame_index - 1), None)
+                from .display_frame_models import CompletedFrame
+
+                prompt = self._follow_up_image_prompt(scheme, frames, frame_index)
+                completed = CompletedFrame(
+                    index=frame_index,
+                    planned_content=str(pending.get("planned_content") or ""),
+                    actual_content=str(pending.get("planned_content") or "").strip(),
+                    transition_from_previous="沿用上一张实际画面的主体、构图和视觉风格，并按本帧路线推进。",
+                    transition_to_next=(
+                        str(next((item.get("description") for item in scheme.get("frame_plan", []) if int(item.get("index") or 0) == frame_index + 1), "") or "")
+                        or None
+                    ),
+                    ending_note="本方案最后一张画面。" if frame_index == int(scheme.get("frame_count") or len(frames)) else None,
+                    image_generation_instruction=prompt,
+                )
+                self.repository.save_completed_frame(scheme_id, completed)
+                for image_attempt in range(2):
+                    enqueue_frame(
+                        scheme_id,
+                        frame_index,
+                        completed.image_generation_instruction,
+                        str(scheme.get("aspect_ratio") or "16:9"),
+                        str(previous.get("image_path") or "") if previous else "",
+                        str(scheme.get("conversation_id") or ""),
+                        str(scheme.get("parent_message_id") or ""),
+                    )
+                    if self._wait_for_frame(scheme_id, frame_index):
+                        break
+                    if image_attempt == 1:
+                        failure_status = "blocked"
+                        raise AiCreativeRequestError("连续画面图片生成失败")
+                scheme = self.repository.get_display_scheme(scheme_id) or scheme
+        except Exception:
+            self.repository.release_scheme_continuation(scheme_id, token, failure_status)
+            raise
+
+    @staticmethod
+    def _follow_up_image_prompt(scheme: Mapping[str, Any], frames: list[Mapping[str, Any]], frame_index: int) -> str:
+        completed = [
+            {"frame_index": int(frame["frame_index"]), "actual_content": str(frame.get("actual_content") or "")}
+            for frame in frames
+            if int(frame["frame_index"]) < frame_index and str(frame.get("image_status")) == "success"
+        ]
+        previous = next(
+            (frame for frame in frames if int(frame["frame_index"]) == frame_index - 1),
+            None,
+        )
+        next_plan = next(
+            (item.get("description") for item in scheme.get("frame_plan", []) if int(item.get("index") or 0) == frame_index),
+            "",
+        )
+        return "\n".join(
+            [
+                "直接生成一张图片。不要回复文字、JSON、Markdown或解释，只返回图片结果。",
+                f"目标画幅：{scheme.get('aspect_ratio') or '16:9'}。",
+                f"方案标题：{scheme.get('title') or ''}。",
+                f"任务描述：{scheme.get('task_description') or ''}。",
+                f"产品证据：{scheme.get('product_evidence_summary') or ''}。",
+                f"创意来源：{'；'.join(str(item) for item in scheme.get('creative_sources', []))}。",
+                f"核心主体：{scheme.get('core_subject') or ''}。",
+                f"画面布局：{scheme.get('layout') or ''}。",
+                f"视觉风格：{scheme.get('visual_style') or ''}。",
+                f"内容延展：{'；'.join(str(item) for item in scheme.get('content_extensions', []))}。",
+                f"视觉连续性规则：{'；'.join(str(item) for item in scheme.get('visual_continuity_rules', []))}。",
+                f"已完成画面：{json.dumps(completed, ensure_ascii=False)}。",
+                f"上一张画面：{str((previous or {}).get('actual_content') or '')}。",
+                f"当前第{frame_index}张路线：{next_plan}。",
+                "保持上一张实际图片中的主体身份、关键产品证据、色彩和材质连续，仅按当前路线改变画面状态。",
+            ]
+        )
+
+    def _wait_for_frame(self, scheme_id: int, frame_index: int, timeout_seconds: int = 600) -> bool:
+        deadline = time.monotonic() + max(1, int(timeout_seconds))
+        while time.monotonic() < deadline:
+            scheme = self.repository.get_display_scheme(scheme_id)
+            frames = scheme.get("frames", []) if scheme else []
+            frame = next((item for item in frames if int(item["frame_index"]) == int(frame_index)), None)
+            if frame is not None and str(frame.get("image_status")) in {"success", "failed"}:
+                return str(frame.get("image_status")) == "success"
+            time.sleep(0.1)
+        raise GenerationQueueTimeoutError("AI连续画面排队超时")
 
     def _recover_pending_generations(self) -> int:
         return self.repository.recover_pending_generations(self.pending_timeout_seconds)

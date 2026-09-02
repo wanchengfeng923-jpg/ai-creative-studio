@@ -1,69 +1,47 @@
-「根据这些输入，生成展示类广告创意」
-【输入】
+根据输入生成展示类广告的首帧方案。
+
+输入：
 - 任务类型：{{task_type}}
-- 编导初始任务描述：{{task_description}}
-- 标签：{{creative_tags}}
+- 任务描述：{{task_description}}
+- 展示类标签：{{creative_tags}}
 - 目标画幅：{{aspect_ratio}}
+- 产品信息：{{product_evidence_summary}}
+- 参考文件名：{{reference_file_names}}
 
-最终输出要求
+只输出一个合法 JSON 对象。根对象只能包含 items，items 必须恰好包含 3 个对象。不要输出前言、分析、评分、URL、Markdown 代码围栏或其他说明。所有要求字段都必须存在且符合类型。
 
-只输出一个合法 JSON 对象，根对象只能包含 items，items 内恰好包含 3 个对象。不要输出前言、分析、检索摘要、评分、开放问题、URL、Markdown 代码围栏或任何额外说明。
-
-所有字段必须存在，所有字符串和列表必须非空，JSON 必须可被标准 Parser 直接解析。
-
-严格使用以下结构，不得增加或删除字段：
-
+严格使用以下结构：
 {
-"items": [
-{
-"title": "精炼的方案标题",
-"subtitle": "一句话概括第一眼视觉钩子",
-"creative_description": "2—3句说明画面是什么、静态第一帧的核心关系、为什么让人停留",
-"core_subject": "第一眼看到什么、主体之间是什么关系、哪个元素承担主要吸引作用",
-"layout": "说明UI、icon、Logo、角色、品质、属性、按钮或其他产品证据如何参与构图，以及UI属于主视觉、叠层信息、场景物件、环境标签或其他信息载体",
-"visual_style": "说明唯一主要风格锚点、表现方式、色彩与材质、UI包装、画面载体、观看视角、空间组织和信息承载方式",
-"content_extensions": [
-"第一帧之后沿用同一视觉机制可以继续展示、替换或变化的内容"
-],
-"reference_sources": [
-{
-"name": "真正影响该方案的具体作品、页面、广告、热点、画面或原创组合名称",
-"note": "写明已联网确认或模型知识参考未联网确认，并说明具体借用了什么视觉机制；不得包含URL"
-}
-],
-"keywords": [
-"用于搜图、生图、搜视频或寻找参考的具体关键词"
-],
-"image_prompt": "可直接交给图片模型生成一张静态第一帧的完整提示词"
-}
-]
+  "items": [
+    {
+      "title": "方案标题",
+      "creative_summary": "方案整体创意说明",
+      "creative_sources": ["采用的创意来源或原创依据"],
+      "frame_count": 1,
+      "visual_continuity_rules": ["该方案后续画面必须保持的视觉连续性规则"],
+      "frame_plan": [
+        {"index": 1, "description": "第1张画面路线"}
+      ],
+      "first_frame": {
+        "index": 1,
+        "content": "第1张实际画面内容",
+        "image_generation_instruction": "仅供服务端图片模型使用的首帧生成指令"
+      }
+    }
+  ]
 }
 
-字段要求：
+数量规则：
+- 由 carousel_context 提供画面模式和数量约束。
+- none 时每套方案的 frame_count 必须为 1，frame_plan 只能有第1张。
+- fixed 时每套方案的 frame_count 必须等于用户指定的 2 至 5，frame_plan 必须连续覆盖全部序号。
+- ai 时每套方案独立决定 2 至 5 张，三套方案可以不同；数量确定后锁定。
+- 首次只实际生成 first_frame，但必须返回完整 frame_plan。
 
-title：短、具体、有辨识度。
-subtitle：一句话说清第一眼为什么值得停留，不写普通宣传口号。
-creative_description：必须具体写出画面类型、构图核心、视觉异常或关系，不写抽象营销总结。
-core_subject：明确第一视觉中心及主体关系。
-layout：必须说明产品 UI 和游戏资产如何真正参与画面，不能只写“自然融入”。
-visual_style：每案只使用一个主要风格锚点，具体到表现方式、色彩、材质、载体、视角、空间和信息组织。
-content_extensions：只写同一视觉母版后续还能替换、揭示或展示什么，不写逐秒脚本、运镜或转场。
-reference_sources：只保留真正采用的参考，写清确认状态和借用机制，不写 URL，不编造热度或广告效果。
-keywords：每案 5—8 个，优先使用主体、机制、观看结构、构图、媒介和产品资产等具体词。
-image_prompt：只服务于生成一张静态第一帧，必须比展示字段更具体，但不得机械拼接 reference_sources、content_extensions 或 keywords。
-
-image_prompt 应自然写清：
-
-唯一主要风格 → 第一视觉主体或异常 → 观看视角 → 核心构图 → 必要前中后景 → UI、角色、装备、icon、Logo、属性等产品资产 → 绘制方式 → 色彩材质 → 信息包装。
-
-最高描述权重始终给：
-
-主体 + 核心视觉关系/异常 + 产品证据
-
-只能描述静态画面。禁止逐秒、运镜、转场、动作过程、音效、视频脚本，以及“随后、接着、然后”等时间过程描述。
-
-三个方案不要求强行使用不同风格或媒介，只要求：
-
-第一眼成立的创意原因不能是同一个机制换皮。
-
-最终严格只返回 items 含 3 个对象的合法 JSON。
+内容规则：
+- creative_summary 和 creative_sources 解释方案，不返回逐帧脚本。
+- frame_plan 只描述每张画面的内容路线；不要输出运镜、音效或时间轴。
+- first_frame.content 只描述静态首帧及其产品证据。
+- image_generation_instruction 只描述静态图片生成，不得包含随后、接着、然后等时间过程；该字段是服务端隐藏字段，不应出现在浏览器响应或公开历史。
+- 三套方案的第一眼创意机制应有实质差异，视觉风格由 GPT 侧配置决定。
+- 共享规划阶段的 first_frame 是独立方案会话的首帧草稿；服务端会在每套方案的新会话中重新生成实际首帧。

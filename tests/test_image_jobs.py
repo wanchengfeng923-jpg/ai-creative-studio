@@ -45,10 +45,12 @@ class FakeResponse:
 class RecordingGateway:
     def __init__(self) -> None:
         self.calls: list[str] = []
+        self.prompts: list[str] = []
 
     def __call__(self, *args, **kwargs) -> FakeResponse:
         request_id = str(kwargs["json"]["request_id"])
         self.calls.append(request_id)
+        self.prompts.append(str(kwargs["json"]["prompt"]))
         return FakeResponse(
             {
                 "job_id": f"job-{len(self.calls)}",
@@ -96,6 +98,8 @@ class ImageJobTests(unittest.TestCase):
 
         self.assertEqual(first, second)
         self.assertEqual(gateway.calls, ["creative-studio-7-attempt-1"])
+        self.assertIn("直接生成一张图片", gateway.prompts[0])
+        self.assertIn("不要回复文字", gateway.prompts[0])
 
     def test_transient_submit_failure_does_not_poison_same_key_retry(self) -> None:
         client = GptWebImageClient("http://gateway")

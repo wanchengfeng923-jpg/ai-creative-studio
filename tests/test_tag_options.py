@@ -219,7 +219,7 @@ class TagOptionsTests(unittest.TestCase):
                 },
             )
 
-    def test_validate_visual_recommendations_rejects_ai_carousel_count_mismatch(self):
+    def test_validate_visual_recommendations_accepts_independent_ai_carousel_counts(self):
         value = {
             "items": [
                 {
@@ -282,20 +282,20 @@ class TagOptionsTests(unittest.TestCase):
                 },
             ]
         }
-        with self.assertRaisesRegex(AiCreativeRequestError, "统一轮播屏数"):
-            validate_visual_creative_recommendations(
-                value,
-                carousel_config={
-                    "enabled": "是",
-                    "count_mode": "ai",
-                    "count": None,
-                    "rounds": [],
-                },
-                tag_catalog={
-                    "visual_product_selling_points": ["A", "B"],
-                    "visual_display_contents": ["门派"],
-                },
-            )
+        result = validate_visual_creative_recommendations(
+            value,
+            carousel_config={
+                "enabled": "是",
+                "count_mode": "ai",
+                "count": None,
+                "rounds": [],
+            },
+            tag_catalog={
+                "visual_product_selling_points": ["A", "B"],
+                "visual_display_contents": ["门派"],
+            },
+        )
+        self.assertEqual([item["carousel"]["count"] for item in result], [2, 3, 2])
 
     def test_validate_visual_recommendations_rejects_fixed_carousel_index_gap(self):
         value = {

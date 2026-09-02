@@ -47,9 +47,14 @@ class FakeGenerationAdapter:
 class FakeImageRunner:
     def __init__(self) -> None:
         self.enqueued: list[list[int]] = []
+        self.waited_for: list[list[int]] = []
 
     def enqueue(self, item_ids: list[int]) -> None:
         self.enqueued.append(list(item_ids))
+
+    def wait_for_items(self, item_ids: list[int]) -> list[dict[str, object]]:
+        self.waited_for.append(list(item_ids))
+        return []
 
 
 class FakeModelClient:
@@ -225,6 +230,7 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertEqual(len(self.service.adapter.calls), 1)
         self.assertEqual(result.snapshot.schema_version, "visual.v1")
         self.assertEqual(self.service.image_runner.enqueued, [[1, 2, 3]])
+        self.assertEqual(self.service.image_runner.waited_for, [])
 
     def test_generate_visual_calls_model_once(self) -> None:
         self.repo.update_project(
@@ -233,6 +239,75 @@ class GenerationServiceTests(unittest.TestCase):
         )
         self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
+
+    def test_carousel_batch_uses_shared_plan_then_one_new_session_per_scheme_for_first_frames(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "task_description": "展示说明",
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": ["3屏"],
+                    "visual_carousel_form": ["产品演示"],
+                },
+            },
+        )
+
+        def scheme_payload(index: int) -> dict[str, object]:
+            return {
+                "title": f"方案{index}",
+                "creative_summary": f"说明{index}",
+                "creative_sources": [f"来源{index}"],
+                "frame_count": 3,
+                "visual_continuity_rules": ["保持主体一致"],
+                "frame_plan": [
+                    {"index": frame, "description": f"方案{index}画面{frame}"}
+                    for frame in range(1, 4)
+                ],
+                "first_frame": {
+                    "index": 1,
+                    "content": f"共享草稿首帧{index}",
+                    "image_generation_instruction": f"共享草稿图片{index}",
+                },
+            }
+
+        shared = ModelResponse(
+            content=json.dumps({"items": [scheme_payload(index) for index in range(1, 4)]}, ensure_ascii=False),
+            conversation_id="shared-conversation",
+            assistant_message_id="shared-message",
+        )
+        client = SequenceModelClient([shared])
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+            },
+            clear=False,
+        ):
+            service = CreativeGenerationService(
+                repository=self.repo,
+                model_client=client,
+                image_runner=FakeImageRunner(),
+            )
+            outcome = service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertEqual(len(client.requests), 1)
+        self.assertEqual(client.requests[0].conversation_id, "")
+        self.assertEqual(client.requests[0].parent_message_id, "")
+        with closing(self.repo._connect()) as connection:
+            rows = connection.execute(
+                "SELECT content_json FROM visual_items ORDER BY item_index",
+            ).fetchall()
+        schemes = [json.loads(row[0]) for row in rows]
+        self.assertEqual(
+            [scheme["first_frame"]["content"] for scheme in schemes],
+            ["共享草稿首帧1", "共享草稿首帧2", "共享草稿首帧3"],
+        )
+        self.assertEqual(service.image_runner.enqueued, [[1, 2, 3]])
+        public_history = json.dumps(outcome.history, ensure_ascii=False)
+        self.assertNotIn("shared-conversation", public_history)
 
     def test_generate_expires_stale_pending_generation_and_persists_request_context(self) -> None:
         with closing(self.repo._connect()) as connection:

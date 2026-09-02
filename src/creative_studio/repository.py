@@ -139,6 +139,26 @@ class StudioRepository:
                 )
                 """,
                     """
+                CREATE TABLE IF NOT EXISTS display_frames (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scheme_id INTEGER NOT NULL REFERENCES visual_items(id) ON DELETE CASCADE,
+                    frame_index INTEGER NOT NULL,
+                    planned_content TEXT NOT NULL,
+                    actual_content TEXT NOT NULL DEFAULT '',
+                    transition_from_previous TEXT NOT NULL DEFAULT '',
+                    transition_to_next TEXT,
+                    ending_note TEXT,
+                    image_generation_instruction TEXT NOT NULL DEFAULT '',
+                    image_status TEXT NOT NULL DEFAULT 'pending',
+                    image_path TEXT NOT NULL DEFAULT '',
+                    image_error TEXT NOT NULL DEFAULT '',
+                    image_attempt INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(scheme_id, frame_index)
+                )
+                """,
+                    """
                 CREATE TABLE IF NOT EXISTS adoptions (
                     project_id INTEGER PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
                     recommendation_kind TEXT NOT NULL,
@@ -184,6 +204,14 @@ class StudioRepository:
             )
             """
         )
+        visual_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(visual_items)")}
+        for column, definition in (
+            ("scheme_status", "TEXT NOT NULL DEFAULT 'ready'"),
+            ("continuation_token", "TEXT NOT NULL DEFAULT ''"),
+            ("continuation_updated_at", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in visual_columns:
+                connection.execute(f"ALTER TABLE visual_items ADD COLUMN {column} {definition}")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -1039,6 +1067,22 @@ class StudioRepository:
                 """,
                 (timestamp, cutoff),
             )
+            connection.execute(
+                """
+                UPDATE visual_items
+                SET scheme_status='ready',continuation_token='',continuation_updated_at=?
+                WHERE scheme_status='generating' AND continuation_updated_at <= ?
+                """,
+                (timestamp, cutoff),
+            )
+            connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='pending',image_error='',updated_at=?
+                WHERE image_status='generating' AND updated_at <= ?
+                """,
+                (timestamp, cutoff),
+            )
             connection.commit()
         return int(cursor.rowcount)
 
@@ -1112,6 +1156,387 @@ class StudioRepository:
     def complete_visual_generation(self, generation_id: int, result: Any, aspect_ratio: str) -> list[int]:
         return self._complete_generation(generation_id, result, visual_items=(result.items, aspect_ratio))
 
+    def save_display_schemes(self, generation_id: int, schemes: Iterable[Any]) -> list[int]:
+        """保存展示方案及其锁定画面路线，返回兼容的方案 ID。"""
+
+        timestamp = now_text()
+        scheme_ids: list[int] = []
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                for item_index, scheme in enumerate(schemes, start=1):
+                    frames = tuple(getattr(scheme, "frames", ()))
+                    first = frames[0] if frames else None
+                    content = {
+                        "title": str(getattr(scheme, "title", "")),
+                        "creative_summary": str(getattr(scheme, "creative_summary", "")),
+                        "creative_sources": list(getattr(scheme, "creative_sources", ())),
+                        "core_subject": str(getattr(scheme, "core_subject", "")),
+                        "layout": str(getattr(scheme, "layout", "")),
+                        "visual_style": str(getattr(scheme, "visual_style", "")),
+                        "content_extensions": list(getattr(scheme, "content_extensions", ())),
+                        "reference_sources": [dict(item) for item in getattr(scheme, "reference_sources", ())],
+                        "keywords": list(getattr(scheme, "keywords", ())),
+                        "frame_count": int(getattr(scheme, "frame_count", len(frames))),
+                        "visual_continuity_rules": list(getattr(scheme, "visual_continuity_rules", ())),
+                        "frame_plan": [
+                            {"index": int(frame.index), "description": str(frame.description)}
+                            for frame in getattr(scheme, "frame_plan", ())
+                        ],
+                    }
+                    child = connection.execute(
+                        """
+                        INSERT INTO visual_items(
+                            generation_id,item_index,content_json,image_prompt,aspect_ratio,
+                            image_status,scheme_status,created_at,updated_at
+                        ) VALUES(?,?,?,?,?,'queued','ready',?,?)
+                        """,
+                        (
+                            int(generation_id),
+                            item_index,
+                            _json(content),
+                            str(getattr(first, "image_generation_instruction", "")),
+                            "16:9",
+                            timestamp,
+                            timestamp,
+                        ),
+                    )
+                    scheme_id = int(child.lastrowid)
+                    scheme_ids.append(scheme_id)
+                    for frame in frames:
+                        connection.execute(
+                            """
+                            INSERT INTO display_frames(
+                                scheme_id,frame_index,planned_content,actual_content,
+                                transition_from_previous,transition_to_next,ending_note,
+                                image_generation_instruction,image_status,image_path,image_error,
+                                image_attempt,created_at,updated_at
+                            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """,
+                            (
+                                scheme_id,
+                                int(frame.index),
+                                str(getattr(frame, "planned_content", "")),
+                                str(getattr(frame, "actual_content", "")),
+                                str(getattr(frame, "transition_from_previous", "")),
+                                getattr(frame, "transition_to_next", None),
+                                getattr(frame, "ending_note", None),
+                                str(getattr(frame, "image_generation_instruction", "")),
+                                str(getattr(frame, "image_status", "pending")),
+                                str(getattr(frame, "image_path", "")),
+                                str(getattr(frame, "failure_message", "")),
+                                int(getattr(frame, "attempt", 0)),
+                                timestamp,
+                                timestamp,
+                            ),
+                        )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return scheme_ids
+
+    def get_display_scheme(self, scheme_id: int) -> dict[str, Any] | None:
+        """读取一套展示方案及其完整画面状态，包含服务端内部字段。"""
+
+        with closing(self._connect()) as connection:
+            scheme = connection.execute(
+                """
+                SELECT v.*, g.context_json AS generation_context_json
+                FROM visual_items v JOIN generations g ON g.id=v.generation_id
+                WHERE v.id=?
+                """,
+                (int(scheme_id),),
+            ).fetchone()
+            if scheme is None:
+                return None
+            frames = connection.execute(
+                "SELECT * FROM display_frames WHERE scheme_id=? ORDER BY frame_index", (int(scheme_id),)
+            ).fetchall()
+        result = _loads(scheme["content_json"], {})
+        generation_context = _loads(scheme["generation_context_json"], {})
+        # The persisted generation snapshot is the source for project-level evidence
+        # that must remain available to later frame prompts.
+        context_keys = (
+            "task_type",
+            "task_description",
+            "product_evidence_summary",
+            "reference_file_names",
+            "aspect_ratio",
+        )
+        for key in context_keys:
+            if key not in result and key in generation_context:
+                result[key] = generation_context[key]
+        result.update(
+            {
+                "scheme_id": int(scheme["id"]),
+                "generation_id": int(scheme["generation_id"]),
+                "image_status": str(scheme["image_status"]),
+                "image_path": str(scheme["image_path"] or ""),
+                "scheme_status": str(scheme["scheme_status"] or "ready"),
+                "conversation_id": str(result.get("conversation_id") or ""),
+                "parent_message_id": str(result.get("parent_message_id") or ""),
+                "frames": [dict(row) for row in frames],
+            }
+        )
+        return result
+
+    def public_display_scheme(self, scheme_id: int) -> dict[str, Any] | None:
+        """返回展示方案和逐帧公开状态，不暴露内部路径、提示词或会话游标。"""
+
+        scheme = self.get_display_scheme(scheme_id)
+        if scheme is None:
+            return None
+        public_frames = []
+        for frame in scheme.get("frames", []):
+            frame_index = int(frame["frame_index"])
+            public_frames.append({
+                "frame_index": frame_index,
+                "planned_content": str(frame.get("planned_content") or ""),
+                "actual_content": str(frame.get("actual_content") or ""),
+                "transition_from_previous": str(frame.get("transition_from_previous") or ""),
+                "transition_to_next": frame.get("transition_to_next"),
+                "ending_note": frame.get("ending_note"),
+                "image_status": str(frame.get("image_status") or "pending"),
+                "image_url": (
+                    f"/api/visual-items/{int(scheme_id)}/frames/{frame_index}/image"
+                    if str(frame.get("image_status")) == "success" else ""
+                ),
+                "image_error": str(frame.get("image_error") or ""),
+            })
+        return {
+            "scheme_id": int(scheme["scheme_id"]),
+            "title": str(scheme.get("title") or ""),
+            "creative_summary": str(scheme.get("creative_summary") or ""),
+            "creative_sources": list(scheme.get("creative_sources") or []),
+            "frame_count": int(scheme.get("frame_count") or len(public_frames)),
+            "visual_continuity_rules": list(scheme.get("visual_continuity_rules") or []),
+            "frame_plan": list(scheme.get("frame_plan") or []),
+            "scheme_status": str(scheme.get("scheme_status") or "ready"),
+            "frames": public_frames,
+        }
+
+    def reserve_scheme_continuation(self, scheme_id: int, token: str = "") -> dict[str, Any]:
+        """以事务方式锁定一套方案的继续生成流程。"""
+
+        timestamp = now_text()
+        continuation_token = str(token or "scheme").strip() or "scheme"
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT scheme_status,continuation_token FROM visual_items WHERE id=?", (int(scheme_id),)
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                raise GenerationNotFoundError("展示方案不存在")
+            if str(row["scheme_status"] or "ready") == "completed":
+                connection.rollback()
+                raise GenerationConflictError("该展示方案已完成")
+            if str(row["scheme_status"] or "ready") == "generating" and str(row["continuation_token"] or "") != continuation_token:
+                connection.rollback()
+                raise GenerationConflictError("该展示方案已有继续生成任务")
+            connection.execute(
+                "UPDATE visual_items SET scheme_status='generating',continuation_token=?,continuation_updated_at=? WHERE id=?",
+                (continuation_token, timestamp, int(scheme_id)),
+            )
+            connection.commit()
+        return {"scheme_id": int(scheme_id), "token": continuation_token}
+
+    def release_scheme_continuation(self, scheme_id: int, token: str, status: str = "ready") -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE visual_items
+                SET scheme_status=?,continuation_token='',continuation_updated_at=?
+                WHERE id=? AND scheme_status='generating' AND continuation_token=?
+                """,
+                (str(status), now_text(), int(scheme_id), str(token)),
+            )
+        return cursor.rowcount == 1
+
+    def save_completed_frame(self, scheme_id: int, frame: Any) -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE display_frames
+                SET actual_content=?,transition_from_previous=?,transition_to_next=?,ending_note=?,
+                    image_generation_instruction=?,image_status=?,image_path=?,image_error=?,
+                    image_attempt=?,updated_at=?
+                WHERE scheme_id=? AND frame_index=?
+                """,
+                (
+                    str(getattr(frame, "actual_content", "")),
+                    str(getattr(frame, "transition_from_previous", "")),
+                    getattr(frame, "transition_to_next", None),
+                    getattr(frame, "ending_note", None),
+                    str(getattr(frame, "image_generation_instruction", "")),
+                    str(getattr(frame, "image_status", "pending")),
+                    str(getattr(frame, "image_path", "")),
+                    str(getattr(frame, "failure_message", "")),
+                    int(getattr(frame, "attempt", 0)),
+                    now_text(),
+                    int(scheme_id),
+                    int(getattr(frame, "index", 0)),
+                ),
+            )
+        return cursor.rowcount == 1
+
+    def save_display_first_frame(
+        self,
+        scheme_id: int,
+        *,
+        actual_content: str,
+        transition_to_next: str | None,
+        ending_note: str | None,
+        image_generation_instruction: str,
+    ) -> bool:
+        """保存独立方案会话生成的首帧，并同步旧视觉项兼容字段。"""
+
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT content_json FROM visual_items WHERE id=?", (int(scheme_id),)
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return False
+            content = _loads(row["content_json"], {})
+            first_frame = dict(content.get("first_frame") or {})
+            first_frame.update(
+                {
+                    "index": 1,
+                    "content": str(actual_content or ""),
+                    "image_generation_instruction": str(image_generation_instruction or ""),
+                }
+            )
+            content["first_frame"] = first_frame
+            cursor = connection.execute(
+                """
+                UPDATE visual_items
+                SET content_json=?,image_prompt=?,image_status='queued',image_path='',image_error='',updated_at=?
+                WHERE id=?
+                """,
+                (_json(content), str(image_generation_instruction or ""), timestamp, int(scheme_id)),
+            )
+            connection.execute(
+                """
+                UPDATE display_frames
+                SET actual_content=?,transition_to_next=?,ending_note=?,image_generation_instruction=?,
+                    image_status='pending',image_path='',image_error=''
+                WHERE scheme_id=? AND frame_index=1
+                """,
+                (
+                    str(actual_content or ""),
+                    transition_to_next,
+                    ending_note,
+                    str(image_generation_instruction or ""),
+                    int(scheme_id),
+                ),
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def fail_display_first_frame(self, scheme_id: int, error: str) -> bool:
+        """记录独立首帧会话失败，同时让首图保持可重试状态。"""
+
+        message = " ".join(str(error or "").split())[:500]
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE visual_items
+                SET image_status='failed',image_error=?,updated_at=?
+                WHERE id=?
+                """,
+                (message, timestamp, int(scheme_id)),
+            )
+            connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='failed',image_error=?,updated_at=?
+                WHERE scheme_id=? AND frame_index=1
+                """,
+                (message, timestamp, int(scheme_id)),
+            )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def update_scheme_session(self, scheme_id: int, conversation_id: str, parent_message_id: str) -> bool:
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT content_json FROM visual_items WHERE id=?", (int(scheme_id),)).fetchone()
+            if row is None:
+                return False
+            content = _loads(row["content_json"], {})
+            content["conversation_id"] = str(conversation_id or "")
+            content["parent_message_id"] = str(parent_message_id or "")
+            cursor = connection.execute(
+                "UPDATE visual_items SET content_json=?,updated_at=? WHERE id=?",
+                (_json(content), now_text(), int(scheme_id)),
+            )
+        return cursor.rowcount == 1
+
+    def claim_display_frame(self, scheme_id: int, frame_index: int) -> dict[str, Any] | None:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='generating',image_attempt=image_attempt+1,image_error='',updated_at=?
+                WHERE scheme_id=? AND frame_index=? AND image_status IN ('pending','failed')
+                """,
+                (now_text(), int(scheme_id), int(frame_index)),
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                return None
+            row = connection.execute(
+                "SELECT * FROM display_frames WHERE scheme_id=? AND frame_index=?",
+                (int(scheme_id), int(frame_index)),
+            ).fetchone()
+            connection.commit()
+        return dict(row) if row is not None else None
+
+    def complete_display_frame(self, scheme_id: int, frame_index: int, attempt: int, image_path: str) -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='success',image_path=?,image_error='',updated_at=?
+                WHERE scheme_id=? AND frame_index=? AND image_status='generating' AND image_attempt=?
+                """,
+                (str(image_path), now_text(), int(scheme_id), int(frame_index), int(attempt)),
+            )
+        return cursor.rowcount == 1
+
+    def fail_display_frame(self, scheme_id: int, frame_index: int, attempt: int, error: str) -> bool:
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE display_frames SET image_status='failed',image_error=?,updated_at=?
+                WHERE scheme_id=? AND frame_index=? AND image_status='generating' AND image_attempt=?
+                """,
+                (" ".join(str(error or "").split())[:500], now_text(), int(scheme_id), int(frame_index), int(attempt)),
+            )
+        return cursor.rowcount == 1
+
+    def public_display_history(self, project_id: int, fingerprint: str) -> dict[str, Any]:
+        """返回展示画面公开状态，主动过滤所有服务端生成字段。"""
+
+        history = self.generation_history(project_id, "visual", fingerprint)
+        for batch in history.get("batches", []):
+            for item in batch.get("items", []):
+                item.pop("image_prompt", None)
+                item.pop("image_generation_instruction", None)
+                first_frame = item.get("first_frame")
+                if isinstance(first_frame, dict):
+                    first_frame.pop("image_generation_instruction", None)
+                for frame in item.get("frames", []) if isinstance(item.get("frames"), list) else []:
+                    frame.pop("image_generation_instruction", None)
+                    frame.pop("image_path", None)
+        return history
+
     def _complete_generation(self, generation_id: int, result: Any, visual_items: tuple[Any, str] | None) -> list[int]:
         timestamp = now_text()
         usage = {
@@ -1148,6 +1573,9 @@ class StudioRepository:
                 for index, source in enumerate(items, start=1):
                     content = dict(source)
                     image_prompt = str(content.pop("image_prompt", ""))
+                    first_frame = content.get("first_frame")
+                    if not image_prompt and isinstance(first_frame, Mapping):
+                        image_prompt = str(first_frame.get("image_generation_instruction") or "")
                     child = connection.execute(
                         """
                         INSERT INTO visual_items(generation_id,item_index,content_json,image_prompt,aspect_ratio,
@@ -1156,7 +1584,44 @@ class StudioRepository:
                         """,
                         (int(generation_id), index, _json(content), image_prompt, aspect_ratio, timestamp, timestamp),
                     )
-                    item_ids.append(int(child.lastrowid))
+                    scheme_id = int(child.lastrowid)
+                    item_ids.append(scheme_id)
+                    carousel = content.get("carousel") if isinstance(content.get("carousel"), Mapping) else {}
+                    raw_frames = carousel.get("frames") if isinstance(carousel, Mapping) else []
+                    if not raw_frames:
+                        raw_frames = content.get("frame_plan") if isinstance(content.get("frame_plan"), list) else []
+                    if not isinstance(raw_frames, list) or not raw_frames:
+                        raw_frames = [{"index": 1, "display_description": str(
+                            (first_frame or {}).get("content") if isinstance(first_frame, Mapping)
+                            else content.get("creative_description") or "首帧画面"
+                        )}]
+                    for frame in raw_frames:
+                        if not isinstance(frame, Mapping):
+                            continue
+                        frame_index = int(frame.get("index") or 0)
+                        if frame_index < 1:
+                            continue
+                        description = str(frame.get("display_description") or frame.get("description") or "").strip()
+                        if not description:
+                            continue
+                        connection.execute(
+                            """
+                            INSERT INTO display_frames(
+                                scheme_id,frame_index,planned_content,actual_content,image_generation_instruction,
+                                image_status,created_at,updated_at
+                            ) VALUES(?,?,?,?,?, 'pending', ?, ?)
+                            ON CONFLICT(scheme_id, frame_index) DO NOTHING
+                            """,
+                            (
+                                scheme_id,
+                                frame_index,
+                                description,
+                                str((first_frame or {}).get("content") or "") if frame_index == 1 and isinstance(first_frame, Mapping) else "",
+                                image_prompt if frame_index == 1 else "",
+                                timestamp,
+                                timestamp,
+                            ),
+                        )
             connection.execute(
                 "UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM generations WHERE id=?)",
                 (timestamp, int(generation_id)),
@@ -1188,9 +1653,43 @@ class StudioRepository:
                 """,
                 (int(project_id), kind),
             ).fetchall()
+            frame_rows = connection.execute(
+                """
+                SELECT f.* FROM display_frames f
+                JOIN visual_items v ON v.id=f.scheme_id
+                JOIN generations g ON g.id=v.generation_id
+                WHERE g.project_id=? AND g.recommendation_kind=?
+                ORDER BY f.scheme_id,f.frame_index
+                """,
+                (int(project_id), kind),
+            ).fetchall()
+        public_frames: dict[int, list[dict[str, Any]]] = {}
+        for frame in frame_rows:
+            frame_index = int(frame["frame_index"])
+            public_frames.setdefault(int(frame["scheme_id"]), []).append({
+                "frame_index": frame_index,
+                "planned_content": str(frame["planned_content"] or ""),
+                "actual_content": str(frame["actual_content"] or ""),
+                "transition_from_previous": str(frame["transition_from_previous"] or ""),
+                "transition_to_next": frame["transition_to_next"],
+                "ending_note": frame["ending_note"],
+                "image_status": str(frame["image_status"] or "pending"),
+                "image_url": (
+                    f"/api/visual-items/{int(frame['scheme_id'])}/frames/{frame_index}/image"
+                    if str(frame["image_status"]) == "success" else ""
+                ),
+                "image_error": str(frame["image_error"] or ""),
+            })
         visuals: dict[int, list[dict[str, Any]]] = {}
         for row in visual_rows:
             item = _loads(row["content_json"], {})
+            item.pop("image_prompt", None)
+            item.pop("image_generation_instruction", None)
+            item.pop("conversation_id", None)
+            item.pop("parent_message_id", None)
+            first_frame = item.get("first_frame")
+            if isinstance(first_frame, dict):
+                first_frame.pop("image_generation_instruction", None)
             item.update({
                 "id": int(row["id"]),
                 "item_index": int(row["item_index"]),
@@ -1198,6 +1697,7 @@ class StudioRepository:
                 "image_status": row["image_status"],
                 "image_url": f"/api/visual-items/{int(row['id'])}/image" if row["image_status"] == "success" else "",
                 "image_error": row["image_error"],
+                "frames": public_frames.get(int(row["id"]), []),
             })
             visuals.setdefault(int(row["generation_id"]), []).append(item)
         current: list[dict[str, Any]] = []
@@ -1262,6 +1762,10 @@ class StudioRepository:
                 connection.rollback()
                 return None
             row = connection.execute("SELECT * FROM visual_items WHERE id=?", (int(item_id),)).fetchone()
+            connection.execute(
+                "UPDATE display_frames SET image_status='generating',image_attempt=?,updated_at=? WHERE scheme_id=? AND frame_index=1",
+                (int(row["image_attempt"]), timestamp, int(item_id)),
+            )
             connection.commit()
         return dict(row) if row is not None else None
 
@@ -1286,6 +1790,11 @@ class StudioRepository:
                 """,
                 (str(image_path), now_text(), int(item_id), int(attempt)),
             )
+            if cursor.rowcount == 1:
+                connection.execute(
+                    "UPDATE display_frames SET image_status='success',image_path=?,image_error='',image_attempt=?,updated_at=? WHERE scheme_id=? AND frame_index=1",
+                    (str(image_path), int(attempt), now_text(), int(item_id)),
+                )
         return cursor.rowcount == 1
 
     def fail_visual_item(self, item_id: int, attempt: int, error: str) -> bool:
@@ -1297,6 +1806,11 @@ class StudioRepository:
                 """,
                 (" ".join(str(error or "").split())[:500], now_text(), int(item_id), int(attempt)),
             )
+            if cursor.rowcount == 1:
+                connection.execute(
+                    "UPDATE display_frames SET image_status='failed',image_error=?,image_attempt=?,updated_at=? WHERE scheme_id=? AND frame_index=1",
+                    (" ".join(str(error or "").split())[:500], int(attempt), now_text(), int(item_id)),
+                )
         return cursor.rowcount == 1
 
     def retry_visual_item(self, item_id: int) -> bool:
@@ -1311,6 +1825,11 @@ class StudioRepository:
                     """,
                     (now_text(), int(item_id)),
                 )
+                if cursor.rowcount == 1:
+                    connection.execute(
+                        "UPDATE display_frames SET image_status='pending',image_path='',image_error='',updated_at=? WHERE scheme_id=? AND frame_index=1",
+                        (now_text(), int(item_id)),
+                    )
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -1360,3 +1879,13 @@ class StudioRepository:
         if item is None or item["image_status"] != "success" or not item["image_path"]:
             return None
         return Path(str(item["image_path"]))
+
+    def image_path_for_frame(self, scheme_id: int, frame_index: int) -> Path | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT image_status,image_path FROM display_frames WHERE scheme_id=? AND frame_index=?",
+                (int(scheme_id), int(frame_index)),
+            ).fetchone()
+        if row is None or str(row["image_status"]) != "success" or not row["image_path"]:
+            return None
+        return Path(str(row["image_path"]))

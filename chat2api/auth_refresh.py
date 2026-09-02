@@ -191,20 +191,48 @@ def _apply_set_cookie_rotation(cookie_header: str, set_cookies: list[str]) -> st
             value = value.split(";", 1)[0].strip()
             if value:
                 pairs[name] = value
-    return "; ".join(f"{k}={v}" for k, v in pairs.items())
+    return _session_cookie_header("; ".join(f"{k}={v}" for k, v in pairs.items()))
 
 
 def _session_cookie_header(value: str) -> str:
     """把保存的会话 Cookie 规整为 'name=value; ...' 的 Cookie 头。
 
     同时兼容两种存法：完整的 name=value 分片串，或单段裸的 session-token 值。
+    如果旧配置同时保留未分片值和 NextAuth 分片值，优先发送分片值；重复发送
+    两种形态会让上游优先读到可能已失效的旧会话。
     """
     text = (value or "").strip()
     if not text:
         return ""
-    if "=" in text:
-        return text
-    return f"__Secure-next-auth.session-token={text}"
+    if "=" not in text:
+        return f"__Secure-next-auth.session-token={text}"
+
+    pairs: list[tuple[str, str]] = []
+    for piece in text.split(";"):
+        piece = piece.strip()
+        if "=" not in piece:
+            continue
+        name, cookie_value = piece.split("=", 1)
+        name = name.strip()
+        if name:
+            pairs.append((name, cookie_value.strip()))
+
+    chunk_names = {
+        "__Secure-next-auth.session-token.0",
+        "__Secure-next-auth.session-token.1",
+    }
+    has_chunks = any(name in chunk_names for name, _cookie_value in pairs)
+    legacy_name = "__Secure-next-auth.session-token"
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for name, cookie_value in pairs:
+        if has_chunks and name == legacy_name:
+            continue
+        if name in seen:
+            continue
+        seen.add(name)
+        normalized.append(f"{name}={cookie_value}")
+    return "; ".join(normalized)
 
 
 async def renew_via_refresh_token() -> str:

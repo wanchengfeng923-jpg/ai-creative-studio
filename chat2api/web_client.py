@@ -32,6 +32,8 @@ class WebImageClient:
         self.base_url = base_url.rstrip("/")
         self.proxy_url = proxy_url or None
         self.fp = WebFingerprint()
+        self.last_conversation_id = ""
+        self.last_parent_message_id = ""
 
     async def generate_image(
         self,
@@ -41,6 +43,8 @@ class WebImageClient:
         n: int = 1,
         ref_images: list[str] | None = None,
         web_model: str = "gpt-5-5-thinking",
+        conversation_id: str = "",
+        parent_message_id: str = "",
     ) -> list[dict[str, Any]]:
         """生成图片，返回 [{"url": "data:...", "mime": "image/png"}, ...]"""
         ref_images = ref_images or []
@@ -64,7 +68,11 @@ class WebImageClient:
             for _ in range(n):
                 if len(assets) >= n:
                     break
-                result = await self._generate_one(session, reqs, prompt, web_model, refs)
+                result = await self._generate_one(
+                    session, reqs, prompt, web_model, refs,
+                    conversation_id=str(conversation_id or "").strip(),
+                    parent_message_id=str(parent_message_id or "").strip(),
+                )
                 assets.extend(result)
 
             return assets[:n]
@@ -89,6 +97,8 @@ class WebImageClient:
             raise Exception(f"Web requirements failed: {resp.status_code}: {resp.text[:320]}")
 
         data = resp.json()
+        if not isinstance(data, dict):
+            raise Exception("Web requirements returned invalid JSON")
         if data.get("arkose", {}).get("required"):
             raise Exception("Web requires arkose challenge (not supported)")
         token = data.get("token", "")
@@ -106,13 +116,13 @@ class WebImageClient:
             "so_token": data.get("so_token", ""),
         }
 
-    async def _prepare_conversation(self, session, reqs: dict[str, str], prompt: str, model: str, refs: list[dict]) -> str:
+    async def _prepare_conversation(self, session, reqs: dict[str, str], prompt: str, model: str, refs: list[dict], *, conversation_id: str = "", parent_message_id: str = "") -> str:
         """准备对话，获取 conduit token。"""
         path = "/backend-api/f/conversation/prepare"
         body = {
             "action": "next",
             "fork_from_shared_post": False,
-            "parent_message_id": "client-created-root",
+            "parent_message_id": parent_message_id or "client-created-root",
             "model": model,
             "client_prepare_state": "none",
             "timezone_offset_min": -480,
@@ -125,6 +135,8 @@ class WebImageClient:
             "client_contextual_info": {"app_name": "chatgpt.com"},
             "thinking_effort": "standard",
         }
+        if conversation_id:
+            body["conversation_id"] = conversation_id
         headers = self.fp.image_headers(
             self.session_token, path, reqs["token"], reqs["proof_token"], reqs["so_token"], accept="*/*"
         )
@@ -133,12 +145,14 @@ class WebImageClient:
             raise Exception(f"Web prepare failed: {resp.status_code}: {resp.text[:320]}")
 
         data = resp.json()
+        if not isinstance(data, dict):
+            raise Exception("Web prepare returned invalid JSON")
         conduit = data.get("conduit_token", "")
         if not conduit:
             raise Exception("Web prepare missing conduit token")
         return conduit
 
-    async def _start_generation(self, session, reqs: dict[str, str], conduit: str, prompt: str, model: str, refs: list[dict]) -> tuple[str, list[str], list[str], list[str], str]:
+    async def _start_generation(self, session, reqs: dict[str, str], conduit: str, prompt: str, model: str, refs: list[dict], *, conversation_id: str = "", parent_message_id: str = "") -> tuple[str, list[str], list[str], list[str], str, str]:
         """发起图片生成对话。"""
         path = "/backend-api/f/conversation"
         content, metadata = self._build_message_content(prompt, refs)
@@ -147,7 +161,7 @@ class WebImageClient:
         body = {
             "action": "next",
             "fork_from_shared_post": False,
-            "parent_message_id": "client-created-root",
+            "parent_message_id": parent_message_id or "client-created-root",
             "model": model,
             "client_prepare_state": "success",
             "timezone_offset_min": -480,
@@ -178,6 +192,8 @@ class WebImageClient:
                 "metadata": metadata,
             }],
         }
+        if conversation_id:
+            body["conversation_id"] = conversation_id
 
         headers = self.fp.image_headers(
             self.session_token, path, reqs["token"], reqs["proof_token"], reqs["so_token"],
@@ -188,16 +204,19 @@ class WebImageClient:
         if resp.status_code >= 400:
             raise Exception(f"Web conversation failed: {resp.status_code}: {resp.text[:320]}")
 
-        conversation_id, file_ids, sediment_ids, direct_urls, last_text = parse_web_image_sse(resp.text)
+        conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id = parse_web_image_sse(resp.text)
         file_ids, sediment_ids, direct_urls = self._filter_generated_ids(file_ids, sediment_ids, direct_urls, refs)
-        return conversation_id, file_ids, sediment_ids, direct_urls, last_text
+        return conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id
 
-    async def _generate_one(self, session, reqs: dict[str, str], prompt: str, model: str, refs: list[dict]) -> list[dict[str, Any]]:
+    async def _generate_one(self, session, reqs: dict[str, str], prompt: str, model: str, refs: list[dict], *, conversation_id: str = "", parent_message_id: str = "") -> list[dict[str, Any]]:
         """生成一张图片的完整流程。"""
-        conduit = await self._prepare_conversation(session, reqs, prompt, model, refs)
-        conversation_id, file_ids, sediment_ids, direct_urls, last_text = await self._start_generation(
-            session, reqs, conduit, prompt, model, refs
+        conduit = await self._prepare_conversation(session, reqs, prompt, model, refs, conversation_id=conversation_id, parent_message_id=parent_message_id)
+        conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id = await self._start_generation(
+            session, reqs, conduit, prompt, model, refs,
+            conversation_id=conversation_id, parent_message_id=parent_message_id,
         )
+        self.last_conversation_id = conversation_id
+        self.last_parent_message_id = assistant_message_id
 
         assets: list[dict[str, Any]] = []
         deadline = time.time() + 9 * 60
@@ -268,6 +287,8 @@ class WebImageClient:
             if resp.status_code >= 400:
                 return []
             data = resp.json()
+            if not isinstance(data, dict):
+                return []
             ids: list[str] = []
             for item in data.get("items", []):
                 fid = item.get("file_id", "")
@@ -334,6 +355,8 @@ class WebImageClient:
             if resp.status_code >= 400:
                 return ""
             data = resp.json()
+            if not isinstance(data, dict):
+                return ""
             return data.get("download_url", "") or data.get("url", "")
         except Exception:
             return ""
@@ -387,6 +410,8 @@ class WebImageClient:
         if resp.status_code >= 400:
             raise Exception(f"Upload meta failed: {resp.status_code}")
         meta = resp.json()
+        if not isinstance(meta, dict):
+            raise Exception("Upload returned invalid file metadata")
         file_id = meta.get("file_id", "")
         upload_url = meta.get("upload_url", "")
         if not file_id or not upload_url:
@@ -453,7 +478,8 @@ class WebImageClient:
                 continue
             try:
                 ev = json.loads(line)
-                mid = ev.get("extra", {}).get("metadata_object_id", "")
+                extra = ev.get("extra") if isinstance(ev.get("extra"), dict) else {}
+                mid = extra.get("metadata_object_id", "")
                 if mid:
                     library_file_id = mid
             except (json.JSONDecodeError, TypeError):

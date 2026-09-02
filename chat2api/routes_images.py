@@ -89,7 +89,13 @@ async def _run_image_job(job_id: str, body: dict[str, Any]) -> None:
         image_url = str((data[0] if data else {}).get("url") or "").strip()
         if not image_url:
             raise ImageGenerationError(502, "failed to save images")
-        IMAGE_JOB_STORE.update(job_id, status="success", image_url=image_url)
+        IMAGE_JOB_STORE.update(
+            job_id,
+            status="success",
+            image_url=image_url,
+            conversation_id=str(body.get("_result_conversation_id") or ""),
+            parent_message_id=str(body.get("_result_parent_message_id") or ""),
+        )
     except Exception as error:
         IMAGE_JOB_STORE.update(job_id, status="failed", error=" ".join(str(error).split())[:500])
 
@@ -147,7 +153,11 @@ async def _generate_image_data(body: dict[str, Any], edit: bool) -> list[dict[st
             n=n,
             ref_images=ref_images,
             web_model=web_model,
+            conversation_id=str(body.get("conversation_id") or ""),
+            parent_message_id=str(body.get("parent_message_id") or ""),
         )
+        body["_result_conversation_id"] = client.last_conversation_id
+        body["_result_parent_message_id"] = client.last_parent_message_id
     except Exception as e:
         raise ImageGenerationError(502, str(e)) from e
     finally:

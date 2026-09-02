@@ -169,9 +169,15 @@ input:focus, textarea:focus { border-color: #7ca38f; box-shadow: 0 0 0 3px rgba(
 .creative-card { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfb; transition: .18s ease; }
 .creative-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(31,72,53,.09); }
 .image-frame { position: relative; display: grid; place-items: center; aspect-ratio: 16/9; overflow: hidden; background: linear-gradient(135deg,#e7ece8,#f4f1e9); color: var(--muted); }
-.image-frame.portrait { aspect-ratio: 9/12; }
+.image-frame.portrait { aspect-ratio: 9/16; }
 .image-frame img { width: 100%; height: 100%; object-fit: contain; cursor: zoom-in; }
 .image-state { padding: 20px; text-align: center; font-size: 12px; }
+.display-frame-row { margin-top: 10px; }
+.display-frame-image { display: block; width: 100%; max-height: 260px; object-fit: contain; margin-top: 6px; border: 1px solid var(--line); border-radius: 6px; cursor: zoom-in; }
+.carousel-viewer { position: relative; }
+.carousel-controls { position: absolute; inset: auto 0 8px; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.carousel-arrow { width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(20,35,31,.78); color: #fff; font-size: 24px; line-height: 26px; cursor: pointer; }
+.carousel-index { padding: 4px 10px; border-radius: 12px; background: rgba(255,255,255,.9); color: #253d34; font-size: 12px; }
 .image-state i { display: block; width: 24px; height: 24px; margin: 0 auto 9px; border: 2px solid #9eb2a7; border-top-color: var(--green); border-radius: 50%; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .card-body { padding: 15px; }
@@ -368,7 +374,7 @@ body { min-width:320px; }
 .stepper button.active strong { color:var(--ink); }
 .stepper button.done>span { color:var(--green); border-color:#99cec5; background:var(--mint); }
 .stepper>i { min-width:25px; height:1px; flex:1; margin:0 16px; background:var(--line); }
-.step-layout { max-width:1120px; display:grid; grid-template-columns:minmax(0,1fr) 260px; gap:16px; align-items:start; margin:0 auto; }
+.step-layout { width:min(1360px,calc(100vw - 40px)); display:grid; grid-template-columns:1fr; gap:16px; align-items:start; margin:0 auto; }
 .step-column { min-width:0; }
 .panel { min-height:490px; padding:26px 29px 20px; border-radius:10px; box-shadow:none; }
 .panel-heading h2 { font:700 21px/1.3 Inter,"PingFang SC",sans-serif; }
@@ -385,15 +391,6 @@ body { min-width:320px; }
 .step { border-radius:7px; }
 .step-actions { display:flex; align-items:center; justify-content:flex-end; gap:10px; margin-top:25px; padding-top:18px; border-top:1px solid var(--line); }
 .position-panel .step-actions { justify-content:space-between; }
-.brief-summary { padding:17px; border:1px solid #cfe0dc; border-radius:10px; background:#edf6f4; }
-.summary-head { display:flex; justify-content:space-between; color:#5d706d; font-size:10px; font-weight:700; }
-.summary-head strong { color:var(--green); font-size:9px; }
-.brief-summary h3 { margin:17px 0 11px; font-size:15px; }
-.brief-summary dl { margin:0; }
-.brief-summary dl>div { display:grid; grid-template-columns:64px 1fr; gap:7px; padding:8px 0; border-top:1px solid #d8e7e4; font-size:9px; line-height:1.45; }
-.brief-summary dt { color:#80908d; }
-.brief-summary dd { margin:0; color:#3e4d4b; font-weight:650; }
-.brief-summary>p { margin:14px 0 0; padding:9px; border-radius:7px; color:#506663; background:#e2f2ef; font-size:9px; line-height:1.5; }
 .advanced-config { margin-top:18px; padding-top:14px; border-top:1px solid var(--line); }
 .advanced-config summary { color:var(--green); cursor:pointer; font-size:11px; font-weight:700; }
 .output-summary { display:flex; align-items:center; gap:16px; margin-bottom:13px; padding:10px 13px; border:1px solid #cfdfdc; border-radius:8px; color:#586966; background:#edf6f4; font-size:9px; }
@@ -421,7 +418,6 @@ body { min-width:320px; }
   .header-left { gap:10px; }
   .project-menu { padding-left:10px; }
   .step-layout { grid-template-columns:1fr; padding:0 20px; }
-  .brief-summary { display:none; }
   .stepper,.workspace-intro { margin-left:20px; margin-right:20px; }
 }
 @media (max-width:700px) {
@@ -478,17 +474,8 @@ body { min-width:320px; }
   }
 
   .step-layout {
-    grid-template-columns:minmax(0, 1fr) 320px;
+    grid-template-columns:1fr;
     gap:20px;
-  }
-
-  .step-layout:has(> .brief-summary.hidden) {
-    grid-template-columns:minmax(0, 1fr);
-  }
-
-  .brief-summary {
-    position:sticky;
-    top:84px;
   }
 
   .tag-chapter-list {

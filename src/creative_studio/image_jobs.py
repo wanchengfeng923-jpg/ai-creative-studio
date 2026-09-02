@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import mimetypes
 import os
 import threading
@@ -22,6 +23,8 @@ class GatewayJob:
     status: str
     image_url: str = ""
     error: str = ""
+    conversation_id: str = ""
+    parent_message_id: str = ""
 
 
 class GptWebImageClient:
@@ -51,9 +54,19 @@ class GptWebImageClient:
             status=status,
             image_url=str(source.get("image_url") or "").strip(),
             error=str(source.get("error") or "").strip(),
+            conversation_id=str(source.get("conversation_id") or "").strip(),
+            parent_message_id=str(source.get("parent_message_id") or "").strip(),
         )
 
-    def submit(self, prompt: str, aspect_ratio: str, request_id: str) -> GatewayJob:
+    def submit(
+        self,
+        prompt: str,
+        aspect_ratio: str,
+        request_id: str,
+        reference_image: bytes | None = None,
+        conversation_id: str = "",
+        parent_message_id: str = "",
+    ) -> GatewayJob:
         request_id = str(request_id or "").strip()
         with self._submit_lock:
             cached = self._submitted_jobs.get(request_id)
@@ -74,15 +87,25 @@ class GptWebImageClient:
                     return cached
             raise RuntimeError("图片网关提交状态丢失")
         try:
+            payload: dict[str, object] = {
+                "request_id": request_id,
+                # Keep the provider in image mode even when the generated
+                # instruction contains explanatory or copy-like wording.
+                "prompt": self._image_only_prompt(prompt),
+                "n": 1,
+                "size": "1K",
+                "aspect_ratio": str(aspect_ratio or "16:9"),
+            }
+            if reference_image:
+                payload["ref_assets"] = [
+                    "data:image/png;base64," + base64.b64encode(reference_image).decode("ascii")
+                ]
+            if conversation_id:
+                payload["conversation_id"] = str(conversation_id)
+                payload["parent_message_id"] = str(parent_message_id or "")
             response = requests.post(
                 f"{self.base_url}/images/jobs",
-                json={
-                    "request_id": request_id,
-                    "prompt": str(prompt or ""),
-                    "n": 1,
-                    "size": "1K",
-                    "aspect_ratio": str(aspect_ratio or "16:9"),
-                },
+                json=payload,
                 headers=self._headers(),
                 timeout=30,
             )
@@ -96,6 +119,12 @@ class GptWebImageClient:
                 inflight = self._submit_inflight.pop(request_id, None)
                 if inflight is not None:
                     inflight.set()
+
+    @staticmethod
+    def _image_only_prompt(prompt: str) -> str:
+        text = str(prompt or "").strip()
+        prefix = "直接生成一张图片。不要回复文字、JSON、Markdown或解释，只返回图片结果。"
+        return f"{prefix}\n\n{text}" if text else prefix
 
     def status(self, job_id: str) -> GatewayJob:
         response = requests.get(
@@ -175,6 +204,94 @@ class ImageJobRunner:
     def retry(self, item_id: int) -> None:
         self.enqueue([int(item_id)])
 
+    def enqueue_frame(
+        self,
+        scheme_id: int,
+        frame_index: int,
+        prompt: str,
+        aspect_ratio: str,
+        previous_image_path: str = "",
+        conversation_id: str = "",
+        parent_message_id: str = "",
+    ) -> None:
+        self.executor.submit(
+            self._run_frame,
+            int(scheme_id),
+            int(frame_index),
+            str(prompt or ""),
+            str(aspect_ratio or "16:9"),
+            str(previous_image_path or ""),
+            str(conversation_id or ""),
+            str(parent_message_id or ""),
+        )
+
+    def _run_frame(
+        self,
+        scheme_id: int,
+        frame_index: int,
+        prompt: str,
+        aspect_ratio: str,
+        previous_image_path: str,
+        conversation_id: str,
+        parent_message_id: str,
+    ) -> None:
+        frame = self.repository.claim_display_frame(scheme_id, frame_index)
+        if frame is None:
+            return
+        attempt = int(frame["image_attempt"])
+        try:
+            if frame_index > 1 and not (conversation_id and parent_message_id):
+                raise RuntimeError("连续画面缺少首帧图片会话标识")
+            reference = Path(previous_image_path).read_bytes() if previous_image_path else None
+            submit_kwargs = {"reference_image": reference}
+            if conversation_id and parent_message_id:
+                submit_kwargs.update(conversation_id=conversation_id, parent_message_id=parent_message_id)
+            job = self.client.submit(
+                prompt,
+                aspect_ratio,
+                f"creative-studio-{scheme_id}-frame-{frame_index}-attempt-{attempt}",
+                **submit_kwargs,
+            )
+            deadline = time.monotonic() + 600
+            while job.status in {"queued", "generating"}:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("AI连续画面生成超过10分钟")
+                time.sleep(2)
+                job = self.client.status(job.job_id)
+            if job.status == "failed" or not job.image_url:
+                raise RuntimeError(job.error or "AI连续画面生成失败")
+            data, extension = self.client.download(job.image_url)
+            target_dir = self.images_dir / str(scheme_id)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / f"frame-{frame_index}-attempt-{attempt}{extension}"
+            target.write_bytes(data)
+            if not self.repository.complete_display_frame(scheme_id, frame_index, attempt, str(target)):
+                target.unlink(missing_ok=True)
+            if job.conversation_id and job.parent_message_id:
+                self.repository.update_scheme_session(scheme_id, job.conversation_id, job.parent_message_id)
+        except Exception as exc:
+            self.repository.fail_display_frame(scheme_id, frame_index, attempt, str(exc) or exc.__class__.__name__)
+
+    def wait_for_items(self, item_ids: list[int], timeout_seconds: int = 600) -> list[dict[str, object]]:
+        """等待指定首图进入终态；返回每项公开状态，不改变调度线程。"""
+
+        deadline = time.monotonic() + max(1, int(timeout_seconds))
+        normalized = [int(item_id) for item_id in item_ids]
+        while time.monotonic() < deadline:
+            items = [self.repository.visual_item(item_id) for item_id in normalized]
+            if all(item is not None and item["image_status"] in {"success", "failed"} for item in items):
+                return [
+                    {
+                        "id": int(item["id"]),
+                        "image_status": str(item["image_status"]),
+                        "image_error": str(item.get("image_error") or ""),
+                    }
+                    for item in items
+                    if item is not None
+                ]
+            time.sleep(0.1)
+        raise RuntimeError("AI参考图生成等待超时")
+
     def stop(self) -> None:
         self.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -201,10 +318,16 @@ class ImageJobRunner:
             if gateway_job_id:
                 job = self.client.status(gateway_job_id)
             else:
+                conversation_id = str(item.get("conversation_id") or "")
+                parent_message_id = str(item.get("parent_message_id") or "")
+                submit_kwargs = {}
+                if conversation_id and parent_message_id:
+                    submit_kwargs.update(conversation_id=conversation_id, parent_message_id=parent_message_id)
                 job = self.client.submit(
                     str(item["image_prompt"]),
                     str(item["aspect_ratio"]),
                     self.client.submission_key_for_item_attempt(item_id, attempt),
+                    **submit_kwargs,
                 )
                 gateway_job_id = job.job_id
                 if not self.repository.set_gateway_job(item_id, attempt, gateway_job_id):
@@ -226,8 +349,12 @@ class ImageJobRunner:
             target.write_bytes(data)
             if not self.repository.complete_visual_item(item_id, attempt, str(target)):
                 target.unlink(missing_ok=True)
+            if job.conversation_id and job.parent_message_id:
+                self.repository.update_scheme_session(item_id, job.conversation_id, job.parent_message_id)
         except Exception as exc:
             self.repository.fail_visual_item(item_id, attempt, str(exc) or exc.__class__.__name__)
+            if attempt == 1 and self.repository.retry_visual_item(item_id):
+                self.enqueue([item_id])
 
 
 def gateway_base_from_environment() -> str:

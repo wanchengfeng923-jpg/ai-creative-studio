@@ -619,6 +619,44 @@ def _default_ai_visual_carousel_prompt_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "ai_visual_carousel_prompt_v1.txt"
 
 
+def _default_ai_visual_follow_up_prompt_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "ai_visual_follow_up_prompt_v1.txt"
+
+
+def _default_ai_visual_first_frame_prompt_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "config" / "ai_visual_first_frame_prompt_v1.txt"
+
+
+def load_ai_visual_first_frame_prompt(environ: Mapping[str, str] | None = None) -> str:
+    """加载展示类方案独立首帧提示词；不混入公开创意响应。"""
+
+    source = dict(environ if environ is not None else os.environ)
+    path = str(source.get("WEB_ERP_AI_VISUAL_FIRST_FRAME_PROMPT_PATH") or "").strip()
+    prompt_path = Path(path) if path else _default_ai_visual_first_frame_prompt_path()
+    try:
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise AiCreativeConfigurationError("AI首帧提示词文件不存在或无法读取") from exc
+    if not prompt:
+        raise AiCreativeConfigurationError("AI首帧提示词为空")
+    return prompt
+
+
+def load_ai_visual_follow_up_prompt(environ: Mapping[str, str] | None = None) -> str:
+    """加载展示类后续画面提示词；不混入公开创意响应。"""
+
+    source = dict(environ if environ is not None else os.environ)
+    path = str(source.get("WEB_ERP_AI_VISUAL_FOLLOW_UP_PROMPT_PATH") or "").strip()
+    prompt_path = Path(path) if path else _default_ai_visual_follow_up_prompt_path()
+    try:
+        prompt = prompt_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise AiCreativeConfigurationError("AI后续画面提示词文件不存在或无法读取") from exc
+    if not prompt:
+        raise AiCreativeConfigurationError("AI后续画面提示词为空")
+    return prompt
+
+
 def load_ai_visual_creative_config(
     environ: Mapping[str, str] | None = None,
     *,
@@ -824,6 +862,84 @@ def validate_visual_creative_recommendations(
     items = _visual_recommendation_payload(value)
     if not isinstance(items, list) or len(items) != 3:
         raise AiCreativeRequestError("AI视觉返回结果必须正好包含3个方案")
+
+    # 新展示流程的首帧 schema；保留下面旧 schema 分支以兼容历史批次。
+    if any(isinstance(item, Mapping) and "first_frame" in item for item in items):
+        result: List[Dict[str, Any]] = []
+        mode = str((config or {}).get("count_mode") or "none").strip().lower()
+        requested = (config or {}).get("count")
+        for index, item in enumerate(items, start=1):
+            if not isinstance(item, Mapping):
+                raise AiCreativeRequestError(f"AI视觉第{index}个方案格式无效")
+            allowed = {
+                "title", "creative_summary", "creative_sources", "frame_count",
+                "visual_continuity_rules", "frame_plan", "first_frame",
+            }
+            if set(item) != allowed:
+                raise AiCreativeRequestError("AI视觉首帧方案字段结构无效")
+            title = _visual_text(item.get("title"), "title")
+            summary = _visual_text(item.get("creative_summary"), "creative_summary")
+            sources = _validate_visual_text_list(item.get("creative_sources"), "creative_sources")
+            continuity = _validate_visual_text_list(
+                item.get("visual_continuity_rules"), "visual_continuity_rules"
+            )
+            try:
+                frame_count = int(item.get("frame_count") or 0)
+            except (TypeError, ValueError) as exc:
+                raise AiCreativeRequestError("frame_count必须是整数") from exc
+            if mode == "none":
+                if frame_count != 1:
+                    raise AiCreativeRequestError("不轮播方案的frame_count必须为1")
+            elif mode == "fixed":
+                if not isinstance(requested, int) or frame_count != requested or frame_count not in range(2, 6):
+                    raise AiCreativeRequestError("固定轮播方案的frame_count必须等于用户指定数量")
+            elif mode == "ai":
+                if frame_count not in range(2, 6):
+                    raise AiCreativeRequestError("AI决定的frame_count必须为2至5")
+            else:
+                raise AiCreativeRequestError("AI视觉轮播配置无效")
+            raw_plan = item.get("frame_plan")
+            if not isinstance(raw_plan, list) or len(raw_plan) != frame_count:
+                raise AiCreativeRequestError("frame_plan必须完整覆盖frame_count")
+            plan: List[Dict[str, Any]] = []
+            for expected_index, raw_frame in enumerate(raw_plan, start=1):
+                if not isinstance(raw_frame, Mapping) or set(raw_frame) != {"index", "description"}:
+                    raise AiCreativeRequestError("frame_plan字段结构无效")
+                if int(raw_frame.get("index") or 0) != expected_index:
+                    raise AiCreativeRequestError("frame_plan序号必须从1连续递增")
+                plan.append({"index": expected_index, "description": _visual_text(raw_frame.get("description"), "frame_plan.description")})
+            first = item.get("first_frame")
+            if not isinstance(first, Mapping) or set(first) != {"index", "content", "image_generation_instruction"}:
+                raise AiCreativeRequestError("first_frame字段结构无效")
+            if int(first.get("index") or 0) != 1:
+                raise AiCreativeRequestError("first_frame.index必须为1")
+            first_content = _visual_text(first.get("content"), "first_frame.content")
+            image_instruction = _visual_text(
+                first.get("image_generation_instruction"), "first_frame.image_generation_instruction"
+            )
+            result.append({
+                "title": title,
+                "subtitle": first_content,
+                "creative_description": summary,
+                "core_subject": first_content,
+                "layout": first_content,
+                "visual_style": "；".join(continuity),
+                "content_extensions": [frame["description"] for frame in plan[1:]] or [first_content],
+                "reference_sources": [{"name": source, "note": "模型提供的创意来源"} for source in sources],
+                "keywords": ["展示类", "连续画面"],
+                "image_prompt": image_instruction,
+                "creative_summary": summary,
+                "creative_sources": sources,
+                "frame_count": frame_count,
+                "visual_continuity_rules": continuity,
+                "frame_plan": plan,
+                "first_frame": {
+                    "index": 1,
+                    "content": first_content,
+                    "image_generation_instruction": image_instruction,
+                },
+            })
+        return result
     if not config:
         result: List[Dict[str, Any]] = []
         text_fields = (
@@ -870,7 +986,6 @@ def validate_visual_creative_recommendations(
         raise AiCreativeRequestError("AI视觉轮播配置无效")
 
     result = []
-    ai_expected_count: int | None = None
     required_fields = set(VISUAL_CREATIVE_ITEM_FIELDS) | {"carousel"}
     for index, item in enumerate(items, start=1):
         if not isinstance(item, dict) or set(item) != required_fields:
@@ -909,11 +1024,6 @@ def validate_visual_creative_recommendations(
             expected_count = int(config["count"])
             if carousel_count != expected_count:
                 raise AiCreativeRequestError("AI视觉返回的carousel.count必须与固定屏数一致")
-        else:
-            if ai_expected_count is None:
-                ai_expected_count = carousel_count
-            elif carousel_count != ai_expected_count:
-                raise AiCreativeRequestError("AI视觉返回的三项方案必须使用统一轮播屏数")
         cleaned["carousel"] = clean_carousel
         result.append({
             field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS

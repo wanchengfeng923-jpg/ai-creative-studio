@@ -71,6 +71,7 @@ class StudioApplication:
                 os.environ.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
             ),
         )
+        self._ensure_default_ai_environment()
         model_client = self._load_model_client()
         self.generation_service = CreativeGenerationService(
             self.repository,
@@ -80,9 +81,10 @@ class StudioApplication:
 
     @staticmethod
     def _load_model_client() -> HttpModelClient | None:
-        api_url = str(os.environ.get("WEB_ERP_AI_API_URL") or "").strip()
-        api_key = str(os.environ.get("WEB_ERP_AI_API_KEY") or "").strip()
-        if not api_url or not api_key:
+        api_url = str(os.environ.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").strip()
+        api_key = str(os.environ.get("WEB_ERP_AI_API_KEY") or "local-chatgpt-gateway").strip()
+        model = str(os.environ.get("WEB_ERP_AI_MODEL") or "gpt-5-6-mini").strip()
+        if not api_url or not api_key or not model:
             return None
         try:
             timeout_seconds = float(os.environ.get("WEB_ERP_AI_TIMEOUT_SECONDS") or 30)
@@ -93,6 +95,23 @@ class StudioApplication:
             api_key=api_key,
             timeout_seconds=timeout_seconds,
         )
+
+    @staticmethod
+    def _ensure_default_ai_environment() -> None:
+        """Allow direct ``python -m creative_studio.app`` startup to use the local gateway."""
+
+        defaults = {
+            "WEB_ERP_AI_API_URL": "http://127.0.0.1:8780/v1/chat/completions",
+            "WEB_ERP_AI_API_KEY": "local-chatgpt-gateway",
+            "WEB_ERP_AI_MODEL": "gpt-5-6-mini",
+            "WEB_ERP_AI_PROVIDER": "chatgpt-web",
+            "WEB_ERP_AI_VISUAL_PROMPT_PATH": str(ROOT_DIR / "config" / "ai_visual_creative_prompt_v2.txt"),
+            "WEB_ERP_AI_PROMPT_PATH": str(ROOT_DIR / "config" / "ai_creative_prompt_v5.txt"),
+            "WEB_ERP_AI_TIMEOUT_SECONDS": "300",
+        }
+        for key, value in defaults.items():
+            if not str(os.environ.get(key) or "").strip():
+                os.environ[key] = value
 
     @staticmethod
     def _fingerprint(project: dict[str, Any]) -> str:
@@ -132,6 +151,12 @@ class StudioApplication:
     def generate(self, project_id: int) -> dict[str, Any]:
         outcome = self.generation_service.generate(CreativeGenerationRequest(project_id=project_id))
         return outcome.history
+
+    def select_visual_scheme(self, item_id: int) -> dict[str, Any]:
+        return self.generation_service.select_scheme(int(item_id))
+
+    def continue_visual_scheme(self, item_id: int) -> dict[str, Any]:
+        return self.generation_service.continue_scheme(int(item_id))
 
 
 APP = StudioApplication()
@@ -283,6 +308,20 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._require_project_access(int(history_match.group(1)), context)
             self._json(APP.history(int(history_match.group(1))))
             return
+        frame_status_match = re.fullmatch(r"/api/visual-items/(\d+)/frames/status", path)
+        if frame_status_match:
+            scheme_id = int(frame_status_match.group(1))
+            owner = APP.repository.get_visual_item_owner_id(scheme_id)
+            context = self._context()
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
+            scheme = APP.repository.public_display_scheme(scheme_id)
+            if scheme is None:
+                self._json({"success": False, "error": "展示方案不存在"}, HTTPStatus.NOT_FOUND)
+            else:
+                self._json({"success": True, "scheme": scheme})
+            return
         status_match = re.fullmatch(r"/api/visual-items/(\d+)/status", path)
         if status_match:
             context = self._context()
@@ -312,6 +351,21 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
             image_path = APP.repository.image_path_for_item(int(image_match.group(1)))
+            if image_path is None or not image_path.is_file():
+                self.send_error(HTTPStatus.NOT_FOUND)
+            else:
+                self._file(image_path, cache="no-store")
+            return
+        frame_image_match = re.fullmatch(r"/api/visual-items/(\d+)/frames/(\d+)/image", path)
+        if frame_image_match:
+            scheme_id = int(frame_image_match.group(1))
+            frame_index = int(frame_image_match.group(2))
+            owner = APP.repository.get_visual_item_owner_id(scheme_id)
+            context = self._context()
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
+            image_path = APP.repository.image_path_for_frame(scheme_id, frame_index)
             if image_path is None or not image_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND)
             else:
@@ -381,6 +435,17 @@ class StudioHandler(BaseHTTPRequestHandler):
         if generate_match:
             self._require_project_access(int(generate_match.group(1)), self._context())
             self._json(APP.generate(int(generate_match.group(1))))
+            return
+        scheme_match = re.fullmatch(r"/api/visual-items/(\d+)/(select|continue)", path)
+        if scheme_match:
+            item_id, action = int(scheme_match.group(1)), scheme_match.group(2)
+            owner = APP.repository.get_visual_item_owner_id(item_id)
+            context = self._context()
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
+            result = APP.select_visual_scheme(item_id) if action == "select" else APP.continue_visual_scheme(item_id)
+            self._json({"success": True, **result})
             return
         adopt_match = re.fullmatch(r"/api/projects/(\d+)/adopt", path)
         if adopt_match:

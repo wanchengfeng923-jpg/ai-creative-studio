@@ -12,7 +12,7 @@ from config import settings
 from http_client import build_session
 from web_fingerprint import WebFingerprint
 from web_proof import build_legacy_requirements_token, build_proof_token
-from auth_refresh import ensure_fresh_token
+from auth_refresh import ensure_fresh_token, renew_access_token
 from task_limiter import AiTaskQueueTimeoutError, ai_task_limiter
 
 router = APIRouter()
@@ -52,13 +52,41 @@ async def chat_completions(request: Request):
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
     try:
-        return await _complete_chat(token, model, body)
+        result = await _complete_chat(token, model, body)
+        if _response_is_auth_failure(result):
+            result = await _refresh_and_retry_chat(model, body)
+        return result
     except Exception as e:
+        # Access tokens can be revoked before their JWT expiry. Refresh once
+        # when the upstream boundary explicitly reports an authentication error.
+        if _exception_is_auth_failure(e):
+            try:
+                return await _refresh_and_retry_chat(model, body)
+            except Exception as refreshed_error:
+                e = refreshed_error
         import traceback
         traceback.print_exc()
         return JSONResponse(status_code=502, content={"error": {"message": str(e)}})
     finally:
         ai_task_limiter.release()
+
+
+def _response_is_auth_failure(response: JSONResponse) -> bool:
+    if response.status_code not in {401, 403, 502}:
+        return False
+    body = getattr(response, "body", b"")
+    text = body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
+    return any(marker in text for marker in ("upstream 401", "upstream 403", "Requirements failed: 401", "Requirements failed: 403", "Prepare failed: 401", "Prepare failed: 403"))
+
+
+def _exception_is_auth_failure(error: Exception) -> bool:
+    text = str(error)
+    return any(marker in text for marker in ("Requirements failed: 401", "Requirements failed: 403", "Prepare failed: 401", "Prepare failed: 403"))
+
+
+async def _refresh_and_retry_chat(model: str, body: dict[str, Any]) -> JSONResponse:
+    await renew_access_token()
+    return await _complete_chat(settings.chatgpt_access_token.strip(), model, body)
 
 
 async def _stream_chat_with_slot_release(token: str, model: str, body: dict[str, Any]):
