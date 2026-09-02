@@ -736,6 +736,8 @@
   function openImage(url) { els.dialogImage.src = `${url}?v=${Date.now()}`; els.imageDialog.showModal(); }
 
   function bindEvents() {
+    // Keep dynamically rendered account forms aligned with the server policy.
+    if (document.querySelector("#newUserPassword")) document.querySelector("#newUserPassword").minLength = 3;
     els.loginForm.addEventListener("submit", async (event) => {
       event.preventDefault(); if (els.loginButton.disabled) return; els.loginButton.disabled = true;
       try {
