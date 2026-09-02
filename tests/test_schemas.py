@@ -118,6 +118,13 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(SchemaValidationError):
             VisualRecommendationSchema.validate(payload)
 
+    def test_visual_schema_rejects_missing_ai_carousel(self) -> None:
+        payload = {"items": [_visual_item(index) for index in range(1, 4)]}
+        payload["items"][2]["carousel"] = None
+
+        with self.assertRaises(SchemaValidationError):
+            VisualRecommendationSchema.validate(payload)
+
     def test_carousel_schema_rejects_non_continuous_frames(self) -> None:
         with self.assertRaises(SchemaValidationError):
             CarouselRecommendationSchema.validate(

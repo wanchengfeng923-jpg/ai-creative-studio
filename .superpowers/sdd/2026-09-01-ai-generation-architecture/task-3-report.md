@@ -1,5 +1,31 @@
 # Task 3 Report
 
+## 2026-09-02 Task 3 Fix Round 2
+
+Fixed the remaining review issue in `D:\code\ai_creative_studio`:
+
+- tightened `src/creative_studio/schemas.py` so `VisualRecommendationSchema` now requires a nested `carousel` on all three visual items
+- uniform carousel validation now compares all three counts, not just the non-`None` subset, so missing/mixed AI-decided payloads are rejected
+- added a regression test covering a payload where one visual item omits `carousel`
+
+Verification:
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_schemas.SchemaTests.test_visual_schema_rejects_missing_ai_carousel tests.test_schemas tests.test_generation_service -v`
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest discover -s tests -v`
+- `python -m compileall -q src chat2api`
+- `git diff --check`
+
+Result:
+
+- the missing-carousel regression failed before the fix and now passes
+- full test suite passed: `Ran 67 tests in 7.056s`
+- Python compile check passed
+- diff check passed
+
+Notes:
+
+- Real AI requests were not run; verification stayed on deterministic tests and local static checks.
+
 ## 2026-09-02 Task 3 Fix Round 1
 
 Implemented the remaining Task 3 review findings in `D:\code\ai_creative_studio`:

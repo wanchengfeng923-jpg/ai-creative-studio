@@ -232,9 +232,9 @@ class VisualRecommendationSchema:
                 reject_urls=True,
             )
             carousel_value = item_data.get("carousel")
-            carousel = None
-            if carousel_value is not None:
-                carousel = CarouselRecommendationSchema.validate(carousel_value)
+            if carousel_value is None:
+                raise SchemaValidationError(f"items[{index}].carousel must be provided")
+            carousel = CarouselRecommendationSchema.validate(carousel_value)
             normalized_items.append(
                 VisualCreativeItem(
                     title=title,
@@ -250,8 +250,8 @@ class VisualRecommendationSchema:
                     carousel=carousel,
                 )
             )
-        carousel_counts = {item.carousel.count for item in normalized_items if item.carousel is not None}
-        if len(carousel_counts) > 1:
+        carousel_counts = [item.carousel.count for item in normalized_items]
+        if len(set(carousel_counts)) != 1:
             raise SchemaValidationError("visual recommendation carousel.count must be uniform across all items")
         return VisualRecommendation(items=tuple(normalized_items))
 
