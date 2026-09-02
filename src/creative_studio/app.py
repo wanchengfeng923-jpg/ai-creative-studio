@@ -138,11 +138,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         return cookies
 
     def _session_cookie(self) -> str | None:
-        morsel = self._cookies().get("creative_session")
+        morsel = self._cookies().get("studio_session")
         return morsel.value if morsel else None
 
     def _csrf_cookie(self) -> str | None:
-        morsel = self._cookies().get("creative_csrf")
+        morsel = self._cookies().get("studio_csrf")
         return morsel.value if morsel else None
 
     def _context(self):
@@ -174,10 +174,10 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _set_auth_cookies(self, session_token: str, csrf_token: str) -> None:
         secure = "; Secure" if APP.auth.cookie_secure else ""
-        self._pending_cookies = [f"creative_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"creative_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
+        self._pending_cookies = [f"studio_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"studio_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
 
     def _clear_auth_cookies(self) -> None:
-        self._pending_cookies = ["creative_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", "creative_csrf=; Path=/; Max-Age=0; SameSite=Lax"]
+        self._pending_cookies = ["studio_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", "studio_csrf=; Path=/; Max-Age=0; SameSite=Lax"]
 
     def do_GET(self) -> None:
         try:
@@ -356,6 +356,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         retry_match = re.fullmatch(r"/api/visual-items/(\d+)/retry", path)
         if retry_match:
             item_id = int(retry_match.group(1))
+            owner = APP.repository.get_visual_item_owner_id(item_id)
+            context = self._context()
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
             if not APP.repository.retry_visual_item(item_id):
                 raise StudioDataError("只有失败的图片可以重新生成")
             APP.image_runner.retry(item_id)
