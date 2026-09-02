@@ -223,6 +223,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._require_admin()
             self._json({"success": True, "users": APP.repository.list_users()})
             return
+        if not path.startswith("/api/"):
+            self._static(path)
+            return
         self._require_auth()
         if path == "/api/tag-options":
             self._json({"success": True, "config": load_tag_options()})
