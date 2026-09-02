@@ -1,5 +1,35 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-02 启动控制台关闭释放端口
+
+### 已完成
+
+- 修复关闭启动控制台时，后台启动线程可能在关闭后继续拉起网页或 AI 网关的竞态。
+- 统一停止子进程并等待退出；正常终止超时后升级为强制结束，避免 8775/8780 端口残留。
+- 新增回归测试覆盖终止等待和强制结束路径。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_launcher_proxy -v`：11 项通过。
+- `python -m py_compile launcher.py`、`python -m compileall -q src chat2api launcher.py`、`node --check static\\app.js`、`git diff --check`：通过。
+
+### 未完成
+
+- 尚未在带桌面的真实 Windows 会话中逐按钮验证；未发起真实 AI 请求。
+- 关闭浏览器页面不会停止服务，仍需关闭启动控制台或点击“停止”。
+
+## 2026-09-02 项目专用 ClipProxy 链式中转
+
+### 已完成
+
+- 启动器新增项目专用 Mihomo 链式中转：chat2api 使用 `127.0.0.1:7896`，ClipProxy 经本机 Clash 出站，不修改系统代理、TUN 或主 Clash 订阅。
+- 代理工作台和网关启动共用同一条中转路径；无本机 Clash 时明确降级为 ClipProxy 直连，不再把普通 Clash 节点显示为固定 ISP 出口。
+
+### 验证
+
+- Mihomo 配置检查通过；真实启动中转并探测出口成功，返回 ClipProxy 固定 IP `38.248.239.46`。
+- 代理定向测试 10 项、全量确定性测试 87 项、Python 编译、JavaScript 语法检查和 `git diff --check` 均通过。
+
 ## 2026-09-02 ClipProxy 静态 IP 多浏览器范围研究
 
 ### 已完成
@@ -704,6 +734,27 @@
 - 按复核意见补回生成结果中的顶层 `carousel_frames` 兼容字段，保持 `carousel` 作为新契约的唯一权威来源。
 - 新增回归测试，确认新生成结果可经由现有历史路径继续渲染，且 `resolved_tags` 仍不作为生成时必填用户事实。
 - 最新代码提交为 `9142923`，验证覆盖 `31` 项测试全部通过。
+
+# 2026-09-02 图片任务幂等修复（review follow-up）
+
+### 已完成
+
+- 修正图片提交失败缓存：现在只缓存成功的 gateway 任务，同一 `request_id` 的后续重试可以重新提交，不会被本地失败结果毒化。
+- 保留稳定提交键 `creative-studio-{visual_item_id}-attempt-{attempt}`、成功复用和恢复/重试隔离行为。
+- 新增回归测试，覆盖“首次超时后同键重试成功”的路径。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest tests.test_image_jobs tests.test_repository -v`
+- `PYTHONPATH=src python -m unittest discover -s tests -v`
+- `node --check static\app.js`
+- `python -m compileall -q src chat2api`
+- `git diff --check`
+
+### 说明
+
+- 修复提交为 `0e9e5ab`。
+- 未发起真实图片请求。
 
 # 2026-09-02 图片任务幂等（任务5）
 
