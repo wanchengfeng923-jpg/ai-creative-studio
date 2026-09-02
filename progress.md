@@ -1,5 +1,26 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-02 AI 生成架构任务 3 修复
+
+### 已完成
+
+- 将创意生成服务接到可注入的 `ModelClient`，并在环境变量齐全时由 `StudioApplication` 注入 `HttpModelClient`。
+- `ai_creative.py` 的提示词组装改为通过 `CompiledPrompt` 渲染，保留原有提示词内容和兼容出口。
+- `schemas.py` 补上了展示类文本 URL 拦截、`content_extensions` / `keywords` 非空校验，以及三套视觉方案轮播屏数一致性检查。
+- 新增回归测试，覆盖 generic model client 运行路径和展示类 schema 的收紧规则。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_schemas tests.test_generation_service -v`
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest discover -s tests -v`
+- `python -m compileall -q src chat2api`
+- `node --check static\app.js`
+- `git diff --check`
+
+### 未完成
+
+- 真实 AI 网关调用未执行；当前验证全部基于确定性测试和本地编译检查。
+
 ## 2026-09-02 已选标签保留并高亮
 
 ### 已完成

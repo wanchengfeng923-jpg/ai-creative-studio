@@ -521,15 +521,20 @@ def build_creative_prompt(
     if not template:
         raise AiCreativeConfigurationError("AI提示词尚未配置")
     tags_text = format_creative_tags_for_prompt(tags, mode="narrative")
-    content = template.replace("{{game_info}}", str(game_info or "").strip())
-    content = content.replace("{{creative_tags}}", tags_text)
     bounded_task_type = _bounded_context_text(task_type, AI_TASK_TYPE_MAX_LENGTH)
     bounded_task_description = _bounded_context_text(task_description, AI_TASK_DESCRIPTION_MAX_LENGTH)
     raw_script_type = script_type or (tags.get("script_type") if isinstance(tags, dict) else "")
     bounded_script_type = _bounded_context_text(raw_script_type, AI_SCRIPT_TYPE_MAX_LENGTH)
-    content = content.replace("{{task_type}}", bounded_task_type)
-    content = content.replace("{{task_description}}", bounded_task_description)
-    content = content.replace("{{script_type}}", bounded_script_type)
+    content = compile_prompt(
+        template,
+        {
+            "game_info": str(game_info or "").strip(),
+            "creative_tags": tags_text,
+            "task_type": bounded_task_type,
+            "task_description": bounded_task_description,
+            "script_type": bounded_script_type,
+        },
+    ).render()
     if "{{creative_tags}}" not in template:
         content = f"{content}\n\n创意标签数据：\n{tags_text}"
     if "{{task_type}}" not in template and bounded_task_type:
@@ -667,13 +672,20 @@ def build_visual_creative_prompt(
         "{{product_evidence_summary}}": str(product_evidence_summary or "").strip(),
         "{{reference_file_names}}": reference_names,
     }
-    content = template
-    for marker, replacement in replacements.items():
-        content = content.replace(marker, replacement)
+    content = compile_prompt(
+        template,
+        {
+            "task_type": replacements["{{task_type}}"],
+            "task_description": replacements["{{task_description}}"],
+            "creative_tags": replacements["{{creative_tags}}"],
+            "aspect_ratio": replacements["{{aspect_ratio}}"],
+            "product_evidence_summary": replacements["{{product_evidence_summary}}"],
+            "reference_file_names": replacements["{{reference_file_names}}"],
+            "carousel_context": _visual_carousel_context_text(carousel_config, tag_catalog),
+        },
+    ).render()
     carousel_context = _visual_carousel_context_text(carousel_config, tag_catalog)
-    if "{{carousel_context}}" in content:
-        content = content.replace("{{carousel_context}}", carousel_context)
-    elif carousel_context:
+    if "{{carousel_context}}" not in template and carousel_context:
         content = f"{content}\n\n{carousel_context}"
     return content
 

@@ -59,6 +59,27 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual([frame.index for frame in result.items[0].carousel.frames], [1, 2, 3])
         self.assertNotIn("resolved_tags", result.items[0].__dict__)
 
+    def test_visual_schema_rejects_urls_in_text_fields(self) -> None:
+        payload = {"items": [_visual_item(index) for index in range(1, 4)]}
+        payload["items"][0]["title"] = "https://example.com"
+
+        with self.assertRaises(SchemaValidationError):
+            VisualRecommendationSchema.validate(payload)
+
+    def test_visual_schema_rejects_empty_content_extensions(self) -> None:
+        payload = {"items": [_visual_item(index) for index in range(1, 4)]}
+        payload["items"][0]["content_extensions"] = []
+
+        with self.assertRaises(SchemaValidationError):
+            VisualRecommendationSchema.validate(payload)
+
+    def test_visual_schema_rejects_empty_keywords(self) -> None:
+        payload = {"items": [_visual_item(index) for index in range(1, 4)]}
+        payload["items"][0]["keywords"] = []
+
+        with self.assertRaises(SchemaValidationError):
+            VisualRecommendationSchema.validate(payload)
+
     def test_carousel_schema_requires_continuous_frames(self) -> None:
         result = CarouselRecommendationSchema.validate(
             {
@@ -74,6 +95,28 @@ class SchemaTests(unittest.TestCase):
 
         self.assertEqual(result.count, 3)
         self.assertEqual([frame.index for frame in result.frames], [1, 2, 3])
+
+    def test_visual_schema_rejects_mixed_ai_carousel_counts(self) -> None:
+        payload = {"items": [_visual_item(index) for index in range(1, 4)]}
+        payload["items"][0]["carousel"]["count"] = 2
+        payload["items"][0]["carousel"]["frames"] = [
+            {"index": 1, "display_description": "第1屏1"},
+            {"index": 2, "display_description": "第2屏1"},
+        ]
+        payload["items"][1]["carousel"]["count"] = 3
+        payload["items"][1]["carousel"]["frames"] = [
+            {"index": 1, "display_description": "第1屏2"},
+            {"index": 2, "display_description": "第2屏2"},
+            {"index": 3, "display_description": "第3屏2"},
+        ]
+        payload["items"][2]["carousel"]["count"] = 2
+        payload["items"][2]["carousel"]["frames"] = [
+            {"index": 1, "display_description": "第1屏3"},
+            {"index": 2, "display_description": "第2屏3"},
+        ]
+
+        with self.assertRaises(SchemaValidationError):
+            VisualRecommendationSchema.validate(payload)
 
     def test_carousel_schema_rejects_non_continuous_frames(self) -> None:
         with self.assertRaises(SchemaValidationError):

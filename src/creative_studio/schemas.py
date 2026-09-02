@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Mapping
 
 from .carousel import CarouselValidationError, normalize_visual_carousel_frames
@@ -12,27 +13,44 @@ class SchemaValidationError(ValueError):
     pass
 
 
+_URL_PATTERN = re.compile(r"\b(?:https?://|www\.)\S+", re.IGNORECASE)
+
+
 def _as_mapping(value: Any, *, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise SchemaValidationError(f"{label} must be a mapping")
     return value
 
 
-def _text(value: Any, *, label: str) -> str:
+def _text(value: Any, *, label: str, reject_urls: bool = False) -> str:
     if not isinstance(value, str):
         raise SchemaValidationError(f"{label} must be a string")
     text = value.strip()
     if not text:
         raise SchemaValidationError(f"{label} cannot be blank")
+    if reject_urls and _URL_PATTERN.search(text):
+        raise SchemaValidationError(f"{label} cannot contain URLs")
     return text
 
 
-def _text_list(value: Any, *, label: str, size: int | None = None) -> tuple[str, ...]:
+def _text_list(
+    value: Any,
+    *,
+    label: str,
+    size: int | None = None,
+    reject_urls: bool = False,
+    non_empty: bool = False,
+) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise SchemaValidationError(f"{label} must be a list")
+    if non_empty and not value:
+        raise SchemaValidationError(f"{label} cannot be empty")
     if size is not None and len(value) != size:
         raise SchemaValidationError(f"{label} must contain exactly {size} items")
-    return tuple(_text(item, label=f"{label}[{index}]") for index, item in enumerate(value))
+    return tuple(
+        _text(item, label=f"{label}[{index}]", reject_urls=reject_urls)
+        for index, item in enumerate(value)
+    )
 
 
 @dataclass(frozen=True)
@@ -154,18 +172,29 @@ class VisualRecommendationSchema:
         normalized_items: list[VisualCreativeItem] = []
         for index, item in enumerate(items):
             item_data = _as_mapping(item, label=f"items[{index}]")
-            title = _text(item_data.get("title"), label=f"items[{index}].title")
-            subtitle = _text(item_data.get("subtitle"), label=f"items[{index}].subtitle")
+            title = _text(item_data.get("title"), label=f"items[{index}].title", reject_urls=True)
+            subtitle = _text(item_data.get("subtitle"), label=f"items[{index}].subtitle", reject_urls=True)
             creative_description = _text(
                 item_data.get("creative_description"),
                 label=f"items[{index}].creative_description",
+                reject_urls=True,
             )
-            core_subject = _text(item_data.get("core_subject"), label=f"items[{index}].core_subject")
-            layout = _text(item_data.get("layout"), label=f"items[{index}].layout")
-            visual_style = _text(item_data.get("visual_style"), label=f"items[{index}].visual_style")
+            core_subject = _text(
+                item_data.get("core_subject"),
+                label=f"items[{index}].core_subject",
+                reject_urls=True,
+            )
+            layout = _text(item_data.get("layout"), label=f"items[{index}].layout", reject_urls=True)
+            visual_style = _text(
+                item_data.get("visual_style"),
+                label=f"items[{index}].visual_style",
+                reject_urls=True,
+            )
             content_extensions = _text_list(
                 item_data.get("content_extensions"),
                 label=f"items[{index}].content_extensions",
+                reject_urls=True,
+                non_empty=True,
             )
             reference_sources = item_data.get("reference_sources")
             if not isinstance(reference_sources, list) or not reference_sources:
@@ -179,12 +208,29 @@ class VisualRecommendationSchema:
                     )
                 cleaned_sources.append(
                     (
-                        _text(source_data.get("name"), label=f"items[{index}].reference_sources[{source_index}].name"),
-                        _text(source_data.get("note"), label=f"items[{index}].reference_sources[{source_index}].note"),
+                        _text(
+                            source_data.get("name"),
+                            label=f"items[{index}].reference_sources[{source_index}].name",
+                            reject_urls=True,
+                        ),
+                        _text(
+                            source_data.get("note"),
+                            label=f"items[{index}].reference_sources[{source_index}].note",
+                            reject_urls=True,
+                        ),
                     )
                 )
-            keywords = _text_list(item_data.get("keywords"), label=f"items[{index}].keywords")
-            image_prompt = _text(item_data.get("image_prompt"), label=f"items[{index}].image_prompt")
+            keywords = _text_list(
+                item_data.get("keywords"),
+                label=f"items[{index}].keywords",
+                reject_urls=True,
+                non_empty=True,
+            )
+            image_prompt = _text(
+                item_data.get("image_prompt"),
+                label=f"items[{index}].image_prompt",
+                reject_urls=True,
+            )
             carousel_value = item_data.get("carousel")
             carousel = None
             if carousel_value is not None:
@@ -204,6 +250,9 @@ class VisualRecommendationSchema:
                     carousel=carousel,
                 )
             )
+        carousel_counts = {item.carousel.count for item in normalized_items if item.carousel is not None}
+        if len(carousel_counts) > 1:
+            raise SchemaValidationError("visual recommendation carousel.count must be uniform across all items")
         return VisualRecommendation(items=tuple(normalized_items))
 
 

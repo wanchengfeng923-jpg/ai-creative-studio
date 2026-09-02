@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from dataclasses import is_dataclass
 from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from creative_studio.generation_models import (
     CreativeGenerationRequest,
@@ -14,6 +16,7 @@ from creative_studio.generation_models import (
     GenerationOutcome,
 )
 from creative_studio.generation_service import CreativeGenerationService
+from creative_studio.model_client import ModelResponse
 from creative_studio.repository import StudioRepository
 from creative_studio.app import StudioApplication
 
@@ -34,6 +37,16 @@ class FakeImageRunner:
 
     def enqueue(self, item_ids: list[int]) -> None:
         self.enqueued.append(list(item_ids))
+
+
+class FakeModelClient:
+    def __init__(self, response: ModelResponse) -> None:
+        self.response = response
+        self.requests: list[object] = []
+
+    def generate(self, request: object) -> ModelResponse:
+        self.requests.append(request)
+        return self.response
 
 
 class GenerationServiceTests(unittest.TestCase):
@@ -170,6 +183,57 @@ class GenerationServiceTests(unittest.TestCase):
         )
         self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
+
+    def test_generate_narrative_can_use_a_generic_model_client(self) -> None:
+        response = ModelResponse(
+            content=(
+                '{"items":['
+                '{"story":"故事1","hooks":[{"text":"钩子1","scenes":["画面1","画面2","画面3"]},{"text":"钩子2","scenes":["画面4","画面5","画面6"]}]},'
+                '{"story":"故事2","hooks":[{"text":"钩子1","scenes":["画面1","画面2","画面3"]},{"text":"钩子2","scenes":["画面4","画面5","画面6"]}]},'
+                '{"story":"故事3","hooks":[{"text":"钩子1","scenes":["画面1","画面2","画面3"]},{"text":"钩子2","scenes":["画面4","画面5","画面6"]}]},'
+                '{"story":"故事4","hooks":[{"text":"钩子1","scenes":["画面1","画面2","画面3"]},{"text":"钩子2","scenes":["画面4","画面5","画面6"]}]},'
+                '{"story":"故事5","hooks":[{"text":"钩子1","scenes":["画面1","画面2","画面3"]},{"text":"钩子2","scenes":["画面4","画面5","画面6"]}]}'
+                ']}'
+            ),
+            input_tokens=11,
+            output_tokens=22,
+            total_tokens=33,
+            latency_ms=4,
+            conversation_id="conversation",
+            assistant_message_id="message",
+        )
+        client = FakeModelClient(response)
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
+            },
+            clear=False,
+        ):
+            service = CreativeGenerationService(
+                repository=self.repo,
+                model_client=client,
+                image_runner=FakeImageRunner(),
+            )
+            self.repo.update_project(self.narrative_project["id"], {"task_description": "叙事说明"})
+
+            result = service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+
+        self.assertEqual(len(client.requests), 1)
+        request = client.requests[0]
+        self.assertIn("叙事说明", request.messages[0]["content"])
+        self.assertEqual(result.snapshot.kind, "narrative")
+        with closing(self.repo._connect()) as connection:
+            row = connection.execute(
+                "SELECT conversation_id, assistant_message_id FROM generations ORDER BY id DESC LIMIT 1",
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["conversation_id"], "conversation")
+        self.assertEqual(row["assistant_message_id"], "message")
 
     def test_inactive_tags_do_not_change_fingerprint_or_batch_identity(self) -> None:
         self.repo.update_project(

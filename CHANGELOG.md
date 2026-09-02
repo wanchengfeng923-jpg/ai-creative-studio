@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+- 收紧展示类视觉 schema：拒绝 URL 文本、要求 `content_extensions` / `keywords` 非空，并强制三套方案的 AI 轮播屏数一致。
+- 生成服务新增可注入 `ModelClient` 的运行路径，并在环境变量齐全时由应用注入 `HttpModelClient`；提示词组装改用 `CompiledPrompt` 渲染。
+
 - 新增 PBKDF2 密码哈希、HttpOnly 会话、CSRF 防护、登录限流、审计和管理员普通账号管理；普通账号按项目所有者隔离数据。支持一次性 CLI 或启动环境变量创建首个管理员。
 
 - 重构生成链路：新增共享生成模型和生成服务，`StudioApplication.generate` 仅保留 HTTP 入口职责；空白轮播提示词现在可通过归一化后继续生成展示类方案。

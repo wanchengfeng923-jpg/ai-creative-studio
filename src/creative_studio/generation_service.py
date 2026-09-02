@@ -12,6 +12,8 @@ from .ai_creative import (
     AiCreativeGenerationResult,
     NARRATIVE_TAG_KEYS,
     VISUAL_TAG_KEYS,
+    build_creative_prompt,
+    build_visual_creative_prompt,
     generate_creative_recommendations,
     generate_visual_creative_recommendations,
     load_ai_creative_config,
@@ -19,6 +21,8 @@ from .ai_creative import (
     load_ai_visual_creative_config,
     normalize_creative_tags,
     recommendation_kind_for_script_type,
+    validate_creative_recommendations,
+    validate_visual_creative_recommendations,
 )
 from .carousel import CarouselValidationError, normalize_visual_carousel_config
 from .generation_models import (
@@ -27,7 +31,7 @@ from .generation_models import (
     GenerationContext,
     GenerationOutcome,
 )
-from .model_client import ModelClient
+from .model_client import ModelClient, ModelRequest
 from .prompting import CompiledPrompt
 from .repository import StudioDataError, StudioRepository
 
@@ -119,10 +123,12 @@ class CreativeGenerationService:
         self,
         repository: StudioRepository,
         adapter: CreativeGenerationAdapter | None = None,
+        model_client: ModelClient | None = None,
         image_runner: Any | None = None,
     ) -> None:
         self.repository = repository
         self.adapter = adapter or LegacyCreativeGenerationAdapter()
+        self.model_client = model_client
         self.image_runner = image_runner
 
     def generate(self, request: CreativeGenerationRequest) -> GenerationOutcome:
@@ -146,7 +152,10 @@ class CreativeGenerationService:
             parent_message_id=str(reservation.get("parent_message_id") or ""),
         )
         try:
-            result = self.adapter.generate(snapshot, context)
+            if self.model_client is not None:
+                result = self._generate_with_model_client(snapshot, context)
+            else:
+                result = self.adapter.generate(snapshot, context)
             item_ids: tuple[int, ...] = ()
             if snapshot.kind == "visual":
                 item_ids = tuple(
@@ -174,6 +183,85 @@ class CreativeGenerationService:
         except Exception as exc:
             self.repository.fail_generation(context.reservation_id, str(exc))
             raise
+
+    def _generate_with_model_client(
+        self,
+        snapshot: CreativeInputSnapshot,
+        context: GenerationContext,
+    ) -> AiCreativeGenerationResult:
+        if snapshot.kind == "visual":
+            config = load_ai_visual_creative_config(carousel=snapshot.carousel_enabled)
+            prompt = build_visual_creative_prompt(
+                {key: list(values) for key, values in snapshot.creative_tags.items()},
+                config.prompt_template,
+                task_type=snapshot.task_type,
+                task_description=snapshot.task_description,
+                aspect_ratio=snapshot.aspect_ratio,
+                product_evidence_summary=snapshot.product_evidence_summary,
+                reference_file_names=snapshot.reference_file_names,
+                carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
+                tag_catalog=_load_tag_options(),
+            )
+            request = ModelRequest(
+                model=config.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=5000,
+                conversation_id=context.conversation_id,
+                parent_message_id=context.parent_message_id,
+            )
+            response = self.model_client.generate(request)
+            payload = json.loads(response.content or "{}")
+            items = validate_visual_creative_recommendations(
+                payload,
+                carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
+                tag_catalog=_load_tag_options(),
+            )
+            return AiCreativeGenerationResult(
+                items=items,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                total_tokens=response.total_tokens,
+                usage_source="exact",
+                cost_amount=None,
+                cost_currency="",
+                latency_ms=response.latency_ms,
+                conversation_id=response.conversation_id,
+                assistant_message_id=response.assistant_message_id,
+            )
+
+        config = load_ai_creative_config()
+        prompt = build_creative_prompt(
+            {key: list(values) for key, values in snapshot.creative_tags.items()},
+            config.prompt_template,
+            game_info=load_ai_creative_game_info().content,
+            task_type=snapshot.task_type,
+            task_description=snapshot.task_description,
+            script_type=snapshot.script_type,
+        )
+        request = ModelRequest(
+            model=config.model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=10000,
+            conversation_id=context.conversation_id,
+            parent_message_id=context.parent_message_id,
+        )
+        response = self.model_client.generate(request)
+        payload = json.loads(response.content or "{}")
+        items = validate_creative_recommendations(payload)
+        return AiCreativeGenerationResult(
+            items=items,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            total_tokens=response.total_tokens,
+            usage_source="exact",
+            cost_amount=None,
+            cost_currency="",
+            latency_ms=response.latency_ms,
+            conversation_id=response.conversation_id,
+            assistant_message_id=response.assistant_message_id,
+        )
 
     def _build_snapshot(self, project: Mapping[str, Any]) -> CreativeInputSnapshot:
         script_type = str(project.get("script_type") or "").strip()
