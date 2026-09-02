@@ -1,5 +1,29 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-02 ClipProxy 静态 IP 多浏览器范围研究
+
+### 已完成
+
+- 核对 ClipProxy 官方静态 IP 购买、提取、白名单、指纹浏览器和多设备计费文档。
+- 确认官方未给出“一个静态 IP 支持几个指纹浏览器/并发会话”的固定数字，也未承诺无限并发。
+- 研究笔记已保存为 `docs/research/2026-09-02-clipproxy-static-ip-multi-browser.md`。
+
+## 2026-09-02 代理跨电脑自动路由
+
+### 已完成
+
+- 复现确认：当前远程 ClipProxy 端点在 Python 进程中超时，而本机 Clash `127.0.0.1:7897` 可成功返回出口 IP。
+- 启动器新增自动选择逻辑：优先已保存的远程代理，失败后探测本机 Clash 常用端口并仅对本次网关进程切换，不修改系统 VPN/TUN 或 `.env` 原配置。
+- 代理工作台“测试出口 IP”同步使用自动路由，避免远程端点在 Python 分流下超时却误显示失败。
+- 实测自动回退可连通，但出口会随 Clash 节点变化（本轮为 `67.159.48.146`），已在提示中明确不等于 ClipProxy 固定 IP。
+- 追加诊断：运行中的旧网关 `/health` 正常但 `/v1/models` 超时，需完全重启启动器/网关后才能加载自动回退环境；仅点击“检测连接”不会替换已有网关进程。
+
+### 验证
+
+- 代理工作台定向测试 6 项通过。
+- 当前机器真实运行选择结果为 `http://127.0.0.1:7897`，出口 IP `203.27.106.146`。
+- Python 编译、`compileall` 与 `git diff --check` 通过。
+
 ## 2026-09-02 AI 生成架构任务 3 修复
 
 ### 已完成
@@ -680,6 +704,28 @@
 - 按复核意见补回生成结果中的顶层 `carousel_frames` 兼容字段，保持 `carousel` 作为新契约的唯一权威来源。
 - 新增回归测试，确认新生成结果可经由现有历史路径继续渲染，且 `resolved_tags` 仍不作为生成时必填用户事实。
 - 最新代码提交为 `9142923`，验证覆盖 `31` 项测试全部通过。
+
+# 2026-09-02 图片任务幂等（任务5）
+
+### 已完成
+
+- 图片网关提交增加按 `creative-studio-{visual_item_id}-attempt-{attempt}` 的稳定键去重，重复提交同键会复用同一任务。
+- `visual_items` 恢复与重试改为事务化，保持失败/成功/恢复边界稳定，旧 worker 不能覆盖新尝试。
+- 生成服务把首帧图片派发封装成独立步骤，`image_prompt` 仍只保留在服务端。
+- 新增 `tests/test_image_jobs.py`，补上重复提交、恢复重排和重试隔离回归。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest tests.test_image_jobs tests.test_repository tests.test_generation_service -v`
+- `PYTHONPATH=src python -m unittest discover -s tests -v`
+- `node --check static\app.js`
+- `python -m compileall -q src chat2api`
+- `git diff --check`
+
+### 说明
+
+- 代码实现提交为 `4aa9ed4`。
+- 未发起真实图片生成请求。
 
 ## 2026-09-01 生成服务拆分（任务2）
 
