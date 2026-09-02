@@ -6,6 +6,7 @@
 
 ## [Unreleased]
 
+- 轮播历史输出改为以 `carousel.frames` 为准，并保留旧 `carousel_frames` 兼容读取，保证展示类历史记录继续可渲染。
 - 收紧展示类视觉 schema：拒绝 URL 文本、要求 `content_extensions` / `keywords` 非空，并强制三套方案的 AI 轮播屏数一致。
 - 生成服务新增可注入 `ModelClient` 的运行路径，并在环境变量齐全时由应用注入 `HttpModelClient`；提示词组装改用 `CompiledPrompt` 渲染。
 
