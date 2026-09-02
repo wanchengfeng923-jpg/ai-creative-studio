@@ -34,8 +34,9 @@ from .carousel import CarouselValidationError, normalize_visual_carousel_config
 from .generation_models import CreativeGenerationRequest
 from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
+from .model_client import HttpModelClient
 from .repository import StudioDataError, StudioRepository
-from .auth import AuthError, AuthRateLimitError, AuthService
+from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -63,9 +64,27 @@ class StudioApplication:
                 os.environ.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
             ),
         )
+        model_client = self._load_model_client()
         self.generation_service = CreativeGenerationService(
             self.repository,
+            model_client=model_client,
             image_runner=self.image_runner,
+        )
+
+    @staticmethod
+    def _load_model_client() -> HttpModelClient | None:
+        api_url = str(os.environ.get("WEB_ERP_AI_API_URL") or "").strip()
+        api_key = str(os.environ.get("WEB_ERP_AI_API_KEY") or "").strip()
+        if not api_url or not api_key:
+            return None
+        try:
+            timeout_seconds = float(os.environ.get("WEB_ERP_AI_TIMEOUT_SECONDS") or 30)
+        except (TypeError, ValueError):
+            timeout_seconds = 30.0
+        return HttpModelClient(
+            api_url=api_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
         )
 
     @staticmethod
@@ -460,6 +479,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         if isinstance(exc, AuthRateLimitError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.TOO_MANY_REQUESTS)
+            return
+        if isinstance(exc, AuthPermissionError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.FORBIDDEN)
             return
         if isinstance(exc, AuthError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)

@@ -37,6 +37,8 @@
 
 ## 开发验证
 
+开始修改代码前先阅读根目录的 [`CODE_STYLE.md`](CODE_STYLE.md)。它记录正式原生前端、Python 后端和隔离 React 原型各自适用的技术栈与编码约定。
+
 ```powershell
 $env:PYTHONPATH = "D:\code\ai_creative_studio\src"
 python -m unittest discover -s tests -v
@@ -47,3 +49,23 @@ python -m compileall -q src chat2api
 ## 当前技术边界
 
 为快速独立，创意生成核心仍兼容原来的 `WEB_ERP_AI_*` 环境变量名，但变量只由本项目启动脚本设置，不依赖 ERP 进程或 ERP 数据。后续可以在不改变数据合同的情况下逐步重命名。
+
+## 账号登录
+
+网页现在要求登录后使用。首次启动前可通过一次性命令创建管理员（密码从标准输入读取，不回显）：
+
+```powershell
+$env:PYTHONPATH = "D:\\code\\ai_creative_studio\\src"
+Read-Host -AsSecureString | ConvertFrom-SecureString -AsPlainText | python -m creative_studio.auth_cli init-admin --username admin --password-stdin
+```
+
+也可在首次启动时临时设置 `CREATIVE_STUDIO_BOOTSTRAP_USERNAME` 和 `CREATIVE_STUDIO_BOOTSTRAP_PASSWORD`；账号表非空后不会再次使用。管理员可在网页中创建、停用、启用和重置普通账号；普通账号只能访问自己创建的项目。当前服务仍默认只监听 `127.0.0.1`，公网部署前还必须配置 HTTPS、反向代理、密钥管理、备份和外部限流。
+## 网络代理工作台
+
+启动控制台中的“网络代理工作台”可以独立配置 ChatGPT 网关的出站代理，也可以直接运行：
+
+```powershell
+python proxy_workbench.py
+```
+
+工作台支持 HTTP、HTTPS、SOCKS5/SOCKS5H 代理，保存到 `chat2api/.env` 的 `PROXY_URL`，并可通过 `api.ipify.org` 测试当前代理出口 IP。代理账号密码只在本机保存并始终脱敏显示；修改后需要重启 AI 网关。
