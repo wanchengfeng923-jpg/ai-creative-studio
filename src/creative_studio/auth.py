@@ -5,10 +5,37 @@ import hashlib
 import hmac
 import re
 import secrets
+from dataclasses import dataclass
+from typing import Any
 
 
 class AuthDataError(RuntimeError):
     """Authentication data validation error with safe messaging."""
+
+
+class AuthError(RuntimeError):
+    """Safe authentication failure suitable for an HTTP response."""
+
+
+class AuthRateLimitError(AuthError):
+    pass
+
+
+@dataclass(frozen=True)
+class AuthResult:
+    user: dict[str, Any]
+    session_token: str
+    csrf_token: str
+
+
+@dataclass(frozen=True)
+class SessionContext:
+    user: dict[str, Any]
+    session: dict[str, Any]
+
+
+_GENERIC_LOGIN_ERROR = "用户名或密码错误"
+_DUMMY_PASSWORD_HASH: str | None = None
 
 
 _USERNAME_RE = re.compile(r"^[a-z0-9._-]+$")
@@ -96,3 +123,110 @@ def token_digest(token: str) -> str:
     if not isinstance(token, str):
         raise AuthDataError("invalid token")
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _dummy_hash() -> str:
+    global _DUMMY_PASSWORD_HASH
+    if _DUMMY_PASSWORD_HASH is None:
+        _DUMMY_PASSWORD_HASH = hash_password("not-a-real-password-value")
+    return _DUMMY_PASSWORD_HASH
+
+
+class AuthService:
+    """Application-level authentication and account-management policy."""
+
+    def __init__(self, repository: Any, cookie_secure: bool = False) -> None:
+        self.repository = repository
+        self.cookie_secure = bool(cookie_secure)
+
+    def login(self, username: str, password: str, client_ip: str = "", user_agent: str = "") -> AuthResult:
+        try:
+            normalized = normalize_username(username)
+        except AuthDataError:
+            verify_password(password if isinstance(password, str) else "", _dummy_hash())
+            raise AuthError(_GENERIC_LOGIN_ERROR)
+        attempt = self.repository.get_login_attempt(normalized, client_ip)
+        if attempt and attempt.get("is_locked"):
+            raise AuthRateLimitError("登录尝试过于频繁，请稍后再试")
+        credentials = self.repository.get_user_credentials(normalized)
+        encoded = credentials.get("password_hash") if credentials else _dummy_hash()
+        password_ok = verify_password(password, str(encoded))
+        if not credentials or not password_ok or not bool(credentials.get("is_active")):
+            failed = self.repository.record_login_failure(normalized, client_ip)
+            if failed.get("is_locked"):
+                raise AuthRateLimitError("登录尝试过于频繁，请稍后再试")
+            raise AuthError(_GENERIC_LOGIN_ERROR)
+        self.repository.clear_login_attempt_window(normalized, client_ip)
+        session_token = new_token()
+        csrf_token = new_token()
+        session = self.repository.create_session(
+            int(credentials["id"]), session_token, csrf_token, client_ip, user_agent
+        )
+        self.repository.mark_user_login(int(credentials["id"]))
+        user = self.repository.get_user(int(credentials["id"])) or {}
+        self.repository.record_audit(int(credentials["id"]), "login", "user", str(credentials["id"]), metadata={"ip": client_ip})
+        return AuthResult(user=user, session_token=session_token, csrf_token=csrf_token)
+
+    def authenticate_session(self, session_token: str | None, csrf_token: str | None = None) -> SessionContext | None:
+        if not session_token:
+            return None
+        session = self.repository.get_session(session_token)
+        if not session:
+            return None
+        if csrf_token is not None and not self.repository.verify_session_csrf(session_token, csrf_token):
+            return None
+        if not self.repository.touch_session(session_token):
+            return None
+        user = self.repository.get_user(int(session["user_id"]))
+        if not user or not user.get("is_active"):
+            return None
+        return SessionContext(user=user, session=session)
+
+    def logout(self, session_token: str | None, actor_user_id: int | None = None) -> None:
+        if session_token:
+            self.repository.revoke_session(session_token)
+        if actor_user_id is not None:
+            self.repository.record_audit(actor_user_id, "logout", "session", result="success")
+
+    def init_admin(self, username: str, password: str) -> dict[str, Any]:
+        return self.repository.create_bootstrap_admin(username, password)
+
+    def change_password(self, user_id: int, current_password: str, new_password: str) -> dict[str, Any]:
+        credentials = self.repository.get_user_credentials(int(user_id))
+        if not credentials or not verify_password(current_password, str(credentials["password_hash"])):
+            raise AuthError("当前密码错误")
+        validate_password(new_password)
+        user = self.repository.reset_user_password(int(user_id), new_password, must_change_password=False)
+        self.repository.record_audit(user_id, "change_password", "user", str(user_id))
+        return user
+
+    def _require_admin(self, actor_user_id: int) -> dict[str, Any]:
+        actor = self.repository.get_user(int(actor_user_id))
+        if not actor or not actor.get("is_active") or actor.get("role") != "admin":
+            raise AuthError("需要管理员权限")
+        return actor
+
+    def create_user(self, actor_user_id: int, username: str, password: str) -> dict[str, Any]:
+        self._require_admin(actor_user_id)
+        user = self.repository.create_user(username, password)
+        self.repository.record_audit(actor_user_id, "create_user", "user", str(user["id"]))
+        return user
+
+    def set_user_active(self, actor_user_id: int, target_user_id: int, is_active: bool) -> dict[str, Any]:
+        self._require_admin(actor_user_id)
+        target = self.repository.get_user(int(target_user_id))
+        if not target or target.get("role") != "user":
+            raise AuthError("只能管理普通账号")
+        user = self.repository.set_user_active(int(target_user_id), bool(is_active))
+        self.repository.record_audit(actor_user_id, "set_user_active", "user", str(target_user_id), metadata={"status": bool(is_active)})
+        return user
+
+    def reset_user_password(self, actor_user_id: int, target_user_id: int) -> tuple[dict[str, Any], str]:
+        self._require_admin(actor_user_id)
+        target = self.repository.get_user(int(target_user_id))
+        if not target or target.get("role") != "user":
+            raise AuthError("只能管理普通账号")
+        temporary_password = secrets.token_urlsafe(18)
+        user = self.repository.reset_user_password(int(target_user_id), temporary_password, must_change_password=True)
+        self.repository.record_audit(actor_user_id, "reset_password", "user", str(target_user_id))
+        return user, temporary_password

@@ -365,6 +365,35 @@ class StudioRepository:
                 ).fetchone()
         return self._safe_user(row)
 
+    def get_user_credentials(self, user_id_or_username: int | str) -> dict[str, Any] | None:
+        """Return auth-only credential data; callers must never serialize it."""
+        with closing(self._connect()) as connection:
+            if isinstance(user_id_or_username, int):
+                row = connection.execute(
+                    "SELECT id,username,password_hash,role,is_active,must_change_password FROM users WHERE id=?",
+                    (int(user_id_or_username),),
+                ).fetchone()
+            else:
+                try:
+                    username = normalize_username(str(user_id_or_username))
+                except AuthDataError:
+                    return None
+                row = connection.execute(
+                    "SELECT id,username,password_hash,role,is_active,must_change_password FROM users WHERE username=?",
+                    (username,),
+                ).fetchone()
+        if row is None:
+            return None
+        return {key: row[key] for key in row.keys()}
+
+    def mark_user_login(self, user_id: int) -> None:
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute(
+                "UPDATE users SET last_login_at=?,updated_at=? WHERE id=?",
+                (timestamp, timestamp, int(user_id)),
+            )
+
     def set_user_active(self, user_id: int, is_active: bool) -> dict[str, Any]:
         """Toggle account availability and revoke sessions when disabling an account."""
         active = 1 if bool(is_active) else 0

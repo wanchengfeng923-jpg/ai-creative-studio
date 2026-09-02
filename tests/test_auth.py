@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+import io
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from creative_studio.auth import (
@@ -11,7 +14,12 @@ from creative_studio.auth import (
     token_digest,
     validate_password,
     verify_password,
+    AuthError,
+    AuthRateLimitError,
+    AuthService,
 )
+from creative_studio.repository import StudioRepository
+from creative_studio.auth_cli import main as auth_cli_main
 
 
 class AuthHelpersTests(unittest.TestCase):
@@ -65,6 +73,52 @@ class AuthHelpersTests(unittest.TestCase):
         self.assertEqual(len(digest), 64)
         self.assertRegex(digest, r"^[0-9a-f]+$")
         self.assertEqual(digest, token_digest(token))
+
+
+class AuthServiceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = StudioRepository(Path(self.tmp.name) / "auth.db")
+        self.service = AuthService(self.repo)
+        self.admin = self.service.init_admin("admin", "correct horse battery staple")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_login_success_and_session_csrf(self):
+        result = self.service.login("ADMIN", "correct horse battery staple", "127.0.0.1", "test")
+        self.assertEqual(result.user["role"], "admin")
+        context = self.service.authenticate_session(result.session_token, result.csrf_token)
+        self.assertIsNotNone(context)
+        self.assertEqual(context.user["username"], "admin")
+        self.service.logout(result.session_token, self.admin["id"])
+        self.assertIsNone(self.service.authenticate_session(result.session_token))
+
+    def test_failed_logins_are_generic_and_lock(self):
+        for _ in range(4):
+            with self.assertRaises(AuthError) as raised:
+                self.service.login("admin", "wrong password value", "ip")
+            self.assertEqual(str(raised.exception), "用户名或密码错误")
+        with self.assertRaises(AuthRateLimitError):
+            self.service.login("admin", "wrong password value", "ip")
+
+    def test_admin_can_manage_users_but_not_admin_role(self):
+        user = self.service.create_user(self.admin["id"], "member", "member password value")
+        self.assertEqual(user["role"], "user")
+        with self.assertRaises(AuthError):
+            self.service.set_user_active(self.admin["id"], self.admin["id"], False)
+        self.service.set_user_active(self.admin["id"], user["id"], False)
+        with self.assertRaises(AuthError):
+            self.service.login("member", "member password value", "ip")
+
+    def test_cli_reads_stdin_without_printing_password(self):
+        db = Path(self.tmp.name) / "cli.db"
+        with patch("sys.stdin", io.StringIO("cli password value\n")), patch("sys.stdout", new_callable=io.StringIO) as out:
+            code = auth_cli_main(["init-admin", "--username", "cliadmin", "--password-stdin", "--database", str(db)])
+        self.assertEqual(code, 0)
+        self.assertNotIn("cli password value", out.getvalue())
+        with patch("sys.stdin", io.StringIO("cli password value\n")):
+            self.assertNotEqual(auth_cli_main(["init-admin", "--username", "cliadmin", "--password-stdin", "--database", str(db)]), 0)
 
 
 if __name__ == "__main__":
