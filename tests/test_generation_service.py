@@ -297,8 +297,8 @@ class GenerationServiceTests(unittest.TestCase):
                     "visual.v1",
                     snapshot.fingerprint,
                     1,
-                    "2026-09-02 12:00:00",
-                    "2026-09-02 12:00:00",
+                    "2999-01-01 00:00:00",
+                    "2999-01-01 00:00:00",
                 ),
             )
             connection.commit()
