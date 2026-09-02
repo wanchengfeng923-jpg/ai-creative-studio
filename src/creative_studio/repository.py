@@ -9,9 +9,10 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .auth import AuthDataError, hash_password, normalize_username, token_digest
+from .generation_models import GenerationConflictError, GenerationNotFoundError
 
 
 PROJECT_FIELDS = {
@@ -107,6 +108,8 @@ class StudioRepository:
                     input_fingerprint TEXT NOT NULL,
                     batch_index INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
+                    context_json TEXT,
+                    request_id TEXT,
                     items_json TEXT NOT NULL DEFAULT '[]',
                     usage_json TEXT NOT NULL DEFAULT '{}',
                     conversation_id TEXT NOT NULL DEFAULT '',
@@ -238,6 +241,11 @@ class StudioRepository:
             "CREATE INDEX IF NOT EXISTS idx_login_attempts_lookup ON login_attempts(username, client_ip)"
         )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)")
+        generation_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(generations)")}
+        if "context_json" not in generation_columns:
+            connection.execute("ALTER TABLE generations ADD COLUMN context_json TEXT")
+        if "request_id" not in generation_columns:
+            connection.execute("ALTER TABLE generations ADD COLUMN request_id TEXT")
         if current_version < SCHEMA_VERSION:
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -978,14 +986,40 @@ class StudioRepository:
             ).fetchall()
         return [str(row["original_name"]) for row in rows]
 
-    def reserve_generation(self, project_id: int, kind: str, schema_version: str, fingerprint: str) -> dict[str, Any]:
+    def recover_pending_generations(self, timeout_seconds: int) -> int:
+        cutoff = (
+            datetime.now(timezone(timedelta(hours=8))) - timedelta(seconds=max(0, int(timeout_seconds)))
+        ).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cursor = connection.execute(
+                """
+                UPDATE generations
+                SET status='expired',updated_at=?
+                WHERE status='pending' AND created_at <= ?
+                """,
+                (timestamp, cutoff),
+            )
+            connection.commit()
+        return int(cursor.rowcount)
+
+    def reserve_generation(
+        self,
+        project_id: int,
+        kind: str,
+        schema_version: str,
+        fingerprint: str,
+        context_json: Mapping[str, Any] | None = None,
+        request_id: str = "",
+    ) -> dict[str, Any]:
         timestamp = now_text()
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             project = connection.execute("SELECT id FROM projects WHERE id=?", (int(project_id),)).fetchone()
             if project is None:
                 connection.rollback()
-                raise StudioDataError("项目不存在")
+                raise GenerationNotFoundError("项目不存在")
             connection.execute(
                 "DELETE FROM generations WHERE project_id=? AND recommendation_kind=? AND input_fingerprint=? AND status='failed'",
                 (int(project_id), kind, fingerprint),
@@ -995,26 +1029,36 @@ class StudioRepository:
                 SELECT id,batch_index,status,conversation_id,assistant_message_id
                 FROM generations
                 WHERE project_id=? AND recommendation_kind=? AND input_fingerprint=?
-                  AND status IN ('pending','success')
                 ORDER BY batch_index
                 """,
                 (int(project_id), kind, fingerprint),
             ).fetchall()
-            if len(rows) >= 2:
+            active_rows = [row for row in rows if row["status"] in ("pending", "success")]
+            if len(active_rows) >= 2:
                 connection.rollback()
-                raise StudioDataError("当前定位已生成2批，请修改输入后再生成")
-            if any(row["status"] == "pending" for row in rows):
+                raise GenerationConflictError("当前定位已生成2批，请修改输入后再生成")
+            if any(row["status"] == "pending" for row in active_rows):
                 connection.rollback()
-                raise StudioDataError("当前项目已有一批正在生成")
-            batch_index = len(rows) + 1
-            previous = rows[-1] if rows else None
+                raise GenerationConflictError("当前项目已有一批正在生成")
+            batch_index = (max(int(row["batch_index"]) for row in rows) + 1) if rows else 1
+            previous = active_rows[-1] if active_rows else None
             cursor = connection.execute(
                 """
                 INSERT INTO generations(project_id,recommendation_kind,schema_version,input_fingerprint,
-                                        batch_index,status,created_at,updated_at)
-                VALUES(?,?,?,?,?,'pending',?,?)
+                                        batch_index,status,context_json,request_id,created_at,updated_at)
+                VALUES(?,?,?,?,?,'pending',?,?,?,?)
                 """,
-                (int(project_id), kind, schema_version, fingerprint, batch_index, timestamp, timestamp),
+                (
+                    int(project_id),
+                    kind,
+                    schema_version,
+                    fingerprint,
+                    batch_index,
+                    _json(context_json or {}),
+                    str(request_id or "").strip() or None,
+                    timestamp,
+                    timestamp,
+                ),
             )
             connection.commit()
         return {

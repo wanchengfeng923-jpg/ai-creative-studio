@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 
 from creative_studio.app import StudioApplication
 from creative_studio.ai_creative import validate_visual_creative_recommendations
+from creative_studio.generation_models import GenerationConflictError
 from creative_studio.auth import hash_password, token_digest
 from creative_studio.repository import StudioDataError, StudioRepository
 
@@ -71,6 +73,59 @@ def _create_legacy_database(path: Path) -> None:
         connection.commit()
 
 
+def _create_legacy_generation_database(path: Path) -> None:
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA journal_mode = DELETE")
+        connection.executescript(
+            """
+            PRAGMA user_version = 1;
+            CREATE TABLE projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                script_type TEXT NOT NULL DEFAULT '展示类',
+                task_type TEXT NOT NULL DEFAULT '',
+                task_description TEXT NOT NULL DEFAULT '',
+                creative_tags_json TEXT NOT NULL DEFAULT '{}',
+                aspect_ratio TEXT NOT NULL DEFAULT '16:9',
+                product_evidence_summary TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE generations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL,
+                recommendation_kind TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                input_fingerprint TEXT NOT NULL,
+                batch_index INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                items_json TEXT NOT NULL DEFAULT '[]',
+                usage_json TEXT NOT NULL DEFAULT '{}',
+                conversation_id TEXT NOT NULL DEFAULT '',
+                assistant_message_id TEXT NOT NULL DEFAULT '',
+                error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO projects(
+                name, script_type, task_type, task_description, creative_tags_json,
+                aspect_ratio, product_evidence_summary, created_at, updated_at
+            ) VALUES(
+                '旧项目', '展示类', '', '', '{}', '16:9', '', '2026-08-31 00:00:00', '2026-08-31 00:00:00'
+            );
+            INSERT INTO generations(
+                project_id, recommendation_kind, schema_version, input_fingerprint, batch_index,
+                status, items_json, usage_json, conversation_id, assistant_message_id, error,
+                created_at, updated_at
+            ) VALUES(
+                1, 'visual', 'visual.v1', 'legacy-fingerprint', 1,
+                'pending', '[]', '{}', '', '', '', '2026-08-31 00:00:00', '2026-08-31 00:00:00'
+            );
+            """
+        )
+        connection.commit()
+
+
 class RepositoryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -113,7 +168,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(history["batches"][0]["items"]), 3)
         self.assertEqual(history["batches"][0]["items"][0]["carousel_frames"], [1, 2, 3])
         self.assertNotIn("image_prompt", history["batches"][0]["items"][0])
-        with self.assertRaises(StudioDataError):
+        with self.assertRaises(GenerationConflictError):
             self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
 
     def test_new_visual_generation_remains_renderable_through_history_path(self):
@@ -249,6 +304,102 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(row[0], "旧项目")
         self.assertIsNone(row[1])
         self.assertEqual(repo.list_projects()[0]["name"], "旧项目")
+
+    def test_legacy_generation_schema_migrates_without_losing_rows(self):
+        legacy_path = Path(self.temp.name) / "legacy-generations.db"
+        _create_legacy_generation_database(legacy_path)
+
+        repo = StudioRepository(legacy_path)
+
+        with closing(sqlite3.connect(legacy_path)) as connection:
+            columns = [row[1] for row in connection.execute("PRAGMA table_info(generations)")]
+            row = connection.execute(
+                "SELECT status, context_json, request_id FROM generations WHERE id=1"
+            ).fetchone()
+        self.assertIn("context_json", columns)
+        self.assertIn("request_id", columns)
+        self.assertEqual(row[0], "pending")
+        self.assertIsNone(row[1])
+        self.assertIsNone(row[2])
+        self.assertEqual(repo.list_projects()[0]["name"], "旧项目")
+
+    def test_recover_pending_generations_expires_stale_rows_and_unblocks_reservation(self):
+        with closing(sqlite3.connect(self.repo.database_path)) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO generations(
+                    project_id, recommendation_kind, schema_version, input_fingerprint, batch_index,
+                    status, items_json, usage_json, conversation_id, assistant_message_id, error,
+                    created_at, updated_at
+                ) VALUES(?,?,?,?,?,'pending','[]','{}','','','',?,?)
+                """,
+                (
+                    self.project["id"],
+                    "visual",
+                    "visual.v1",
+                    "stale-fingerprint",
+                    1,
+                    "2026-08-31 00:00:00",
+                    "2026-08-31 00:00:00",
+                ),
+            )
+            stale_id = int(cursor.lastrowid)
+            connection.commit()
+
+        self.assertEqual(self.repo.recover_pending_generations(60), 1)
+        with closing(sqlite3.connect(self.repo.database_path)) as connection:
+            stale_status = connection.execute(
+                "SELECT status FROM generations WHERE id=?", (stale_id,)
+            ).fetchone()[0]
+        self.assertEqual(stale_status, "expired")
+
+        reservation = self.repo.reserve_generation(
+            self.project["id"],
+            "visual",
+            "visual.v1",
+            "stale-fingerprint",
+            context_json={"project_id": self.project["id"], "request_id": "req-1"},
+            request_id="req-1",
+        )
+        self.assertEqual(reservation["batch_index"], 2)
+        with closing(sqlite3.connect(self.repo.database_path)) as connection:
+            row = connection.execute(
+                "SELECT request_id, context_json FROM generations WHERE id=?", (reservation["id"],)
+            ).fetchone()
+        self.assertEqual(row[0], "req-1")
+        self.assertEqual(json.loads(row[1]), {"project_id": self.project["id"], "request_id": "req-1"})
+
+    def test_reserve_generation_rejects_active_pending_generation(self):
+        with closing(sqlite3.connect(self.repo.database_path)) as connection:
+            connection.execute(
+                """
+                INSERT INTO generations(
+                    project_id, recommendation_kind, schema_version, input_fingerprint, batch_index,
+                    status, items_json, usage_json, conversation_id, assistant_message_id, error,
+                    created_at, updated_at
+                ) VALUES(?,?,?,?,?,'pending','[]','{}','','','',?,?)
+                """,
+                (
+                    self.project["id"],
+                    "visual",
+                    "visual.v1",
+                    "active-fingerprint",
+                    1,
+                    "2026-09-02 12:00:00",
+                    "2026-09-02 12:00:00",
+                ),
+            )
+            connection.commit()
+
+        with self.assertRaises(GenerationConflictError):
+            self.repo.reserve_generation(
+                self.project["id"],
+                "visual",
+                "visual.v1",
+                "active-fingerprint",
+                context_json={"project_id": self.project["id"]},
+                request_id="req-2",
+            )
 
     def test_bootstrap_admin_is_idempotent_and_backfills_unowned_projects(self):
         admin = self.repo.create_bootstrap_admin("Admin.User", "0123456789ab")

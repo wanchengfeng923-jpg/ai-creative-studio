@@ -6,6 +6,26 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
+class GenerationError(RuntimeError):
+    """Base class for generation-specific domain errors."""
+
+
+class GenerationInputError(GenerationError):
+    """The user must change the submitted input."""
+
+
+class GenerationNotFoundError(GenerationError):
+    """The requested project or generation resource does not exist."""
+
+
+class GenerationConflictError(GenerationError):
+    """The generation request conflicts with an active state."""
+
+
+class GenerationQueueTimeoutError(GenerationError):
+    """The upstream queue did not accept the request in time."""
+
+
 @dataclass(frozen=True)
 class CreativeGenerationRequest:
     """一次创意生成所需的 HTTP 级请求。"""
@@ -39,6 +59,8 @@ class GenerationContext:
     reservation_id: int
     batch_index: int
     schema_version: str
+    request_id: str
+    context_json: Mapping[str, Any]
     conversation_id: str
     parent_message_id: str
 

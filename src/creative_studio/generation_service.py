@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+import requests
+
 from .ai_creative import (
+    AiCreativeConfigurationError,
+    AiCreativeRequestError,
     AiCreativeGenerationResult,
     NARRATIVE_TAG_KEYS,
     VISUAL_TAG_KEYS,
@@ -29,11 +34,15 @@ from .generation_models import (
     CreativeGenerationRequest,
     CreativeInputSnapshot,
     GenerationContext,
+    GenerationConflictError,
+    GenerationInputError,
+    GenerationNotFoundError,
+    GenerationQueueTimeoutError,
     GenerationOutcome,
 )
 from .model_client import ModelClient, ModelRequest
 from .prompting import CompiledPrompt
-from .repository import StudioDataError, StudioRepository
+from .repository import StudioRepository
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -55,9 +64,9 @@ def _load_tag_options() -> dict[str, Any]:
     try:
         payload = json.loads(TAG_OPTIONS_PATH.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
-        raise StudioDataError("标签配置不存在或无法解析") from exc
+        raise AiCreativeConfigurationError("标签配置不存在或无法解析") from exc
     if not isinstance(payload, dict) or not payload.get("narrative") or not payload.get("visual"):
-        raise StudioDataError("标签配置格式无效")
+        raise AiCreativeConfigurationError("标签配置格式无效")
     return payload
 
 
@@ -125,29 +134,39 @@ class CreativeGenerationService:
         adapter: CreativeGenerationAdapter | None = None,
         model_client: ModelClient | None = None,
         image_runner: Any | None = None,
+        pending_timeout_seconds: int = 15 * 60,
     ) -> None:
         self.repository = repository
         self.adapter = adapter or LegacyCreativeGenerationAdapter()
         self.model_client = model_client
         self.image_runner = image_runner
+        self.pending_timeout_seconds = max(1, int(pending_timeout_seconds))
+        self._recover_pending_generations()
 
     def generate(self, request: CreativeGenerationRequest) -> GenerationOutcome:
         project = self.repository.get_project(int(request.project_id))
         if project is None:
-            raise StudioDataError("项目不存在")
+            raise GenerationNotFoundError("项目不存在")
         if not str(project.get("task_description") or "").strip():
-            raise StudioDataError("请先填写创意说明")
+            raise GenerationInputError("请先填写创意说明")
         snapshot = self._build_snapshot(project)
+        self._recover_pending_generations()
+        request_id = uuid.uuid4().hex
+        context_json = self._build_context_json(snapshot, request_id)
         reservation = self.repository.reserve_generation(
             snapshot.project_id,
             snapshot.kind,
             snapshot.schema_version,
             snapshot.fingerprint,
+            context_json=context_json,
+            request_id=request_id,
         )
         context = GenerationContext(
             reservation_id=int(reservation["id"]),
             batch_index=int(reservation["batch_index"]),
             schema_version=snapshot.schema_version,
+            request_id=request_id,
+            context_json=context_json,
             conversation_id=str(reservation.get("conversation_id") or ""),
             parent_message_id=str(reservation.get("parent_message_id") or ""),
         )
@@ -184,6 +203,9 @@ class CreativeGenerationService:
             self.repository.fail_generation(context.reservation_id, str(exc))
             raise
 
+    def _recover_pending_generations(self) -> int:
+        return self.repository.recover_pending_generations(self.pending_timeout_seconds)
+
     def _generate_with_model_client(
         self,
         snapshot: CreativeInputSnapshot,
@@ -210,8 +232,16 @@ class CreativeGenerationService:
                 conversation_id=context.conversation_id,
                 parent_message_id=context.parent_message_id,
             )
-            response = self.model_client.generate(request)
-            payload = json.loads(response.content or "{}")
+            try:
+                response = self.model_client.generate(request)
+            except requests.Timeout as exc:
+                raise GenerationQueueTimeoutError("AI排队超时") from exc
+            except Exception as exc:
+                raise AiCreativeRequestError("AI接口请求失败") from exc
+            try:
+                payload = json.loads(response.content or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise AiCreativeRequestError("AI返回结果无法解析") from exc
             items = validate_visual_creative_recommendations(
                 payload,
                 carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
@@ -247,8 +277,16 @@ class CreativeGenerationService:
             conversation_id=context.conversation_id,
             parent_message_id=context.parent_message_id,
         )
-        response = self.model_client.generate(request)
-        payload = json.loads(response.content or "{}")
+        try:
+            response = self.model_client.generate(request)
+        except requests.Timeout as exc:
+            raise GenerationQueueTimeoutError("AI排队超时") from exc
+        except Exception as exc:
+            raise AiCreativeRequestError("AI接口请求失败") from exc
+        try:
+            payload = json.loads(response.content or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise AiCreativeRequestError("AI返回结果无法解析") from exc
         items = validate_creative_recommendations(payload)
         return AiCreativeGenerationResult(
             items=items,
@@ -277,7 +315,7 @@ class CreativeGenerationService:
             try:
                 carousel_config = normalize_visual_carousel_config(project.get("creative_tags"))
             except CarouselValidationError as exc:
-                raise StudioDataError(str(exc)) from exc
+                raise GenerationInputError(str(exc)) from exc
             carousel_enabled = bool(str(carousel_config.get("enabled") or "").strip() == "是")
         reference_file_names = tuple(self.repository.reference_file_names(int(project["id"])))
         snapshot = CreativeInputSnapshot(
@@ -300,3 +338,25 @@ class CreativeGenerationService:
             reference_file_names=reference_file_names,
         )
         return replace(snapshot, fingerprint=_fingerprint(snapshot))
+
+    def _build_context_json(self, snapshot: CreativeInputSnapshot, request_id: str) -> dict[str, Any]:
+        return {
+            "project_id": snapshot.project_id,
+            "kind": snapshot.kind,
+            "schema_version": snapshot.schema_version,
+            "fingerprint": snapshot.fingerprint,
+            "script_type": snapshot.script_type,
+            "task_type": snapshot.task_type,
+            "task_description": snapshot.task_description,
+            "product_evidence_summary": snapshot.product_evidence_summary,
+            "aspect_ratio": snapshot.aspect_ratio,
+            "creative_tags": {key: list(values) for key, values in snapshot.creative_tags.items()},
+            "carousel_config": (
+                json.loads(json.dumps(snapshot.carousel_config, ensure_ascii=False))
+                if snapshot.carousel_config is not None
+                else None
+            ),
+            "carousel_enabled": snapshot.carousel_enabled,
+            "reference_file_names": list(snapshot.reference_file_names),
+            "request_id": request_id,
+        }

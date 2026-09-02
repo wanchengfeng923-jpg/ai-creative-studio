@@ -28,21 +28,48 @@ button { cursor: pointer; }
 .user-bar span { min-width: 0; flex: 1; overflow: hidden; color: rgba(255,255,255,.75); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .user-bar .ghost { padding: 6px 8px; border-color: rgba(255,255,255,.2); color: rgba(255,255,255,.75); font-size: 10px; }
 .user-bar .ghost:hover { color: var(--ink); }
-.admin-dialog { width: min(640px, calc(100vw - 28px)); max-height: min(720px, calc(100vh - 28px)); padding: 0; border: 0; border-radius: 12px; box-shadow: 0 20px 70px rgba(0,0,0,.22); }
+.admin-dialog { width: min(1180px, calc(100vw - 28px)); max-height: min(820px, calc(100vh - 28px)); padding: 0; border: 0; border-radius: 12px; box-shadow: 0 20px 70px rgba(0,0,0,.22); }
 .admin-dialog::backdrop { background: rgba(10,22,16,.4); }
-.admin-panel { padding: 22px; background: var(--paper); }
-.admin-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
-.admin-heading h2 { margin: 0; font: 600 20px Georgia, "Songti SC", serif; }
-.admin-create { display: grid; grid-template-columns: 1fr 1fr auto; align-items: end; gap: 10px; padding-bottom: 17px; border-bottom: 1px solid var(--line); }
-.admin-create label { margin: 0; }
-.admin-create button { white-space: nowrap; }
-.admin-users { display: grid; gap: 8px; margin-top: 15px; }
-.admin-user { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcfb; }
-.admin-user strong, .admin-user small { display: block; }
-.admin-user strong { font-size: 12px; }
-.admin-user small { margin-top: 3px; color: var(--muted); font-size: 10px; }
-.admin-user-actions { display: flex; gap: 6px; }
-.admin-user-actions .ghost { padding: 6px 8px; font-size: 10px; }
+.admin-panel { padding: 26px 30px 30px; background: var(--paper); }
+.admin-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 24px; }
+.admin-heading h2, .create-user-heading h2 { margin: 0; font: 600 22px Georgia, "Songti SC", serif; }
+.admin-heading p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.icon-button { width: 34px; height: 34px; border: 0; border-radius: 50%; color: var(--muted); background: #f3f6f4; font-size: 22px; line-height: 1; }
+.icon-button:hover { color: var(--ink); background: var(--mint); }
+.admin-toolbar { display: flex; align-items: end; gap: 12px; margin-bottom: 15px; }
+.admin-search { flex: 1; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 13px; border: 1px solid #dce6e0; border-radius: 9px; color: var(--muted); background: #f8fbf9; }
+.admin-search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; }
+.admin-role-filter { width: 150px; margin: 0; }
+.admin-role-filter select { min-height: 40px; }
+.admin-toolbar .primary { white-space: nowrap; }
+.admin-table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.admin-table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: 12px; }
+.admin-table th { padding: 12px 14px; color: var(--muted); font-size: 11px; font-weight: 600; text-align: left; background: #f5f8f6; }
+.admin-table td { padding: 13px 14px; border-top: 1px solid var(--line); vertical-align: middle; }
+.admin-account { display: flex; align-items: center; gap: 10px; }
+.admin-account strong, .admin-account small { display: block; }
+.admin-account small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.admin-avatar { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 50%; color: white; background: #148d8c; font-size: 11px; font-weight: 700; }
+.role-pill, .status-pill { display: inline-block; padding: 4px 9px; border-radius: 99px; color: #217b73; background: #e8f6f1; font-size: 10px; white-space: nowrap; }
+.status-pill { color: #2a6eaa; background: #e9f3ff; }
+.status-pill.is-disabled { color: var(--danger); background: #fceceb; }
+.muted-cell { color: var(--muted); }
+.admin-user-actions { display: flex; gap: 9px; white-space: nowrap; }
+.table-action { padding: 0; border: 0; color: #2770a5; background: transparent; font-size: 11px; }
+.table-action:hover { text-decoration: underline; }
+.table-action.danger { color: var(--danger); }
+.table-action:disabled { cursor: not-allowed; opacity: .45; text-decoration: none; }
+.admin-empty { padding: 32px !important; color: var(--muted); text-align: center; }
+.create-user-dialog { width: min(680px, calc(100vw - 28px)); padding: 0; border: 0; border-radius: 14px; box-shadow: 0 20px 70px rgba(0,0,0,.25); }
+.create-user-dialog::backdrop { background: rgba(10,22,16,.48); }
+.create-user-panel { margin: 0; background: var(--paper); }
+.create-user-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--line); }
+.create-user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; padding: 18px 22px 24px; }
+.create-user-grid label { margin: 0; }
+.create-user-grid em { color: var(--danger); font-style: normal; }
+.create-user-grid input, .create-user-grid select { margin-top: 6px; min-height: 40px; border-color: #e4eee8; border-radius: 20px; background: #f5fcf8; }
+.create-user-grid input:disabled { color: #9aa9a2; background: #f3f6f4; }
+.create-user-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 22px 18px; border-top: 1px solid var(--line); }
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 278px 1fr; }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 278px; display: flex; flex-direction: column; padding: 26px 20px 18px; background: #173f32; color: white; z-index: 10; }
 .brand { display: flex; gap: 12px; align-items: center; margin-bottom: 28px; }
@@ -191,9 +218,12 @@ input:focus, textarea:focus { border-color: #7ca38f; box-shadow: 0 0 0 3px rgba(
   .mode-switch, .tag-grid, .results-grid, .narrative-grid { grid-template-columns: 1fr; }
   .workspace-header, .generate-bar { align-items: stretch; flex-direction: column; }
   .project-name { width: 100%; }
-  .admin-create { grid-template-columns: 1fr; }
-  .admin-create button { width: 100%; }
-  .admin-user { align-items: flex-start; flex-direction: column; }
+  .admin-panel { padding: 20px 14px; }
+  .admin-toolbar { align-items: stretch; flex-direction: column; }
+  .admin-role-filter { width: auto; }
+  .admin-toolbar .primary { width: 100%; }
+  .create-user-grid { grid-template-columns: 1fr; padding-inline: 16px; }
+  .create-user-heading, .create-user-footer { padding-inline: 16px; }
 }
 
 /* Chapter-based tag flow. The chapter list keeps the dense option set out of the first viewport. */

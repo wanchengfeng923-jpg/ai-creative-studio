@@ -32,6 +32,12 @@ from .ai_creative import (
 )
 from .carousel import CarouselValidationError, normalize_visual_carousel_config
 from .generation_models import CreativeGenerationRequest
+from .generation_models import (
+    GenerationConflictError,
+    GenerationInputError,
+    GenerationNotFoundError,
+    GenerationQueueTimeoutError,
+)
 from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
 from .model_client import HttpModelClient
@@ -486,8 +492,26 @@ class StudioHandler(BaseHTTPRequestHandler):
         if isinstance(exc, AuthError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
             return
-        if isinstance(exc, (StudioDataError, AiCreativeConfigurationError, AiCreativeRequestError)):
+        if isinstance(exc, GenerationInputError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.UNPROCESSABLE_ENTITY)
+            return
+        if isinstance(exc, GenerationNotFoundError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+            return
+        if isinstance(exc, GenerationConflictError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+            return
+        if isinstance(exc, GenerationQueueTimeoutError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            return
+        if isinstance(exc, StudioDataError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if isinstance(exc, AiCreativeConfigurationError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if isinstance(exc, AiCreativeRequestError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_GATEWAY)
             return
         traceback.print_exc()
         self._json({"success": False, "error": "服务处理失败，请查看启动窗口日志"}, HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -9,9 +9,15 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+import requests
+
 from creative_studio.generation_models import (
     CreativeGenerationRequest,
     CreativeInputSnapshot,
+    GenerationConflictError,
+    GenerationInputError,
+    GenerationNotFoundError,
+    GenerationQueueTimeoutError,
     GenerationContext,
     GenerationOutcome,
 )
@@ -159,6 +165,15 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertEqual(self.service.image_runner.enqueued, [])
         self.assertEqual(result.snapshot.kind, "narrative")
 
+    def test_generate_blank_task_description_raises_input_error(self) -> None:
+        self.repo.update_project(self.narrative_project["id"], {"task_description": "   "})
+        with self.assertRaises(GenerationInputError):
+            self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+
+    def test_generate_missing_project_raises_not_found_error(self) -> None:
+        with self.assertRaises(GenerationNotFoundError):
+            self.service.generate(CreativeGenerationRequest(project_id=999999))
+
     def test_generate_visual_accepts_blank_carousel_hints_and_queues_three_images(self) -> None:
         self.repo.update_project(
             self.visual_project["id"],
@@ -183,6 +198,78 @@ class GenerationServiceTests(unittest.TestCase):
         )
         self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
+
+    def test_generate_expires_stale_pending_generation_and_persists_request_context(self) -> None:
+        with closing(self.repo._connect()) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO generations(
+                    project_id, recommendation_kind, schema_version, input_fingerprint, batch_index,
+                    status, items_json, usage_json, conversation_id, assistant_message_id, error,
+                    created_at, updated_at
+                ) VALUES(?,?,?,?,?,'pending','[]','{}','','','',?,?)
+                """,
+                (
+                    self.visual_project["id"],
+                    "visual",
+                    "visual.v1",
+                    "stale-fingerprint",
+                    1,
+                    "2026-08-31 00:00:00",
+                    "2026-08-31 00:00:00",
+                ),
+            )
+            stale_id = int(cursor.lastrowid)
+            connection.commit()
+
+        self.repo.update_project(self.visual_project["id"], {"task_description": "展示说明"})
+        outcome = self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertEqual(len(self.service.adapter.calls), 1)
+        self.assertRegex(outcome.context.request_id, r"^[0-9a-f]{32}$")
+        self.assertEqual(outcome.context.context_json["request_id"], outcome.context.request_id)
+        self.assertEqual(outcome.context.context_json["project_id"], self.visual_project["id"])
+        with closing(self.repo._connect()) as connection:
+            stale_status = connection.execute(
+                "SELECT status FROM generations WHERE id=?", (stale_id,)
+            ).fetchone()[0]
+            current_row = connection.execute(
+                "SELECT request_id, context_json FROM generations WHERE request_id=? ORDER BY id DESC LIMIT 1",
+                (outcome.context.request_id,),
+            ).fetchone()
+        self.assertEqual(stale_status, "expired")
+        self.assertIsNotNone(current_row)
+        self.assertEqual(current_row[0], outcome.context.request_id)
+        self.assertNotIn("prompt", current_row[1])
+        self.assertNotIn("response", current_row[1])
+        self.assertNotIn("secret", current_row[1])
+
+    def test_generate_active_pending_generation_raises_conflict(self) -> None:
+        self.repo.update_project(self.visual_project["id"], {"task_description": "展示说明"})
+        snapshot = self.service._build_snapshot(self.repo.get_project(self.visual_project["id"]))
+        with closing(self.repo._connect()) as connection:
+            connection.execute(
+                """
+                INSERT INTO generations(
+                    project_id, recommendation_kind, schema_version, input_fingerprint, batch_index,
+                    status, items_json, usage_json, conversation_id, assistant_message_id, error,
+                    created_at, updated_at
+                ) VALUES(?,?,?,?,?,'pending','[]','{}','','','',?,?)
+                """,
+                (
+                    self.visual_project["id"],
+                    "visual",
+                    "visual.v1",
+                    snapshot.fingerprint,
+                    1,
+                    "2026-09-02 12:00:00",
+                    "2026-09-02 12:00:00",
+                ),
+            )
+            connection.commit()
+
+        with self.assertRaises(GenerationConflictError):
+            self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
 
     def test_generate_narrative_can_use_a_generic_model_client(self) -> None:
         response = ModelResponse(
@@ -234,6 +321,31 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["conversation_id"], "conversation")
         self.assertEqual(row["assistant_message_id"], "message")
+
+    def test_generate_model_timeout_raises_queue_timeout_error(self) -> None:
+        class TimeoutModelClient:
+            def generate(self, request: object) -> object:
+                raise requests.Timeout("timeout")
+
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
+            },
+            clear=False,
+        ):
+            service = CreativeGenerationService(
+                repository=self.repo,
+                model_client=TimeoutModelClient(),
+                image_runner=FakeImageRunner(),
+            )
+            self.repo.update_project(self.visual_project["id"], {"task_description": "展示说明"})
+            with self.assertRaises(GenerationQueueTimeoutError):
+                service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
 
     def test_inactive_tags_do_not_change_fingerprint_or_batch_identity(self) -> None:
         self.repo.update_project(
