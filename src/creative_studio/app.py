@@ -10,6 +10,7 @@ import re
 import sys
 import traceback
 import uuid
+from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +35,7 @@ from .generation_models import CreativeGenerationRequest
 from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
 from .repository import StudioDataError, StudioRepository
+from .auth import AuthError, AuthRateLimitError, AuthService
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -48,6 +50,11 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 class StudioApplication:
     def __init__(self) -> None:
         self.repository = StudioRepository(DATABASE_PATH)
+        self.auth = AuthService(self.repository, cookie_secure=os.environ.get("CREATIVE_STUDIO_COOKIE_SECURE", "0") == "1")
+        bootstrap_username = os.environ.get("CREATIVE_STUDIO_BOOTSTRAP_USERNAME")
+        bootstrap_password = os.environ.get("CREATIVE_STUDIO_BOOTSTRAP_PASSWORD")
+        if not self.repository.list_users() and bootstrap_username and bootstrap_password:
+            self.auth.init_admin(bootstrap_username, bootstrap_password)
         self.image_runner = ImageJobRunner(
             self.repository,
             IMAGES_DIR,
@@ -122,6 +129,56 @@ class StudioHandler(BaseHTTPRequestHandler):
     def log_message(self, format_text: str, *args: Any) -> None:
         sys.stdout.write("%s - %s\n" % (self.log_date_time_string(), format_text % args))
 
+    def _cookies(self) -> SimpleCookie:
+        cookies = SimpleCookie()
+        try:
+            cookies.load(self.headers.get("Cookie", ""))
+        except Exception:
+            pass
+        return cookies
+
+    def _session_cookie(self) -> str | None:
+        morsel = self._cookies().get("creative_session")
+        return morsel.value if morsel else None
+
+    def _csrf_cookie(self) -> str | None:
+        morsel = self._cookies().get("creative_csrf")
+        return morsel.value if morsel else None
+
+    def _context(self):
+        return APP.auth.authenticate_session(self._session_cookie())
+
+    def _require_auth(self, csrf: bool = False):
+        context = APP.auth.authenticate_session(self._session_cookie(), self._csrf_cookie() if csrf else None)
+        if context is None:
+            self._json({"success": False, "error": "需要登录"}, HTTPStatus.UNAUTHORIZED)
+            raise _ResponseHandled()
+        return context
+
+    def _require_admin(self, csrf: bool = False):
+        context = self._require_auth(csrf)
+        if context.user.get("role") != "admin":
+            self._json({"success": False, "error": "需要管理员权限"}, HTTPStatus.FORBIDDEN)
+            raise _ResponseHandled()
+        return context
+
+    def _require_project_access(self, project_id: int, context) -> dict[str, Any]:
+        project = APP.repository.get_project(project_id)
+        if project is None:
+            self._json({"success": False, "error": "项目不存在"}, HTTPStatus.NOT_FOUND)
+            raise _ResponseHandled()
+        if context.user.get("role") != "admin" and project.get("owner_user_id") != context.user.get("id"):
+            self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+            raise _ResponseHandled()
+        return project
+
+    def _set_auth_cookies(self, session_token: str, csrf_token: str) -> None:
+        secure = "; Secure" if APP.auth.cookie_secure else ""
+        self._pending_cookies = [f"creative_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"creative_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
+
+    def _clear_auth_cookies(self) -> None:
+        self._pending_cookies = ["creative_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", "creative_csrf=; Path=/; Max-Age=0; SameSite=Lax"]
+
     def do_GET(self) -> None:
         try:
             self._get()
@@ -152,15 +209,36 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._json({"success": True, "service": "AI创意工作台"})
             return
+        if path == "/api/auth/status":
+            context = self._context()
+            self._json({"success": True, "authenticated": context is not None,
+                        "user": context.user if context else None,
+                        "csrf_token": self._csrf_cookie() if context else None})
+            return
+        if path == "/api/auth/me":
+            context = self._require_auth()
+            self._json({"success": True, "user": context.user})
+            return
+        if path == "/api/admin/users":
+            self._require_admin()
+            self._json({"success": True, "users": APP.repository.list_users()})
+            return
+        self._require_auth()
         if path == "/api/tag-options":
             self._json({"success": True, "config": load_tag_options()})
             return
         if path == "/api/projects":
+            context = self._context()
             keyword = parse_qs(parsed.query).get("search", [""])[0]
-            self._json({"success": True, "projects": APP.repository.list_projects(keyword)})
+            projects = APP.repository.list_projects(keyword)
+            if context.user.get("role") != "admin":
+                projects = [p for p in projects if p.get("owner_user_id") == context.user.get("id")]
+            self._json({"success": True, "projects": projects})
             return
         project_match = re.fullmatch(r"/api/projects/(\d+)", path)
         if project_match:
+            context = self._context()
+            self._require_project_access(int(project_match.group(1)), context)
             project = APP.repository.get_project(int(project_match.group(1)))
             if project is None:
                 self._json({"success": False, "error": "项目不存在"}, HTTPStatus.NOT_FOUND)
@@ -169,10 +247,17 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         history_match = re.fullmatch(r"/api/projects/(\d+)/history", path)
         if history_match:
+            context = self._context()
+            self._require_project_access(int(history_match.group(1)), context)
             self._json(APP.history(int(history_match.group(1))))
             return
         status_match = re.fullmatch(r"/api/visual-items/(\d+)/status", path)
         if status_match:
+            context = self._context()
+            owner = APP.repository.get_visual_item_owner_id(int(status_match.group(1)))
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
             item = APP.repository.visual_item(int(status_match.group(1)))
             if item is None:
                 self._json({"success": False, "error": "图片任务不存在"}, HTTPStatus.NOT_FOUND)
@@ -189,6 +274,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         image_match = re.fullmatch(r"/api/visual-items/(\d+)/image", path)
         if image_match:
+            context = self._context()
+            owner = APP.repository.get_visual_item_owner_id(int(image_match.group(1)))
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
             image_path = APP.repository.image_path_for_item(int(image_match.group(1)))
             if image_path is None or not image_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND)
@@ -199,18 +289,58 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _post(self) -> None:
         path = urlsplit(self.path).path
+        if path == "/api/auth/login":
+            data = self._read_json()
+            result = APP.auth.login(str(data.get("username") or ""), str(data.get("password") or ""), self.client_address[0], self.headers.get("User-Agent", ""))
+            self._set_auth_cookies(result.session_token, result.csrf_token)
+            self._json({"success": True, "user": result.user, "csrf_token": result.csrf_token})
+            return
+        if path == "/api/auth/logout":
+            context = self._require_auth(csrf=True)
+            APP.auth.logout(self._session_cookie(), int(context.user["id"]))
+            self._clear_auth_cookies()
+            self._json({"success": True})
+            return
+        if path == "/api/auth/password":
+            context = self._require_auth(csrf=True)
+            data = self._read_json()
+            user = APP.auth.change_password(int(context.user["id"]), str(data.get("current_password") or ""), str(data.get("new_password") or ""))
+            self._clear_auth_cookies()
+            self._json({"success": True, "user": user})
+            return
+        if path == "/api/admin/users":
+            context = self._require_admin(csrf=True)
+            data = self._read_json()
+            user = APP.auth.create_user(int(context.user["id"]), str(data.get("username") or ""), str(data.get("password") or ""))
+            self._json({"success": True, "user": user}, HTTPStatus.CREATED)
+            return
+        user_match = re.fullmatch(r"/api/admin/users/(\d+)/(disable|enable|reset-password)", path)
+        if user_match:
+            context = self._require_admin(csrf=True)
+            target_id, action = int(user_match.group(1)), user_match.group(2)
+            if action == "reset-password":
+                user, temporary_password = APP.auth.reset_user_password(int(context.user["id"]), target_id)
+                self._json({"success": True, "user": user, "temporary_password": temporary_password})
+            else:
+                user = APP.auth.set_user_active(int(context.user["id"]), target_id, action == "enable")
+                self._json({"success": True, "user": user})
+            return
+        self._require_auth(csrf=True)
         if path == "/api/projects":
             data = self._read_json()
-            project = APP.repository.create_project(data.get("name", "未命名创意"), data.get("script_type", "展示类"))
+            context = self._context()
+            project = APP.repository.create_project(data.get("name", "未命名创意"), data.get("script_type", "展示类"), int(context.user["id"]))
             self._json({"success": True, "project": project}, HTTPStatus.CREATED)
             return
         generate_match = re.fullmatch(r"/api/projects/(\d+)/generate", path)
         if generate_match:
+            self._require_project_access(int(generate_match.group(1)), self._context())
             self._json(APP.generate(int(generate_match.group(1))))
             return
         adopt_match = re.fullmatch(r"/api/projects/(\d+)/adopt", path)
         if adopt_match:
             project_id = int(adopt_match.group(1))
+            self._require_project_access(project_id, self._context())
             data = self._read_json()
             if data.get("recommendation_kind") == "narrative":
                 snapshot = APP.repository.adopt_narrative(
@@ -230,23 +360,28 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         upload_match = re.fullmatch(r"/api/projects/(\d+)/files", path)
         if upload_match:
+            self._require_project_access(int(upload_match.group(1)), self._context())
             self._upload_file(int(upload_match.group(1)))
             return
         self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
 
     def _put(self) -> None:
+        context = self._require_auth(csrf=True)
         match = re.fullmatch(r"/api/projects/(\d+)", urlsplit(self.path).path)
         if not match:
             self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
             return
+        self._require_project_access(int(match.group(1)), context)
         project = APP.repository.update_project(int(match.group(1)), self._read_json())
         self._json({"success": True, "project": project})
 
     def _delete(self) -> None:
+        context = self._require_auth(csrf=True)
         match = re.fullmatch(r"/api/projects/(\d+)", urlsplit(self.path).path)
         if not match:
             self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
             return
+        self._require_project_access(int(match.group(1)), context)
         deleted = APP.repository.delete_project(int(match.group(1)))
         self._json({"success": deleted})
 
@@ -284,6 +419,9 @@ class StudioHandler(BaseHTTPRequestHandler):
     def _json(self, payload: Any, status: int = HTTPStatus.OK) -> None:
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(int(status))
+        for cookie in getattr(self, "_pending_cookies", []):
+            self.send_header("Set-Cookie", cookie)
+        self._pending_cookies = []
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
@@ -310,11 +448,23 @@ class StudioHandler(BaseHTTPRequestHandler):
         self._file(target, cache="no-cache")
 
     def _error(self, exc: Exception) -> None:
+        if isinstance(exc, _ResponseHandled):
+            return
+        if isinstance(exc, AuthRateLimitError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.TOO_MANY_REQUESTS)
+            return
+        if isinstance(exc, AuthError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
+            return
         if isinstance(exc, (StudioDataError, AiCreativeConfigurationError, AiCreativeRequestError)):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         traceback.print_exc()
         self._json({"success": False, "error": "服务处理失败，请查看启动窗口日志"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+
+class _ResponseHandled(Exception):
+    """Internal control flow after an error response has been written."""
 
 
 def run() -> None:
