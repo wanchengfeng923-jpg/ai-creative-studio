@@ -174,10 +174,13 @@ class StudioHandler(BaseHTTPRequestHandler):
     def _context(self):
         return APP.auth.authenticate_session(self._session_cookie())
 
-    def _require_auth(self, csrf: bool = False):
+    def _require_auth(self, csrf: bool = False, allow_password_change: bool = False):
         context = APP.auth.authenticate_session(self._session_cookie(), self._csrf_cookie() if csrf else None)
         if context is None:
             self._json({"success": False, "error": "需要登录"}, HTTPStatus.UNAUTHORIZED)
+            raise _ResponseHandled()
+        if context.user.get("must_change_password") and not allow_password_change:
+            self._json({"success": False, "error": "请先修改密码"}, HTTPStatus.FORBIDDEN)
             raise _ResponseHandled()
         return context
 
@@ -325,13 +328,13 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json({"success": True, "user": result.user, "csrf_token": result.csrf_token})
             return
         if path == "/api/auth/logout":
-            context = self._require_auth(csrf=True)
+            context = self._require_auth(csrf=True, allow_password_change=True)
             APP.auth.logout(self._session_cookie(), int(context.user["id"]))
             self._clear_auth_cookies()
             self._json({"success": True})
             return
         if path == "/api/auth/password":
-            context = self._require_auth(csrf=True)
+            context = self._require_auth(csrf=True, allow_password_change=True)
             data = self._read_json()
             user = APP.auth.change_password(int(context.user["id"]), str(data.get("current_password") or ""), str(data.get("new_password") or ""))
             self._clear_auth_cookies()

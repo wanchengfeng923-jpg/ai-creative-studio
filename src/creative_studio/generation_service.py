@@ -231,20 +231,13 @@ class CreativeGenerationService:
                 conversation_id=context.conversation_id,
                 parent_message_id=context.parent_message_id,
             )
-            try:
-                response = self.model_client.generate(request)
-            except requests.Timeout as exc:
-                raise GenerationQueueTimeoutError("AI排队超时") from exc
-            except Exception as exc:
-                raise AiCreativeRequestError("AI接口请求失败") from exc
-            try:
-                payload = json.loads(response.content or "{}")
-            except (TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise AiCreativeRequestError("AI返回结果无法解析") from exc
-            items = validate_visual_creative_recommendations(
-                payload,
-                carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
-                tag_catalog=_load_tag_options(),
+            response, items = self._request_and_validate(
+                request,
+                lambda payload: validate_visual_creative_recommendations(
+                    payload,
+                    carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
+                    tag_catalog=_load_tag_options(),
+                ),
             )
             return AiCreativeGenerationResult(
                 items=items,
@@ -276,17 +269,7 @@ class CreativeGenerationService:
             conversation_id=context.conversation_id,
             parent_message_id=context.parent_message_id,
         )
-        try:
-            response = self.model_client.generate(request)
-        except requests.Timeout as exc:
-            raise GenerationQueueTimeoutError("AI排队超时") from exc
-        except Exception as exc:
-            raise AiCreativeRequestError("AI接口请求失败") from exc
-        try:
-            payload = json.loads(response.content or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise AiCreativeRequestError("AI返回结果无法解析") from exc
-        items = validate_creative_recommendations(payload)
+        response, items = self._request_and_validate(request, validate_creative_recommendations)
         return AiCreativeGenerationResult(
             items=items,
             input_tokens=response.input_tokens,
@@ -299,6 +282,25 @@ class CreativeGenerationService:
             conversation_id=response.conversation_id,
             assistant_message_id=response.assistant_message_id,
         )
+
+    def _request_and_validate(self, request: ModelRequest, validator):
+        """调用模型并对格式错误执行一次有限修复重试。"""
+        last_error: Exception | None = None
+        for attempt in range(2):
+            try:
+                response = self.model_client.generate(request)
+            except requests.Timeout as exc:
+                raise GenerationQueueTimeoutError("AI排队超时") from exc
+            except Exception as exc:
+                raise AiCreativeRequestError("AI接口请求失败") from exc
+            try:
+                payload = json.loads(response.content or "{}")
+                return response, validator(payload)
+            except (TypeError, ValueError, json.JSONDecodeError, AiCreativeRequestError) as exc:
+                last_error = exc
+                if attempt == 0:
+                    continue
+        raise AiCreativeRequestError("AI返回结果无法解析") from last_error
 
     def _build_snapshot(self, project: Mapping[str, Any]) -> CreativeInputSnapshot:
         script_type = str(project.get("script_type") or "").strip()

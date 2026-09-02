@@ -27,6 +27,29 @@ class DummyHandler:
 
 
 class AppApiTests(unittest.TestCase):
+    def test_require_auth_blocks_password_reset_user_for_business_requests(self) -> None:
+        class Auth:
+            def authenticate_session(self, session, csrf=None):
+                return type("Context", (), {"user": {"id": 7, "must_change_password": True}})()
+
+        class Handler:
+            def __init__(self):
+                self.responses = []
+            _session_cookie = lambda self: "session"
+            _csrf_cookie = lambda self: "csrf"
+            _json = DummyHandler._json
+
+        handler = Handler()
+        import creative_studio.app as app_module
+        original = app_module.APP.auth
+        app_module.APP.auth = Auth()
+        try:
+            with self.assertRaises(Exception):
+                StudioHandler._require_auth(handler)
+            self.assertEqual(handler.responses[0][1], HTTPStatus.FORBIDDEN)
+        finally:
+            app_module.APP.auth = original
+
     def test_generation_errors_map_to_expected_http_statuses(self) -> None:
         cases = [
             (GenerationInputError("输入不合法"), HTTPStatus.UNPROCESSABLE_ENTITY),

@@ -156,6 +156,7 @@ class ImageJobRunner:
         self.client = client
         self.executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="creative-image")
         self._scheduled: set[int] = set()
+        self._reschedule: set[int] = set()
         self._lock = threading.Lock()
 
     def start(self) -> None:
@@ -166,6 +167,7 @@ class ImageJobRunner:
             normalized = int(item_id)
             with self._lock:
                 if normalized in self._scheduled:
+                    self._reschedule.add(normalized)
                     continue
                 self._scheduled.add(normalized)
             self.executor.submit(self._run_and_release, normalized)
@@ -182,6 +184,12 @@ class ImageJobRunner:
         finally:
             with self._lock:
                 self._scheduled.discard(item_id)
+                should_reschedule = item_id in self._reschedule
+                self._reschedule.discard(item_id)
+                if should_reschedule:
+                    self._scheduled.add(item_id)
+            if should_reschedule:
+                self.executor.submit(self._run_and_release, item_id)
 
     def _run(self, item_id: int) -> None:
         item = self.repository.claim_visual_item(item_id)

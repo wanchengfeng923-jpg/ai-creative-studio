@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from dataclasses import is_dataclass
 from contextlib import closing
 from pathlib import Path
@@ -59,6 +60,16 @@ class FakeModelClient:
     def generate(self, request: object) -> ModelResponse:
         self.requests.append(request)
         return self.response
+
+
+class SequenceModelClient:
+    def __init__(self, responses: list[ModelResponse]) -> None:
+        self.responses = list(responses)
+        self.requests: list[object] = []
+
+    def generate(self, request: object) -> ModelResponse:
+        self.requests.append(request)
+        return self.responses.pop(0)
 
 
 class GenerationServiceTests(unittest.TestCase):
@@ -169,6 +180,24 @@ class GenerationServiceTests(unittest.TestCase):
         result = self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
         self.assertEqual(self.service.image_runner.enqueued, [])
+        self.assertEqual(result.snapshot.kind, "narrative")
+
+    def test_model_client_path_repairs_one_malformed_response(self) -> None:
+        payload = {"items": [{"story": f"故事{i}", "hooks": [{"text": "钩子", "scenes": ["画面1", "画面2", "画面3"]}, {"text": "钩子2", "scenes": ["画面4", "画面5", "画面6"]}]} for i in range(1, 6)]}
+        client = SequenceModelClient([
+            ModelResponse(content="not-json"),
+            ModelResponse(content=json.dumps(payload, ensure_ascii=False), conversation_id="c", assistant_message_id="m"),
+        ])
+        with patch.dict(os.environ, {
+            "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+            "WEB_ERP_AI_API_KEY": "secret",
+            "WEB_ERP_AI_MODEL": "gpt-test",
+            "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+            "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
+        }, clear=False):
+            service = CreativeGenerationService(repository=self.repo, model_client=client, image_runner=FakeImageRunner())
+            result = service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+        self.assertEqual(len(client.requests), 2)
         self.assertEqual(result.snapshot.kind, "narrative")
 
     def test_generate_blank_task_description_raises_input_error(self) -> None:
