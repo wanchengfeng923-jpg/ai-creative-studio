@@ -21,6 +21,10 @@ class AuthRateLimitError(AuthError):
     pass
 
 
+class AuthPermissionError(AuthError):
+    pass
+
+
 @dataclass(frozen=True)
 class AuthResult:
     user: dict[str, Any]
@@ -203,7 +207,7 @@ class AuthService:
     def _require_admin(self, actor_user_id: int) -> dict[str, Any]:
         actor = self.repository.get_user(int(actor_user_id))
         if not actor or not actor.get("is_active") or actor.get("role") != "admin":
-            raise AuthError("需要管理员权限")
+            raise AuthPermissionError("需要管理员权限")
         return actor
 
     def create_user(self, actor_user_id: int, username: str, password: str) -> dict[str, Any]:
@@ -216,7 +220,7 @@ class AuthService:
         self._require_admin(actor_user_id)
         target = self.repository.get_user(int(target_user_id))
         if not target or target.get("role") != "user":
-            raise AuthError("只能管理普通账号")
+            raise AuthPermissionError("只能管理普通账号")
         user = self.repository.set_user_active(int(target_user_id), bool(is_active))
         self.repository.record_audit(actor_user_id, "set_user_active", "user", str(target_user_id), metadata={"status": bool(is_active)})
         return user
@@ -225,7 +229,7 @@ class AuthService:
         self._require_admin(actor_user_id)
         target = self.repository.get_user(int(target_user_id))
         if not target or target.get("role") != "user":
-            raise AuthError("只能管理普通账号")
+            raise AuthPermissionError("只能管理普通账号")
         temporary_password = secrets.token_urlsafe(18)
         user = self.repository.reset_user_password(int(target_user_id), temporary_password, must_change_password=True)
         self.repository.record_audit(actor_user_id, "reset_password", "user", str(target_user_id))
