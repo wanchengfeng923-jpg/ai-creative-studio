@@ -353,6 +353,19 @@ class StudioHandler(BaseHTTPRequestHandler):
                 user = APP.auth.set_user_active(int(context.user["id"]), target_id, action == "enable")
                 self._json({"success": True, "user": user})
             return
+        edit_match = re.fullmatch(r"/api/admin/users/(\d+)", path)
+        if edit_match:
+            context = self._require_admin(csrf=True)
+            data = self._read_json()
+            user = APP.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
+            self._json({"success": True, "user": user})
+            return
+        delete_match = re.fullmatch(r"/api/admin/users/(\d+)/delete", path)
+        if delete_match:
+            context = self._require_admin(csrf=True)
+            APP.auth.delete_user(int(context.user["id"]), int(delete_match.group(1)))
+            self._json({"success": True})
+            return
         self._require_auth(csrf=True)
         if path == "/api/projects":
             data = self._read_json()
@@ -400,6 +413,13 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _put(self) -> None:
         context = self._require_auth(csrf=True)
+        edit_match = re.fullmatch(r"/api/admin/users/(\d+)", urlsplit(self.path).path)
+        if edit_match:
+            context = self._require_admin(csrf=True)
+            data = self._read_json()
+            user = APP.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
+            self._json({"success": True, "user": user})
+            return
         match = re.fullmatch(r"/api/projects/(\d+)", urlsplit(self.path).path)
         if not match:
             self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)

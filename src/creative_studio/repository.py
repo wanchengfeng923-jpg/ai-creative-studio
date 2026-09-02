@@ -434,6 +434,44 @@ class StudioRepository:
                 raise
         return self._safe_user(updated) or {}
 
+    def update_user_username(self, user_id: int, username: str) -> dict[str, Any]:
+        normalized = normalize_username(username)
+        timestamp = now_text()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT role FROM users WHERE id=?", (int(user_id),)).fetchone()
+                if row is None:
+                    raise StudioDataError("用户不存在")
+                if row["role"] != "user":
+                    raise StudioDataError("不能编辑管理员账号")
+                connection.execute("UPDATE users SET username=?,updated_at=? WHERE id=?", (normalized, timestamp, int(user_id)))
+                updated = connection.execute("SELECT * FROM users WHERE id=?", (int(user_id),)).fetchone()
+                connection.commit()
+            except sqlite3.IntegrityError as exc:
+                connection.rollback()
+                raise StudioDataError("用户名已存在") from exc
+            except Exception:
+                connection.rollback()
+                raise
+        return self._safe_user(updated) or {}
+
+    def delete_user(self, user_id: int) -> bool:
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT role FROM users WHERE id=?", (int(user_id),)).fetchone()
+                if row is None:
+                    raise StudioDataError("用户不存在")
+                if row["role"] != "user":
+                    raise StudioDataError("不能删除管理员账号")
+                cursor = connection.execute("DELETE FROM users WHERE id=?", (int(user_id),))
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return cursor.rowcount == 1
+
     def reset_user_password(
         self, user_id: int, password: str, must_change_password: bool = True
     ) -> dict[str, Any]:

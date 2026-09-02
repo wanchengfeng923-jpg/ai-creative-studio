@@ -225,6 +225,23 @@ class AuthService:
         self.repository.record_audit(actor_user_id, "set_user_active", "user", str(target_user_id), metadata={"status": bool(is_active)})
         return user
 
+    def update_user_username(self, actor_user_id: int, target_user_id: int, username: str) -> dict[str, Any]:
+        self._require_admin(actor_user_id)
+        target = self.repository.get_user(int(target_user_id))
+        if not target or target.get("role") != "user":
+            raise AuthPermissionError("只能管理普通账号")
+        user = self.repository.update_user_username(int(target_user_id), username)
+        self.repository.record_audit(actor_user_id, "update_username", "user", str(target_user_id))
+        return user
+
+    def delete_user(self, actor_user_id: int, target_user_id: int) -> None:
+        self._require_admin(actor_user_id)
+        target = self.repository.get_user(int(target_user_id))
+        if not target or target.get("role") != "user":
+            raise AuthPermissionError("只能管理普通账号")
+        self.repository.delete_user(int(target_user_id))
+        self.repository.record_audit(actor_user_id, "delete_user", "user", str(target_user_id))
+
     def reset_user_password(self, actor_user_id: int, target_user_id: int) -> tuple[dict[str, Any], str]:
         self._require_admin(actor_user_id)
         target = self.repository.get_user(int(target_user_id))

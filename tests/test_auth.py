@@ -105,11 +105,15 @@ class AuthServiceTests(unittest.TestCase):
     def test_admin_can_manage_users_but_not_admin_role(self):
         user = self.service.create_user(self.admin["id"], "member", "member password value")
         self.assertEqual(user["role"], "user")
+        renamed = self.service.update_user_username(self.admin["id"], user["id"], "renamed")
+        self.assertEqual(renamed["username"], "renamed")
         with self.assertRaises(AuthError):
             self.service.set_user_active(self.admin["id"], self.admin["id"], False)
         self.service.set_user_active(self.admin["id"], user["id"], False)
         with self.assertRaises(AuthError):
-            self.service.login("member", "member password value", "ip")
+            self.service.login("renamed", "member password value", "ip")
+        self.service.delete_user(self.admin["id"], user["id"])
+        self.assertIsNone(self.repo.get_user(user["id"]))
 
     def test_cli_reads_stdin_without_printing_password(self):
         db = Path(self.tmp.name) / "cli.db"
