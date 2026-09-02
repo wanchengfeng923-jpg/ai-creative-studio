@@ -21,6 +21,12 @@ from creative_studio.generation_models import (
     GenerationContext,
     GenerationOutcome,
 )
+from creative_studio.ai_creative import (
+    AiCreativeQueueTimeoutError,
+    generate_creative_recommendations,
+    load_ai_creative_config,
+    load_ai_creative_game_info,
+)
 from creative_studio.generation_service import CreativeGenerationService
 from creative_studio.model_client import ModelResponse
 from creative_studio.repository import StudioRepository
@@ -346,6 +352,34 @@ class GenerationServiceTests(unittest.TestCase):
             self.repo.update_project(self.visual_project["id"], {"task_description": "展示说明"})
             with self.assertRaises(GenerationQueueTimeoutError):
                 service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+    def test_generate_legacy_adapter_timeout_raises_queue_timeout_error(self) -> None:
+        def timeout_transport(*args, **kwargs):
+            raise requests.Timeout("timeout")
+
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
+            },
+            clear=False,
+        ):
+            config = load_ai_creative_config()
+            game_info = load_ai_creative_game_info().content
+            with self.assertRaises(AiCreativeQueueTimeoutError):
+                generate_creative_recommendations(
+                    {},
+                    config=config,
+                    game_info=game_info,
+                    task_type="",
+                    task_description="叙事说明",
+                    script_type="叙事类",
+                    transport=timeout_transport,
+                )
 
     def test_inactive_tags_do_not_change_fingerprint_or_batch_identity(self) -> None:
         self.repo.update_project(

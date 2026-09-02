@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from .ai_creative import (
     AiCreativeConfigurationError,
+    AiCreativeQueueTimeoutError,
     AiCreativeRequestError,
     NARRATIVE_TAG_KEYS,
     VISUAL_TAG_KEYS,
@@ -529,6 +530,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         if isinstance(exc, AiCreativeConfigurationError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        if isinstance(exc, AiCreativeQueueTimeoutError):
+            self._json({"success": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if isinstance(exc, AiCreativeRequestError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_GATEWAY)

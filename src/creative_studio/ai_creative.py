@@ -114,6 +114,10 @@ class AiCreativeRequestError(RuntimeError):
     """AI 创意服务请求失败或返回结果不符合约定。"""
 
 
+class AiCreativeQueueTimeoutError(AiCreativeRequestError):
+    """AI 网关排队或请求超时。"""
+
+
 @dataclass(frozen=True)
 class AiCreativeConfig:
     """AI 创意服务所需的服务端配置。"""
@@ -989,6 +993,8 @@ def generate_visual_creative_recommendations(
                 timeout=config.timeout_seconds,
             )
             response.raise_for_status()
+        except requests.Timeout as exc:
+            raise AiCreativeQueueTimeoutError("AI排队超时") from exc
         except requests.RequestException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             suffix = f"（HTTP {status}，请检查 AI 网关会话）" if status else "，请检查 AI 网关是否运行"
@@ -1110,6 +1116,8 @@ def generate_creative_recommendations(
                 timeout=config.timeout_seconds,
             )
             response.raise_for_status()
+        except requests.Timeout as exc:
+            raise AiCreativeQueueTimeoutError("AI排队超时") from exc
         except requests.RequestException as exc:
             status = getattr(getattr(exc, "response", None), "status_code", None)
             suffix = f"（HTTP {status}，请检查 AI 网关会话）" if status else "，请检查 AI 网关是否运行"

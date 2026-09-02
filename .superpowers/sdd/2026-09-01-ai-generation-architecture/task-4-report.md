@@ -10,6 +10,7 @@ What changed:
 - Added pending recovery so stale pending generations become `expired` and stop blocking new work.
 - Kept duplicate active pending reservations as a `409` conflict.
 - Split HTTP mapping for generation/domain failures into `422`, `404`, `409`, `500`, `502`, and `503` while keeping the `{"success": false, "error": ...}` envelope.
+- Added a typed AI queue timeout error so legacy helper timeouts map to `503` instead of `502`.
 
 Tests added/updated:
 
@@ -23,6 +24,7 @@ Verification:
 - `python -m unittest discover -s tests -v`
 - `python -m compileall -q src chat2api`
 - `git diff --check`
+- Re-ran the focused timeout regression on the legacy helper path and API status mapping after the fix.
 
 Result:
 

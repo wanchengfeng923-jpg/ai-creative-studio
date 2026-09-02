@@ -3,7 +3,11 @@ from __future__ import annotations
 from http import HTTPStatus
 import unittest
 
-from creative_studio.ai_creative import AiCreativeConfigurationError, AiCreativeRequestError
+from creative_studio.ai_creative import (
+    AiCreativeConfigurationError,
+    AiCreativeQueueTimeoutError,
+    AiCreativeRequestError,
+)
 from creative_studio.app import StudioHandler
 from creative_studio.generation_models import (
     GenerationConflictError,
@@ -29,6 +33,7 @@ class AppApiTests(unittest.TestCase):
             (GenerationNotFoundError("项目不存在"), HTTPStatus.NOT_FOUND),
             (GenerationConflictError("状态冲突"), HTTPStatus.CONFLICT),
             (GenerationQueueTimeoutError("队列超时"), HTTPStatus.SERVICE_UNAVAILABLE),
+            (AiCreativeQueueTimeoutError("AI排队超时"), HTTPStatus.SERVICE_UNAVAILABLE),
             (AiCreativeConfigurationError("配置错误"), HTTPStatus.INTERNAL_SERVER_ERROR),
             (AiCreativeRequestError("上游失败"), HTTPStatus.BAD_GATEWAY),
         ]
