@@ -1232,11 +1232,19 @@ class StudioRepository:
     def recover_visual_items(self) -> list[int]:
         timestamp = now_text()
         with closing(self._connect()) as connection:
-            connection.execute(
-                "UPDATE visual_items SET image_status='queued',updated_at=? WHERE image_status='generating'",
-                (timestamp,),
-            )
-            rows = connection.execute("SELECT id FROM visual_items WHERE image_status='queued' ORDER BY id").fetchall()
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "UPDATE visual_items SET image_status='queued',updated_at=? WHERE image_status='generating'",
+                    (timestamp,),
+                )
+                rows = connection.execute(
+                    "SELECT id FROM visual_items WHERE image_status='queued' ORDER BY id"
+                ).fetchall()
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
         return [int(row["id"]) for row in rows]
 
     def claim_visual_item(self, item_id: int) -> dict[str, Any] | None:
@@ -1293,14 +1301,20 @@ class StudioRepository:
 
     def retry_visual_item(self, item_id: int) -> bool:
         with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                """
-                UPDATE visual_items
-                SET image_status='queued',image_error='',gateway_job_id='',image_path='',updated_at=?
-                WHERE id=? AND image_status='failed'
-                """,
-                (now_text(), int(item_id)),
-            )
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    """
+                    UPDATE visual_items
+                    SET image_status='queued',image_error='',gateway_job_id='',image_path='',updated_at=?
+                    WHERE id=? AND image_status='failed'
+                    """,
+                    (now_text(), int(item_id)),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
         return cursor.rowcount == 1
 
     def adopt_visual(self, project_id: int, item_id: int) -> dict[str, Any]:

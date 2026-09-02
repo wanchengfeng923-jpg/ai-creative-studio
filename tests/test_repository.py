@@ -171,6 +171,21 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(GenerationConflictError):
             self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
 
+    def test_recover_visual_items_only_requeues_stale_generating_rows(self):
+        reservation = self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
+        item_ids = self.repo.complete_visual_generation(reservation["id"], result([VISUAL_ITEM] * 3), "16:9")
+        self.repo.claim_visual_item(item_ids[0])
+        self.repo.claim_visual_item(item_ids[1])
+        self.repo.complete_visual_item(item_ids[1], 1, "/tmp/sibling.png")
+
+        recovered = self.repo.recover_visual_items()
+
+        self.assertIn(item_ids[0], recovered)
+        self.assertIn(item_ids[2], recovered)
+        self.assertNotIn(item_ids[1], recovered)
+        self.assertEqual(self.repo.visual_item(item_ids[0])["image_status"], "queued")
+        self.assertEqual(self.repo.visual_item(item_ids[1])["image_status"], "success")
+
     def test_new_visual_generation_remains_renderable_through_history_path(self):
         payload = {
             "items": [

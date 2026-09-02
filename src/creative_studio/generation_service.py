@@ -184,8 +184,7 @@ class CreativeGenerationService:
                         snapshot.aspect_ratio,
                     )
                 )
-                if self.image_runner is not None:
-                    self.image_runner.enqueue(list(item_ids))
+                self._enqueue_visual_image_jobs(item_ids)
             else:
                 self.repository.complete_narrative_generation(context.reservation_id, result)
             history = self.repository.generation_history(
@@ -360,3 +359,7 @@ class CreativeGenerationService:
             "reference_file_names": list(snapshot.reference_file_names),
             "request_id": request_id,
         }
+
+    def _enqueue_visual_image_jobs(self, item_ids: tuple[int, ...]) -> None:
+        if self.image_runner is not None and item_ids:
+            self.image_runner.enqueue(list(item_ids))

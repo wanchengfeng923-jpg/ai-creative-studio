@@ -28,9 +28,17 @@ class GptWebImageClient:
     def __init__(self, base_url: str, control_token: str = "") -> None:
         self.base_url = str(base_url or "").rstrip("/")
         self.control_token = str(control_token or "").strip()
+        self._submit_lock = threading.Lock()
+        self._submitted_jobs: dict[str, GatewayJob] = {}
+        self._submit_failures: dict[str, Exception] = {}
+        self._submit_inflight: dict[str, threading.Event] = {}
 
     def _headers(self) -> dict[str, str]:
         return {"X-Control-Token": self.control_token} if self.control_token else {}
+
+    @staticmethod
+    def submission_key_for_item_attempt(item_id: int, attempt: int) -> str:
+        return f"creative-studio-{int(item_id)}-attempt-{int(attempt)}"
 
     @staticmethod
     def _parse_job(payload: object) -> GatewayJob:
@@ -47,20 +55,58 @@ class GptWebImageClient:
         )
 
     def submit(self, prompt: str, aspect_ratio: str, request_id: str) -> GatewayJob:
-        response = requests.post(
-            f"{self.base_url}/images/jobs",
-            json={
-                "request_id": request_id,
-                "prompt": str(prompt or ""),
-                "n": 1,
-                "size": "1K",
-                "aspect_ratio": str(aspect_ratio or "16:9"),
-            },
-            headers=self._headers(),
-            timeout=30,
-        )
-        response.raise_for_status()
-        return self._parse_job(response.json())
+        request_id = str(request_id or "").strip()
+        with self._submit_lock:
+            cached = self._submitted_jobs.get(request_id)
+            if cached is not None:
+                return cached
+            failure = self._submit_failures.pop(request_id, None)
+            if failure is not None:
+                raise failure
+            event = self._submit_inflight.get(request_id)
+            if event is None:
+                event = threading.Event()
+                self._submit_inflight[request_id] = event
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            event.wait()
+            with self._submit_lock:
+                cached = self._submitted_jobs.get(request_id)
+                if cached is not None:
+                    return cached
+                failure = self._submit_failures.pop(request_id, None)
+                if failure is not None:
+                    raise failure
+            raise RuntimeError("图片网关提交状态丢失")
+        try:
+            response = requests.post(
+                f"{self.base_url}/images/jobs",
+                json={
+                    "request_id": request_id,
+                    "prompt": str(prompt or ""),
+                    "n": 1,
+                    "size": "1K",
+                    "aspect_ratio": str(aspect_ratio or "16:9"),
+                },
+                headers=self._headers(),
+                timeout=30,
+            )
+            response.raise_for_status()
+            job = self._parse_job(response.json())
+            with self._submit_lock:
+                self._submitted_jobs[request_id] = job
+            return job
+        except Exception as exc:
+            with self._submit_lock:
+                self._submit_failures[request_id] = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
+            raise
+        finally:
+            with self._submit_lock:
+                inflight = self._submit_inflight.pop(request_id, None)
+                if inflight is not None:
+                    inflight.set()
 
     def status(self, job_id: str) -> GatewayJob:
         response = requests.get(
@@ -70,7 +116,12 @@ class GptWebImageClient:
             allow_redirects=False,
         )
         response.raise_for_status()
-        return self._parse_job(response.json())
+        job = self._parse_job(response.json())
+        with self._submit_lock:
+            for request_id, cached in list(self._submitted_jobs.items()):
+                if cached.job_id == job.job_id:
+                    self._submitted_jobs[request_id] = job
+        return job
 
     def download(self, image_url: str) -> tuple[bytes, str]:
         parsed = urlsplit(str(image_url or ""))
@@ -156,7 +207,7 @@ class ImageJobRunner:
                 job = self.client.submit(
                     str(item["image_prompt"]),
                     str(item["aspect_ratio"]),
-                    f"creative-studio-{item_id}-attempt-{attempt}",
+                    self.client.submission_key_for_item_attempt(item_id, attempt),
                 )
                 gateway_job_id = job.job_id
                 if not self.repository.set_gateway_job(item_id, attempt, gateway_job_id):
