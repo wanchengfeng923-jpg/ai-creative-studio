@@ -42,6 +42,18 @@ class StaticVisualResult:
     items: tuple[dict[str, Any], ...]
 
 
+@dataclass(frozen=True)
+class StaticVisualImageRequest:
+    """静态首图进入图片队列时的私有 typed request。"""
+
+    scheme_id: int
+    generation_id: int
+    aspect_ratio: str
+    prompt: str
+    request_id: str
+    reference_assets: tuple[bytes, ...] = ()
+
+
 _ITEM_FIELDS = frozenset({
     "concept_id",
     "title",
@@ -303,6 +315,7 @@ class StaticVisualGeneration:
 
 __all__ = [
     "StaticVisualGeneration",
+    "StaticVisualImageRequest",
     "StaticVisualOutputError",
     "StaticVisualPromptInput",
     "StaticVisualResult",

@@ -48,6 +48,12 @@ from .narrative import NarrativeGeneration, NarrativeInput, NarrativeOutputError
 from .prompting import CompiledPrompt
 from .prompt_registry import PromptRegistry, PromptRegistryError
 from .repository import StudioRepository
+from .static_visual import (
+    StaticVisualGeneration,
+    StaticVisualImageRequest,
+    StaticVisualOutputError,
+    StaticVisualPromptInput,
+)
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -202,14 +208,24 @@ class CreativeGenerationService:
                 result = self.adapter.generate(snapshot, context)
             item_ids: tuple[int, ...] = ()
             if snapshot.kind == "visual":
-                item_ids = tuple(
-                    self.repository.complete_visual_generation(
-                        context.reservation_id,
-                        result,
-                        snapshot.aspect_ratio,
+                if snapshot.carousel_enabled or self.prompt_registry is None:
+                    item_ids = tuple(
+                        self.repository.complete_visual_generation(
+                            context.reservation_id,
+                            result,
+                            snapshot.aspect_ratio,
+                        )
                     )
-                )
-                self._enqueue_visual_image_jobs(item_ids)
+                    self._enqueue_visual_image_jobs(item_ids)
+                else:
+                    item_ids = tuple(
+                        self.repository.complete_static_generation(
+                            context.reservation_id,
+                            result,
+                            snapshot.aspect_ratio,
+                        )
+                    )
+                    self._enqueue_static_image_jobs(item_ids)
             else:
                 self.repository.complete_narrative_generation(context.reservation_id, result)
             history = self.repository.generation_history(
@@ -414,6 +430,8 @@ class CreativeGenerationService:
         snapshot: CreativeInputSnapshot,
         context: GenerationContext,
     ) -> AiCreativeGenerationResult:
+        if snapshot.kind == "visual" and not snapshot.carousel_enabled and self.prompt_registry is not None:
+            return self._generate_static_with_model_client(snapshot, context)
         if snapshot.kind == "visual":
             config = load_ai_visual_creative_config(
                 self.environment,
@@ -535,7 +553,7 @@ class CreativeGenerationService:
             return self.prompt_registry.get("creative.narrative.generate", "v6")
         if snapshot.carousel_enabled:
             return self.prompt_registry.get("creative.visual.carousel.plan", "visual-carousel-v1")
-        return self.prompt_registry.get("creative.visual.static.generate", "visual-v2.3")
+        return self.prompt_registry.get("creative.visual.static.generate", "static-v1")
 
     def _request_and_validate(self, request: ModelRequest, validator):
         """调用模型并对格式错误执行一次有限修复重试。"""
@@ -653,3 +671,88 @@ class CreativeGenerationService:
     def _enqueue_visual_image_jobs(self, item_ids: tuple[int, ...]) -> None:
         if self.image_runner is not None and item_ids:
             self.image_runner.enqueue(list(item_ids))
+
+    def _generate_static_with_model_client(
+        self,
+        snapshot: CreativeInputSnapshot,
+        context: GenerationContext,
+    ) -> AiCreativeGenerationResult:
+        """走 StaticVisualGeneration；仅供 registry 接线的正式静态 caller 使用。"""
+
+        spec = self._prompt_spec(snapshot)
+        if spec is None or self.prompt_registry is None:
+            raise AiCreativeConfigurationError("静态 prompt registry 未配置")
+        template = (self.prompt_registry.root / spec.path).read_text(encoding="utf-8").strip()
+        module = StaticVisualGeneration(
+            self.model_client,
+            prompt_template=template,
+            model_name=spec.model,
+        )
+        try:
+            result = module.generate(
+                StaticVisualPromptInput(
+                    task_type=snapshot.task_type,
+                    task_description=snapshot.task_description,
+                    creative_tags=snapshot.creative_tags,
+                    aspect_ratio=snapshot.aspect_ratio,
+                    product_evidence_summary=snapshot.product_evidence_summary,
+                    reference_file_names=snapshot.reference_file_names,
+                ),
+                conversation_id=context.conversation_id,
+                parent_message_id=context.parent_message_id,
+            )
+        except StaticVisualOutputError as exc:
+            raise AiCreativeRequestError(
+                f"AI返回结果格式无效：{exc}",
+                error_code=exc.error_code,
+                phase=exc.phase,
+                field_path=exc.field_path,
+                retryable=False,
+            ) from exc
+        except requests.Timeout as exc:
+            raise GenerationQueueTimeoutError("AI排队超时") from exc
+        except Exception as exc:
+            raise AiCreativeRequestError("AI接口请求失败") from exc
+        response = module.last_response or ModelResponse(content="", latency_ms=0)
+        return AiCreativeGenerationResult(
+            items=list(result.items),
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            total_tokens=response.total_tokens,
+            usage_source="estimated",
+            cost_amount=None,
+            cost_currency="",
+            latency_ms=response.latency_ms,
+            conversation_id=response.conversation_id,
+            assistant_message_id=response.assistant_message_id,
+            prompt_id=spec.id,
+            prompt_version=spec.version,
+            prompt_hash=spec.template_sha256,
+            input_schema_version=spec.input_schema,
+            output_schema_version=spec.output_schema,
+            model=spec.model,
+            provider=spec.provider,
+        )
+
+    def _enqueue_static_image_jobs(self, item_ids: tuple[int, ...]) -> None:
+        if self.image_runner is None or not item_ids:
+            return
+        enqueue_static = getattr(self.image_runner, "enqueue_static", None)
+        if not callable(enqueue_static):
+            self.image_runner.enqueue(list(item_ids))
+            return
+        requests = []
+        for item_id in item_ids:
+            item = self.repository.visual_item(int(item_id))
+            if item is None:
+                raise GenerationNotFoundError("静态方案不存在")
+            requests.append(
+                StaticVisualImageRequest(
+                    scheme_id=int(item["id"]),
+                    generation_id=int(item["generation_id"]),
+                    aspect_ratio=str(item["aspect_ratio"] or "16:9"),
+                    prompt=str(item["image_prompt"] or ""),
+                    request_id=f"creative-studio-{int(item['id'])}-attempt-1",
+                )
+            )
+        enqueue_static(requests)

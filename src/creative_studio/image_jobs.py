@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 from .repository import StudioRepository
+from .static_visual import StaticVisualImageRequest
 
 
 @dataclass(frozen=True)
@@ -336,6 +337,11 @@ class ImageJobRunner:
                     self._scheduled.add(item_id)
             if should_reschedule:
                 self.executor.submit(self._run_and_release, item_id)
+
+    def enqueue_static(self, requests: list[StaticVisualImageRequest]) -> None:
+        """接收静态首图 typed request，并复用现有 SQLite worker。"""
+
+        self.enqueue([int(request.scheme_id) for request in requests])
 
     def _run(self, item_id: int) -> None:
         item = self.repository.claim_visual_item(item_id)
