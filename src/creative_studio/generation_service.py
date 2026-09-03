@@ -74,7 +74,7 @@ def _load_tag_options() -> dict[str, Any]:
     return payload
 
 
-def _fingerprint(snapshot: CreativeInputSnapshot) -> str:
+def _fingerprint(snapshot: CreativeInputSnapshot, prompt_spec: Any | None = None) -> str:
     active_keys = VISUAL_TAG_KEYS if snapshot.script_type == "展示类" else NARRATIVE_TAG_KEYS
     value: dict[str, Any] = {
         "script_type": snapshot.script_type,
@@ -89,6 +89,16 @@ def _fingerprint(snapshot: CreativeInputSnapshot) -> str:
     }
     if snapshot.kind == "visual":
         value["visual_carousel"] = snapshot.carousel_config
+    if prompt_spec is not None:
+        value["prompt"] = {
+            "id": prompt_spec.id,
+            "version": prompt_spec.version,
+            "template_sha256": prompt_spec.template_sha256,
+            "input_schema": prompt_spec.input_schema,
+            "output_schema": prompt_spec.output_schema,
+            "model": prompt_spec.model,
+            "provider": prompt_spec.provider,
+        }
     canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
@@ -589,7 +599,7 @@ class CreativeGenerationService:
             carousel_enabled=carousel_enabled,
             reference_file_names=reference_file_names,
         )
-        return replace(snapshot, fingerprint=_fingerprint(snapshot))
+        return replace(snapshot, fingerprint=_fingerprint(snapshot, self._prompt_spec(snapshot)))
 
     def _build_context_json(self, snapshot: CreativeInputSnapshot, request_id: str) -> dict[str, Any]:
         return {
