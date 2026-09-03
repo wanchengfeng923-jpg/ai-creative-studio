@@ -10,8 +10,9 @@
 变量/hash、production contract 映射和生命周期；校验失败时启动终止。叙事生产项当前为
 `creative.narrative.generate@v6`，旧 v5 仅作为 retired inventory。旧 `WEB_ERP_AI_*_PROMPT_PATH`
 仅作兼容输入，叙事已完成 Phase 2 切换，非轮播静态展示已切换到
-`creative.visual.static.generate@static-v1`，轮播仍使用
-`creative.visual.carousel.plan@visual-carousel-v1`。旧静态
+`creative.visual.static.generate@static-v1`，轮播使用
+`creative.visual.carousel.plan@visual-carousel-v1` 和 `CarouselVisualGeneration`；该版本由一次共享 planner
+直接产出每套私有首帧指令，后续画面由后台 operation 按锁定路线编排。旧静态
 `creative.visual.static.generate@visual-v2.3` 仅保留在 registry 的 retired inventory；历史行通过公开投影兼容读取，不能作为新 caller，也不会再执行旧 prompt。
 
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
@@ -68,6 +69,23 @@
 
 本阶段的 registry、临时 SQLite、fake model/image runner 和前端 canonical renderer 已通过 `202` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
 
+## 轮播后台 Operation
+
+轮播继续接口 `POST /api/visual-items/{id}/continue` 在首图成功后创建持久化
+`carousel_operations`，立即返回 HTTP `202`、`operation_id` 和方案公开 DTO。前端随后轮询
+`GET /api/visual-items/{id}/operation/{operation_id}`，逐帧状态仍以
+`GET /api/visual-items/{id}/frames/status` 为准。operation 的公开状态为 `queued`、`running`、
+`completed`、`blocked` 或 `failed`，只暴露安全进度和错误摘要。
+
+后台 coordinator 使用 lease token 和 heartbeat 独占 operation。每次图片成功会在同一事务中提交
+图片 artifact、frame 状态、方案会话游标和 operation revision；旧 worker 的 token 或 attempt 不匹配时
+不能覆盖新状态。lease 过期恢复只回收明确失活的 operation，并把崩溃 worker 遗留的当前
+`generating` 帧重置为 `pending`，已成功帧不会重复生成。两次图片失败后 operation 进入 `blocked`，
+保留 frame 错误供人工重试；不会删除 operation 或生成失败记录。
+
+轮播 v1 的流程决策见 [`docs/adr/0003-carousel-v1-background-operation.md`](adr/0003-carousel-v1-background-operation.md)。
+真实 AI、图片网关、认证浏览器和多进程生产竞态仍未验证；当前测试全部使用 deterministic fake。
+
 ## 历史公开投影 scrub
 
 Phase 0 提供 `creative_studio.projection_scrub`，用于统计或重建旧 `generations.items_json` 与 `adoptions.snapshot_json` 的公开投影。默认模式只读；工具会通过 SQLite `mode=ro` 打开目标库，不写数据，也不创建备份。
@@ -101,6 +119,8 @@ python -m creative_studio.projection_scrub --database .scratch\projection-scrub\
 ```
 
 恢复文件的统计应与 apply 前的临时副本一致。工具硬拒绝直接 apply 仓库默认 `data/creative_studio.db`；本文档也不授权绕过该保护。若未来确需处理真实运行库，必须另行取得用户确认，停止服务，完成数据库、图片和上传目录的独立备份与恢复演练，再通过单独评审的迁移方案执行。
+
+截至 2026-09-04，对默认运行库执行过一次只读 dry-run，结果为 `scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`。因此当前运行库仍需要单独的备份、恢复演练和历史 scrub 变更卡；本次未执行 `--apply`，也未写入真实数据。
 
 ## 故障处理
 

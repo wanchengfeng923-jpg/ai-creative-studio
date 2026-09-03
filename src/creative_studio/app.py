@@ -175,9 +175,27 @@ class StudioApplication:
         return mapper.display_scheme(self.generation_service.select_scheme(int(item_id)))
 
     def continue_visual_scheme(self, item_id: int) -> dict[str, Any]:
-        return self.public_mapper.display_scheme(
-            self.generation_service.continue_scheme(int(item_id))
-        )
+        result = self.generation_service.continue_scheme(int(item_id))
+        if "operation" not in result:
+            # Keep the explicit legacy/test seam readable while production uses
+            # the operation coordinator above.
+            return {"scheme": self.public_mapper.display_scheme(result)}
+        return {
+            "operation": self.public_mapper.carousel_operation(result["operation"]),
+            "scheme": self.public_mapper.display_scheme(result["scheme"]),
+        }
+
+    def carousel_operation_status(self, item_id: int, operation_id: int) -> dict[str, Any]:
+        operation = self.repository.get_carousel_operation(int(operation_id))
+        if operation is None or int(operation.get("scheme_id") or 0) != int(item_id):
+            raise GenerationNotFoundError("轮播操作不存在")
+        scheme = self.repository.get_display_scheme(int(item_id))
+        if scheme is None:
+            raise GenerationNotFoundError("展示方案不存在")
+        return {
+            "operation": self.public_mapper.carousel_operation(operation),
+            "scheme": self.public_mapper.display_scheme(scheme),
+        }
 
     def adopt_visual(self, project_id: int, item_id: int) -> dict[str, Any]:
         reference_id, source = self.repository.visual_adoption_source(project_id, item_id)
@@ -252,6 +270,7 @@ def create_application(
         environment=source,
         prompt_registry=prompt_registry,
     )
+    generation_service.recover_carousel_operations()
     return StudioApplication(
         repository,
         auth,
@@ -436,10 +455,25 @@ class StudioHandler(BaseHTTPRequestHandler):
             if scheme is None:
                 self._json({"success": False, "error": "展示方案不存在"}, HTTPStatus.NOT_FOUND)
             else:
-                self._json({
+                payload = {
                     "success": True,
                     "scheme": self.application.public_mapper.display_scheme(scheme),
-                })
+                }
+                operation = self.application.repository.latest_carousel_operation(scheme_id)
+                if operation is not None:
+                    payload["operation"] = self.application.public_mapper.carousel_operation(operation)
+                self._json(payload)
+            return
+        operation_match = re.fullmatch(r"/api/visual-items/(\d+)/operation/(\d+)", path)
+        if operation_match:
+            scheme_id, operation_id = int(operation_match.group(1)), int(operation_match.group(2))
+            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
+            context = self._context()
+            if context.user.get("role") != "admin" and owner != context.user.get("id"):
+                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
+                return
+            result = self.application.carousel_operation_status(scheme_id, operation_id)
+            self._json({"success": True, **result})
             return
         status_match = re.fullmatch(r"/api/visual-items/(\d+)/status", path)
         if status_match:
@@ -562,7 +596,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
             result = self.application.select_visual_scheme(item_id) if action == "select" else self.application.continue_visual_scheme(item_id)
-            self._json({"success": True, **result})
+            self._json({"success": True, **result}, HTTPStatus.ACCEPTED if action == "continue" else HTTPStatus.OK)
             return
         adopt_match = re.fullmatch(r"/api/projects/(\d+)/adopt", path)
         if adopt_match:
@@ -759,6 +793,7 @@ def run() -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        application.generation_service.stop()
         application.image_runner.stop()
         server.server_close()
 

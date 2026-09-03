@@ -27,6 +27,7 @@ from .model_client import HttpModelClient, ModelClient, ModelRequest, ModelRespo
 from .prompting import CompiledPrompt, compile_prompt
 from .prompt_registry import GenerationPolicy, PromptRegistry, PromptRegistryError, PromptSpec
 from .narrative import NarrativeGeneration, NarrativeInput, NarrativeOutputError, NarrativeResult, validate_narrative_result
+from .carousel_visual import CarouselPromptInput, CarouselVisualGeneration
 from .model_ports import DeterministicImageModel, DeterministicTextModel, ImageModelPort, TextModelPort
 from .schemas import (
     CarouselRecommendationSchema,
@@ -60,6 +61,8 @@ __all__ = [
     "NarrativeInput",
     "NarrativeOutputError",
     "NarrativeResult",
+    "CarouselPromptInput",
+    "CarouselVisualGeneration",
     "NarrativeRecommendationSchema",
     "SchemaValidationError",
     "VisualRecommendationSchema",

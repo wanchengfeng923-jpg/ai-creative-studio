@@ -237,6 +237,8 @@ class ImageJobRunner:
         previous_image_path: str = "",
         conversation_id: str = "",
         parent_message_id: str = "",
+        operation_id: int = 0,
+        operation_token: str = "",
     ) -> None:
         self.executor.submit(
             self._run_frame,
@@ -247,6 +249,8 @@ class ImageJobRunner:
             str(previous_image_path or ""),
             str(conversation_id or ""),
             str(parent_message_id or ""),
+            int(operation_id or 0),
+            str(operation_token or ""),
         )
 
     def _run_frame(
@@ -258,8 +262,14 @@ class ImageJobRunner:
         previous_image_path: str,
         conversation_id: str,
         parent_message_id: str,
+        operation_id: int,
+        operation_token: str,
     ) -> None:
-        frame = self.repository.claim_display_frame(scheme_id, frame_index)
+        frame = (
+            self.repository.claim_carousel_operation_frame(operation_id, operation_token, frame_index)
+            if operation_id and operation_token
+            else self.repository.claim_display_frame(scheme_id, frame_index)
+        )
         if frame is None:
             return
         attempt = int(frame["image_attempt"])
@@ -289,18 +299,38 @@ class ImageJobRunner:
             target_dir.mkdir(parents=True, exist_ok=True)
             target = target_dir / f"frame-{frame_index}-attempt-{attempt}{artifact.extension}"
             target.write_bytes(artifact.data)
-            if not self.repository.complete_display_frame(
-                scheme_id,
-                frame_index,
-                attempt,
-                str(target),
-                artifact.mime,
-            ):
+            if operation_id and operation_token:
+                if not (job.conversation_id and job.parent_message_id):
+                    raise RuntimeError("provider_protocol_invalid")
+                completed = self.repository.complete_carousel_frame_atomic(
+                    operation_id,
+                    operation_token,
+                    frame_index,
+                    attempt,
+                    str(target),
+                    artifact.mime,
+                    job.conversation_id,
+                    job.parent_message_id,
+                )
+            else:
+                completed = self.repository.complete_display_frame(
+                    scheme_id,
+                    frame_index,
+                    attempt,
+                    str(target),
+                    artifact.mime,
+                )
+            if not completed:
                 target.unlink(missing_ok=True)
-            if job.conversation_id and job.parent_message_id:
+            if not operation_id and job.conversation_id and job.parent_message_id:
                 self.repository.update_scheme_session(scheme_id, job.conversation_id, job.parent_message_id)
         except Exception as exc:
-            self.repository.fail_display_frame(scheme_id, frame_index, attempt, str(exc) or exc.__class__.__name__)
+            if operation_id and operation_token:
+                self.repository.fail_carousel_frame(
+                    operation_id, operation_token, frame_index, attempt, str(exc) or exc.__class__.__name__
+                )
+            else:
+                self.repository.fail_display_frame(scheme_id, frame_index, attempt, str(exc) or exc.__class__.__name__)
 
     def wait_for_items(self, item_ids: list[int], timeout_seconds: int = 600) -> list[dict[str, object]]:
         """等待指定首图进入终态；返回每项公开状态，不改变调度线程。"""

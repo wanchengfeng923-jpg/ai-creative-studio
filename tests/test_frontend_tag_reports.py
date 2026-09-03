@@ -122,6 +122,20 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn("continuingSchemes", APP_JS)
         self.assertIn("继续生成中", APP_JS)
 
+    def test_continue_action_polls_a_background_operation_until_terminal(self):
+        self.assertIn("/operation/${operationId}", APP_JS)
+        self.assertIn("operationId", APP_JS)
+        self.assertIn("scheduleOperationPolling", APP_JS)
+        self.assertIn("setTimeout", APP_JS)
+        self.assertIn("completed_frame_count", APP_JS)
+        self.assertIn("function stopImagePolling()", APP_JS)
+        self.assertIn("schedulePolling() {\n    stopImagePolling();", APP_JS)
+
+    def test_history_restores_active_operation_polling_after_reload(self):
+        self.assertIn("const operation = item.operation || null", APP_JS)
+        self.assertIn("state.operationIds.set(Number(item.id), operationId)", APP_JS)
+        self.assertIn("if (!state.operationPollTimers.has(Number(item.id)))", APP_JS)
+
     def test_workspace_drops_realtime_brief_sidebar(self):
         self.assertNotIn('id="briefSummary"', INDEX_HTML)
         self.assertNotIn("briefSummary", APP_JS)

@@ -179,6 +179,61 @@ class AppApiTests(unittest.TestCase):
 
         self.assertEqual(result, {"scheme_id": 9, "title": "方案"})
 
+    def test_continue_route_returns_accepted_operation_and_public_scheme(self) -> None:
+        operation = {
+            "operation_id": 12,
+            "scheme_id": 9,
+            "status": "queued",
+            "total_frame_count": 3,
+        }
+        application = object.__new__(StudioApplication)
+        application.repository = SimpleNamespace(get_visual_item_owner_id=lambda item_id: 7)
+        application.continue_visual_scheme = lambda item_id: {
+            "operation": operation,
+            "scheme": {"scheme_id": item_id, "title": "方案", "image_status": "success"},
+        }
+        handler = object.__new__(StudioHandler)
+        handler.server = SimpleNamespace(application=application)
+        handler.path = "/api/visual-items/9/continue"
+        handler.headers = {}
+        handler.client_address = ("127.0.0.1", 1)
+        handler._require_auth = lambda **kwargs: SimpleNamespace(user={"id": 7, "role": "user"})
+        handler._context = lambda: SimpleNamespace(user={"id": 7, "role": "user"})
+        responses = []
+        handler._json = lambda value, status=HTTPStatus.OK: responses.append((value, HTTPStatus(status)))
+
+        StudioHandler._post(handler)
+
+        payload, status = responses[-1]
+        self.assertEqual(status, HTTPStatus.ACCEPTED)
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["operation"]["operation_id"], 12)
+
+    def test_operation_route_enforces_scheme_ownership(self) -> None:
+        # The import-isolation test reloads the app module; use its current
+        # class identity so the handler property accepts this fixture.
+        current_application_type = importlib.import_module("creative_studio.app").StudioApplication
+        application = object.__new__(current_application_type)
+        application.repository = SimpleNamespace(get_visual_item_owner_id=lambda item_id: 99)
+        application.carousel_operation_status = lambda item_id, operation_id: self.fail(
+            "must not read operation"
+        )
+        handler = object.__new__(StudioHandler)
+        handler.server = SimpleNamespace(application=application)
+        handler.path = "/api/visual-items/9/operation/12"
+        handler.headers = {}
+        handler.client_address = ("127.0.0.1", 1)
+        handler._require_auth = lambda **kwargs: SimpleNamespace(user={"id": 7, "role": "user"})
+        handler._context = lambda: SimpleNamespace(user={"id": 7, "role": "user"})
+        responses = []
+        handler._json = lambda value, status=HTTPStatus.OK: responses.append((value, HTTPStatus(status)))
+
+        StudioHandler._get(handler)
+
+        payload, status = responses[-1]
+        self.assertEqual(status, HTTPStatus.FORBIDDEN)
+        self.assertFalse(payload["success"])
+
     def test_model_client_defaults_to_local_gateway_when_launcher_env_is_absent(self) -> None:
         with patch.dict(
             "os.environ",

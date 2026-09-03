@@ -6,6 +6,7 @@ import hmac
 import json
 import re
 import sqlite3
+import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -187,6 +188,28 @@ class StudioRepository:
                     ON generations(project_id, recommendation_kind, input_fingerprint, batch_index);
                 """,
                     "CREATE INDEX IF NOT EXISTS idx_visual_items_status ON visual_items(image_status, updated_at)",
+                    """
+                CREATE TABLE IF NOT EXISTS carousel_operations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scheme_id INTEGER NOT NULL REFERENCES visual_items(id) ON DELETE CASCADE,
+                    request_key TEXT NOT NULL,
+                    lease_token TEXT NOT NULL,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    current_frame_index INTEGER NOT NULL DEFAULT 2,
+                    completed_frame_count INTEGER NOT NULL DEFAULT 1,
+                    total_frame_count INTEGER NOT NULL,
+                    retryable INTEGER NOT NULL DEFAULT 1,
+                    error_code TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    lease_expires_at TEXT NOT NULL,
+                    started_at TEXT NOT NULL DEFAULT '',
+                    finished_at TEXT NOT NULL DEFAULT '',
+                    UNIQUE(scheme_id, request_key)
+                )
+                """,
                 )
                 for statement in statements:
                     connection.execute(statement)
@@ -1420,6 +1443,367 @@ class StudioRepository:
         )
         return result
 
+    @staticmethod
+    def _parse_timestamp(value: str) -> datetime:
+        text = str(value or "").strip()
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            parsed = datetime.strptime(text, "%Y-%m-%d %H:%M:%S")
+        if parsed.tzinfo is None:
+            # Stored timestamps omit an offset; compare them in one stable zone.
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    def _future_from_clock(self, seconds: int) -> str:
+        return (
+            self._parse_timestamp(self._clock()) + timedelta(seconds=max(1, int(seconds)))
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def get_carousel_operation(self, operation_id: int) -> dict[str, Any] | None:
+        """读取轮播后台操作的内部状态，公开 caller 必须经过 mapper。"""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM carousel_operations WHERE id=?", (int(operation_id),)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def latest_carousel_operation(self, scheme_id: int) -> dict[str, Any] | None:
+        """返回方案最近一次轮播 operation，供公开状态查询使用。"""
+
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM carousel_operations WHERE scheme_id=? ORDER BY id DESC LIMIT 1",
+                (int(scheme_id),),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def get_or_create_carousel_operation(
+        self, scheme_id: int, request_key: str, lease_seconds: int = 60
+    ) -> dict[str, Any]:
+        """为方案创建或复用一个活动轮播操作。"""
+
+        timestamp = self._clock()
+        lease_expires_at = self._future_from_clock(lease_seconds)
+        normalized_key = str(request_key or "").strip() or uuid.uuid4().hex
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            scheme = connection.execute(
+                "SELECT id FROM visual_items WHERE id=?", (int(scheme_id),)
+            ).fetchone()
+            if scheme is None:
+                connection.rollback()
+                raise GenerationNotFoundError("展示方案不存在")
+            same_request = connection.execute(
+                "SELECT * FROM carousel_operations WHERE scheme_id=? AND request_key=? ORDER BY id DESC LIMIT 1",
+                (int(scheme_id), normalized_key),
+            ).fetchone()
+            if same_request is not None:
+                connection.commit()
+                result = dict(same_request)
+                result["_created"] = False
+                return result
+            active = connection.execute(
+                """
+                SELECT * FROM carousel_operations
+                WHERE scheme_id=? AND status IN ('queued','running')
+                ORDER BY id DESC LIMIT 1
+                """,
+                (int(scheme_id),),
+            ).fetchone()
+            if active is not None:
+                connection.commit()
+                result = dict(active)
+                result["_created"] = False
+                return result
+            frame_count = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM display_frames WHERE scheme_id=?",
+                    (int(scheme_id),),
+                ).fetchone()["count"]
+            )
+            completed = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM display_frames WHERE scheme_id=? AND image_status='success'",
+                    (int(scheme_id),),
+                ).fetchone()["count"]
+            )
+            if frame_count <= 1 or completed >= frame_count:
+                connection.rollback()
+                raise GenerationConflictError("该展示方案已完成")
+            current = int(
+                connection.execute(
+                    "SELECT COALESCE(MIN(frame_index), ?) AS frame_index FROM display_frames WHERE scheme_id=? AND image_status!='success'",
+                    (frame_count + 1, int(scheme_id)),
+                ).fetchone()["frame_index"]
+            )
+            cursor = connection.execute(
+                """
+                INSERT INTO carousel_operations(
+                    scheme_id,request_key,lease_token,revision,status,current_frame_index,
+                    completed_frame_count,total_frame_count,retryable,error_code,error,
+                    created_at,updated_at,lease_expires_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    int(scheme_id), normalized_key, uuid.uuid4().hex, 0, "queued", current,
+                    completed, frame_count, 1, "", "", timestamp, timestamp, lease_expires_at,
+                ),
+            )
+            operation_id = int(cursor.lastrowid)
+            connection.execute(
+                "UPDATE visual_items SET scheme_status='generating',continuation_token=?,continuation_updated_at=? WHERE id=?",
+                (connection.execute("SELECT lease_token FROM carousel_operations WHERE id=?", (operation_id,)).fetchone()[0], timestamp, int(scheme_id)),
+            )
+            connection.commit()
+            row = connection.execute(
+                "SELECT * FROM carousel_operations WHERE id=?", (operation_id,)
+            ).fetchone()
+        result = dict(row)
+        result["_created"] = True
+        return result
+
+    def start_carousel_operation(self, operation_id: int, lease_token: str, lease_seconds: int = 60) -> bool:
+        """把 queued 操作切到 running，并刷新 lease。"""
+
+        timestamp = self._clock()
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE carousel_operations
+                SET status='running',started_at=CASE WHEN started_at='' THEN ? ELSE started_at END,
+                    updated_at=?,lease_expires_at=?,revision=revision+1
+                WHERE id=? AND lease_token=? AND status IN ('queued','running')
+                """,
+                (timestamp, timestamp, self._future_from_clock(lease_seconds), int(operation_id), str(lease_token)),
+            )
+        return cursor.rowcount == 1
+
+    def heartbeat_carousel_operation(self, operation_id: int, lease_token: str, lease_seconds: int = 60) -> bool:
+        """刷新活动操作 lease；旧 worker 或错误 token 不得续期。"""
+
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE carousel_operations
+                SET updated_at=?,lease_expires_at=?,revision=revision+1
+                WHERE id=? AND lease_token=? AND status='running'
+                """,
+                (self._clock(), self._future_from_clock(lease_seconds), int(operation_id), str(lease_token)),
+            )
+        return cursor.rowcount == 1
+
+    def claim_carousel_operation_frame(
+        self, operation_id: int, lease_token: str, frame_index: int
+    ) -> dict[str, Any] | None:
+        """在 operation lease 下条件领取下一帧。"""
+
+        timestamp = self._clock()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            operation = connection.execute(
+                "SELECT * FROM carousel_operations WHERE id=? AND lease_token=? AND status='running'",
+                (int(operation_id), str(lease_token)),
+            ).fetchone()
+            if operation is None or int(operation["current_frame_index"]) != int(frame_index):
+                connection.rollback()
+                return None
+            previous = connection.execute(
+                "SELECT image_status FROM display_frames WHERE scheme_id=? AND frame_index=?",
+                (int(operation["scheme_id"]), int(frame_index) - 1),
+            ).fetchone()
+            if previous is None or str(previous["image_status"]) != "success":
+                connection.rollback()
+                return None
+            cursor = connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='generating',image_attempt=image_attempt+1,image_error='',updated_at=?
+                WHERE scheme_id=? AND frame_index=? AND image_status IN ('pending','failed')
+                """,
+                (timestamp, int(operation["scheme_id"]), int(frame_index)),
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                return None
+            row = connection.execute(
+                "SELECT * FROM display_frames WHERE scheme_id=? AND frame_index=?",
+                (int(operation["scheme_id"]), int(frame_index)),
+            ).fetchone()
+            connection.execute(
+                "UPDATE carousel_operations SET revision=revision+1,updated_at=? WHERE id=? AND lease_token=? AND status='running'",
+                (timestamp, int(operation_id), str(lease_token)),
+            )
+            connection.commit()
+        return dict(row) if row is not None else None
+
+    def complete_carousel_frame_atomic(
+        self,
+        operation_id: int,
+        lease_token: str,
+        frame_index: int,
+        attempt: int,
+        image_path: str,
+        image_mime: str,
+        conversation_id: str = "",
+        parent_message_id: str = "",
+    ) -> bool:
+        """原子提交图片、frame 状态、方案 cursor 和 operation 进度。"""
+
+        timestamp = self._clock()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            operation = connection.execute(
+                "SELECT * FROM carousel_operations WHERE id=? AND lease_token=? AND status='running'",
+                (int(operation_id), str(lease_token)),
+            ).fetchone()
+            if operation is None:
+                connection.rollback()
+                return False
+            cursor = connection.execute(
+                """
+                UPDATE display_frames
+                SET image_status='success',image_path=?,image_mime=?,image_error='',updated_at=?
+                WHERE scheme_id=? AND frame_index=? AND image_status='generating' AND image_attempt=?
+                """,
+                (str(image_path), str(image_mime), timestamp, int(operation["scheme_id"]), int(frame_index), int(attempt)),
+            )
+            if cursor.rowcount != 1:
+                connection.rollback()
+                return False
+            row = connection.execute(
+                "SELECT content_json FROM visual_items WHERE id=?", (int(operation["scheme_id"]),)
+            ).fetchone()
+            content = _loads(row["content_json"], {}) if row is not None else {}
+            if conversation_id and parent_message_id:
+                content["conversation_id"] = str(conversation_id)
+                content["parent_message_id"] = str(parent_message_id)
+                connection.execute(
+                    "UPDATE visual_items SET content_json=? WHERE id=?",
+                    (_json(content), int(operation["scheme_id"])),
+                )
+            completed = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM display_frames WHERE scheme_id=? AND image_status='success'",
+                    (int(operation["scheme_id"]),),
+                ).fetchone()["count"]
+            )
+            total = int(operation["total_frame_count"])
+            next_index = int(frame_index) + 1
+            status = "completed" if completed >= total else "running"
+            connection.execute(
+                """
+                UPDATE carousel_operations
+                SET status=?,current_frame_index=?,completed_frame_count=?,updated_at=?,
+                    finished_at=CASE WHEN ?='completed' THEN ? ELSE finished_at END,
+                    retryable=CASE WHEN ?='completed' THEN 0 ELSE retryable END,
+                    revision=revision+1
+                WHERE id=? AND lease_token=? AND status='running'
+                """,
+                (status, next_index, completed, timestamp, status, timestamp, status, int(operation_id), str(lease_token)),
+            )
+            connection.execute(
+                """
+                UPDATE visual_items SET scheme_status=?,continuation_token=CASE WHEN ?='completed' THEN '' ELSE continuation_token END,
+                    continuation_updated_at=? WHERE id=?
+                """,
+                ("completed" if status == "completed" else "generating", status, timestamp, int(operation["scheme_id"])),
+            )
+            connection.commit()
+        return True
+
+    def fail_carousel_frame(self, operation_id: int, lease_token: str, frame_index: int, attempt: int, error: str) -> bool:
+        """在当前 operation 下记录帧失败，保留人工恢复入口。"""
+
+        with closing(self._connect()) as connection:
+            cursor = connection.execute(
+                """
+                UPDATE display_frames SET image_status='failed',image_error=?,updated_at=?
+                WHERE scheme_id=(SELECT scheme_id FROM carousel_operations WHERE id=? AND lease_token=? AND status='running')
+                  AND frame_index=? AND image_status='generating' AND image_attempt=?
+                """,
+                (" ".join(str(error or "").split())[:500], self._clock(), int(operation_id), str(lease_token), int(frame_index), int(attempt)),
+            )
+        return cursor.rowcount == 1
+
+    def finish_carousel_operation(
+        self, operation_id: int, lease_token: str, status: str, error_code: str = "", error: str = ""
+    ) -> bool:
+        """结束 operation，并以条件更新释放方案租约。"""
+
+        normalized = str(status or "failed")
+        if normalized not in {"completed", "failed", "blocked", "queued"}:
+            raise ValueError("invalid carousel operation status")
+        timestamp = self._clock()
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT scheme_id FROM carousel_operations WHERE id=? AND lease_token=? AND status IN ('queued','running')",
+                (int(operation_id), str(lease_token)),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return False
+            cursor = connection.execute(
+                """
+                UPDATE carousel_operations
+                SET status=?,error_code=?,error=?,retryable=?,updated_at=?,finished_at=?,revision=revision+1
+                WHERE id=? AND lease_token=? AND status IN ('queued','running')
+                """,
+                (normalized, str(error_code or ""), " ".join(str(error or "").split())[:500], int(normalized != "completed"), timestamp, timestamp, int(operation_id), str(lease_token)),
+            )
+            if cursor.rowcount == 1:
+                scheme_status = "completed" if normalized == "completed" else "ready"
+                connection.execute(
+                    "UPDATE visual_items SET scheme_status=?,continuation_token='',continuation_updated_at=? WHERE id=? AND continuation_token=?",
+                    (scheme_status, timestamp, int(row["scheme_id"]), str(lease_token)),
+                )
+            connection.commit()
+        return cursor.rowcount == 1
+
+    def recover_stale_carousel_operations(self, lease_grace_seconds: int = 60) -> list[int]:
+        """只回收 lease 已过期的 running operation，返回可重新调度的 id。"""
+
+        now = self._parse_timestamp(self._clock())
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                "SELECT id,scheme_id,status,lease_expires_at FROM carousel_operations WHERE status IN ('queued','running')"
+            ).fetchall()
+            recovered: list[int] = []
+            for row in rows:
+                if str(row["status"]) == "running" and self._parse_timestamp(row["lease_expires_at"]) > now:
+                    continue
+                if str(row["status"]) == "queued":
+                    recovered.append(int(row["id"]))
+                    continue
+                token = uuid.uuid4().hex
+                connection.execute(
+                    "UPDATE carousel_operations SET status='queued',lease_token=?,updated_at=?,lease_expires_at=?,revision=revision+1 WHERE id=? AND status='running'",
+                    (token, self._clock(), self._future_from_clock(lease_grace_seconds), int(row["id"])),
+                )
+                # A crashed worker can leave the claimed frame in ``generating``.
+                # Requeue only that operation's current frame so a replacement
+                # worker can claim it; already-successful frames remain immutable.
+                connection.execute(
+                    """
+                    UPDATE display_frames
+                    SET image_status='pending',image_error='',updated_at=?
+                    WHERE scheme_id=? AND frame_index=(
+                        SELECT current_frame_index FROM carousel_operations WHERE id=?
+                    ) AND image_status='generating'
+                    """,
+                    (self._clock(), int(row["scheme_id"]), int(row["id"])),
+                )
+                connection.execute(
+                    "UPDATE visual_items SET scheme_status='generating',continuation_token=?,continuation_updated_at=? WHERE id=?",
+                    (token, self._clock(), int(row["scheme_id"])),
+                )
+                recovered.append(int(row["id"]))
+            connection.commit()
+        return recovered
+
     def reserve_scheme_continuation(self, scheme_id: int, token: str = "") -> dict[str, Any]:
         """以事务方式锁定一套方案的继续生成流程。"""
 
@@ -1808,9 +2192,24 @@ class StudioRepository:
                 """,
                 (int(project_id), kind),
             ).fetchall()
+            operation_rows = connection.execute(
+                """
+                SELECT * FROM carousel_operations
+                WHERE scheme_id IN (
+                    SELECT v.id FROM visual_items v
+                    JOIN generations g ON g.id=v.generation_id
+                    WHERE g.project_id=? AND g.recommendation_kind=?
+                )
+                ORDER BY scheme_id,id
+                """,
+                (int(project_id), kind),
+            ).fetchall()
         frames_by_scheme: dict[int, list[dict[str, Any]]] = {}
         for frame in frame_rows:
             frames_by_scheme.setdefault(int(frame["scheme_id"]), []).append(dict(frame))
+        latest_operations: dict[int, dict[str, Any]] = {}
+        for operation in operation_rows:
+            latest_operations[int(operation["scheme_id"])] = dict(operation)
         visuals: dict[int, list[dict[str, Any]]] = {}
         for row in visual_rows:
             item = _loads(row["content_json"], {})
@@ -1822,6 +2221,8 @@ class StudioRepository:
                 "image_error": row["image_error"],
                 "frames": frames_by_scheme.get(int(row["id"]), []),
             })
+            if int(row["id"]) in latest_operations:
+                item["operation"] = latest_operations[int(row["id"])]
             visuals.setdefault(int(row["generation_id"]), []).append(item)
         current: list[dict[str, Any]] = []
         stale: list[dict[str, Any]] = []

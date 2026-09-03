@@ -23,17 +23,17 @@ CONTRACT_BINDINGS: Mapping[str, ContractBinding] = {
         "StaticVisualPromptInput.v1", "StaticVisualResult.v1", "StaticVisualResultValidator.v1", "StaticVisualPublicDTO.v1", "static",
     ),
     "creative.visual.carousel.plan": ContractBinding(
-        "CarouselPromptInput.v1", "LegacyCarouselPlanResult.v1", "CarouselPlanValidator.v1", "CarouselPublicDTO.v1", "carousel",
+        "CarouselPromptInput.v1", "CarouselResult.v1", "CarouselResultValidator.v1", "CarouselPublicDTO.v1", "carousel",
     ),
 }
 
 SCHEMA_IDS = frozenset({
     "NarrativePromptInput.v1", "NarrativeResult.v1", "StaticVisualPromptInput.v1",
-    "LegacyStaticVisualResult.v2.3", "CarouselPromptInput.v1", "LegacyCarouselPlanResult.v1",
+    "LegacyStaticVisualResult.v2.3", "CarouselPromptInput.v1", "CarouselResult.v1",
     "StaticVisualResult.v1",
 })
 VALIDATOR_IDS = frozenset(binding.validator for binding in CONTRACT_BINDINGS.values()) | {
-    "NarrativeResultValidator.v5",
+    "NarrativeResultValidator.v5", "CarouselPlanValidator.v1", "CarouselResultValidator.v1",
     "StaticVisualResultValidator.v2.3",
 }
 PROJECTOR_IDS = frozenset(binding.public_projector for binding in CONTRACT_BINDINGS.values())

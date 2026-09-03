@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -32,6 +31,8 @@ from .ai_creative import (
     validate_visual_creative_recommendations,
 )
 from .carousel import CarouselValidationError, normalize_visual_carousel_config
+from .carousel_operations import CarouselOperationCoordinator
+from .carousel_visual import CarouselPromptInput, CarouselVisualGeneration
 from .generation_models import (
     CreativeGenerationRequest,
     CreativeInputSnapshot,
@@ -172,6 +173,15 @@ class CreativeGenerationService:
         self.pending_timeout_seconds = max(1, int(pending_timeout_seconds))
         self.environment = environment if environment is not None else os.environ
         self.prompt_registry = prompt_registry
+        self.carousel_coordinator = (
+            CarouselOperationCoordinator(
+                repository,
+                image_runner,
+                prompt_builder=CarouselVisualGeneration.follow_up_image_prompt,
+            )
+            if image_runner is not None
+            else None
+        )
         self._recover_pending_generations()
 
     def generate(self, request: CreativeGenerationRequest) -> GenerationOutcome:
@@ -301,7 +311,7 @@ class CreativeGenerationService:
             enqueue([int(scheme["scheme_id"])])
 
     def continue_scheme(self, scheme_id: int) -> dict[str, Any]:
-        """按序生成一套方案的剩余画面；每次只调用一个后续画面提示词。"""
+        """创建轮播后台 Operation，并立即返回可轮询状态。"""
 
         scheme_id = int(scheme_id)
         self.select_scheme(scheme_id)
@@ -314,118 +324,29 @@ class CreativeGenerationService:
             ),
             None,
         )
-        if isinstance(first_frame, Mapping) and str(first_frame.get("image_status") or "") != "success":
-            if not self._wait_for_frame(scheme_id, 1):
-                raise GenerationConflictError("首图未成功，请先重试首图")
-        token = uuid.uuid4().hex
-        self.repository.reserve_scheme_continuation(scheme_id, token)
-        failure_status = "ready"
-        try:
-            scheme = self.repository.get_display_scheme(scheme_id)
-            if scheme is None:
-                raise GenerationNotFoundError("展示方案不存在")
-            enqueue_frame = getattr(self.image_runner, "enqueue_frame", None)
-            if not callable(enqueue_frame):
-                raise AiCreativeRequestError("图片网关暂不支持连续画面参考图")
-            while True:
-                frames = [dict(frame) for frame in scheme.get("frames", [])]
-                pending = next((frame for frame in frames if str(frame.get("image_status")) != "success"), None)
-                if pending is None:
-                    self.repository.release_scheme_continuation(scheme_id, token, "completed")
-                    return self.repository.get_display_scheme(scheme_id) or {
-                        "scheme_id": scheme_id,
-                        "scheme_status": "completed",
-                        "frames": [],
-                    }
-                frame_index = int(pending["frame_index"])
-                if frame_index == 1:
-                    self.repository.release_scheme_continuation(scheme_id, token, "ready")
-                    raise GenerationConflictError("首图未成功，请先单独重试首图")
-                previous = next((frame for frame in frames if int(frame["frame_index"]) == frame_index - 1), None)
-                from .display_frame_models import CompletedFrame
-
-                prompt = self._follow_up_image_prompt(scheme, frames, frame_index)
-                completed = CompletedFrame(
-                    index=frame_index,
-                    planned_content=str(pending.get("planned_content") or ""),
-                    actual_content=str(pending.get("planned_content") or "").strip(),
-                    transition_from_previous="沿用上一张实际画面的主体、构图和视觉风格，并按本帧路线推进。",
-                    transition_to_next=(
-                        str(next((item.get("description") for item in scheme.get("frame_plan", []) if int(item.get("index") or 0) == frame_index + 1), "") or "")
-                        or None
-                    ),
-                    ending_note="本方案最后一张画面。" if frame_index == int(scheme.get("frame_count") or len(frames)) else None,
-                    image_generation_instruction=prompt,
-                )
-                self.repository.save_completed_frame(scheme_id, completed)
-                for image_attempt in range(2):
-                    enqueue_frame(
-                        scheme_id,
-                        frame_index,
-                        completed.image_generation_instruction,
-                        str(scheme.get("aspect_ratio") or "16:9"),
-                        str(previous.get("image_path") or "") if previous else "",
-                        str(scheme.get("conversation_id") or ""),
-                        str(scheme.get("parent_message_id") or ""),
-                    )
-                    if self._wait_for_frame(scheme_id, frame_index):
-                        break
-                    if image_attempt == 1:
-                        failure_status = "blocked"
-                        raise AiCreativeRequestError("连续画面图片生成失败")
-                scheme = self.repository.get_display_scheme(scheme_id) or scheme
-        except Exception:
-            self.repository.release_scheme_continuation(scheme_id, token, failure_status)
-            raise
-
-    @staticmethod
-    def _follow_up_image_prompt(scheme: Mapping[str, Any], frames: list[Mapping[str, Any]], frame_index: int) -> str:
-        completed = [
-            {"frame_index": int(frame["frame_index"]), "actual_content": str(frame.get("actual_content") or "")}
-            for frame in frames
-            if int(frame["frame_index"]) < frame_index and str(frame.get("image_status")) == "success"
-        ]
-        previous = next(
-            (frame for frame in frames if int(frame["frame_index"]) == frame_index - 1),
-            None,
-        )
-        next_plan = next(
-            (item.get("description") for item in scheme.get("frame_plan", []) if int(item.get("index") or 0) == frame_index),
-            "",
-        )
-        return "\n".join(
-            [
-                "直接生成一张图片。不要回复文字、JSON、Markdown或解释，只返回图片结果。",
-                f"目标画幅：{scheme.get('aspect_ratio') or '16:9'}。",
-                f"方案标题：{scheme.get('title') or ''}。",
-                f"任务描述：{scheme.get('task_description') or ''}。",
-                f"产品证据：{scheme.get('product_evidence_summary') or ''}。",
-                f"创意来源：{'；'.join(str(item) for item in scheme.get('creative_sources', []))}。",
-                f"核心主体：{scheme.get('core_subject') or ''}。",
-                f"画面布局：{scheme.get('layout') or ''}。",
-                f"视觉风格：{scheme.get('visual_style') or ''}。",
-                f"内容延展：{'；'.join(str(item) for item in scheme.get('content_extensions', []))}。",
-                f"视觉连续性规则：{'；'.join(str(item) for item in scheme.get('visual_continuity_rules', []))}。",
-                f"已完成画面：{json.dumps(completed, ensure_ascii=False)}。",
-                f"上一张画面：{str((previous or {}).get('actual_content') or '')}。",
-                f"当前第{frame_index}张路线：{next_plan}。",
-                "保持上一张实际图片中的主体身份、关键产品证据、色彩和材质连续，仅按当前路线改变画面状态。",
-            ]
-        )
-
-    def _wait_for_frame(self, scheme_id: int, frame_index: int, timeout_seconds: int = 600) -> bool:
-        deadline = time.monotonic() + max(1, int(timeout_seconds))
-        while time.monotonic() < deadline:
-            scheme = self.repository.get_display_scheme(scheme_id)
-            frames = scheme.get("frames", []) if scheme else []
-            frame = next((item for item in frames if int(item["frame_index"]) == int(frame_index)), None)
-            if frame is not None and str(frame.get("image_status")) in {"success", "failed"}:
-                return str(frame.get("image_status")) == "success"
-            time.sleep(0.1)
-        raise GenerationQueueTimeoutError("AI连续画面排队超时")
+        if not isinstance(first_frame, Mapping) or str(first_frame.get("image_status") or "") != "success":
+            raise GenerationConflictError("首图未成功，请先重试首图")
+        if self.carousel_coordinator is None:
+            raise AiCreativeRequestError("轮播后台任务未配置")
+        operation = self.carousel_coordinator.start(scheme_id)
+        return {
+            "operation": operation,
+            "scheme": self.repository.get_display_scheme(scheme_id) or selected_scheme,
+        }
 
     def _recover_pending_generations(self) -> int:
         return self.repository.recover_pending_generations(self.pending_timeout_seconds)
+
+    def recover_carousel_operations(self) -> list[int]:
+        """恢复 lease 已失活的轮播后台任务。"""
+
+        return self.carousel_coordinator.recover() if self.carousel_coordinator is not None else []
+
+    def stop(self) -> None:
+        """停止本服务拥有的轮播后台 executor。"""
+
+        if self.carousel_coordinator is not None:
+            self.carousel_coordinator.stop()
 
     def _generate_with_model_client(
         self,
@@ -439,32 +360,71 @@ class CreativeGenerationService:
                 self.environment,
                 carousel=snapshot.carousel_enabled,
             )
-            prompt = build_visual_creative_prompt(
-                {key: list(values) for key, values in snapshot.creative_tags.items()},
-                config.prompt_template,
+            if not snapshot.carousel_enabled:
+                prompt = build_visual_creative_prompt(
+                    {key: list(values) for key, values in snapshot.creative_tags.items()},
+                    config.prompt_template,
+                    task_type=snapshot.task_type,
+                    task_description=snapshot.task_description,
+                    aspect_ratio=snapshot.aspect_ratio,
+                    product_evidence_summary=snapshot.product_evidence_summary,
+                    reference_file_names=snapshot.reference_file_names,
+                    carousel_config=None,
+                    tag_catalog=_load_tag_options(),
+                )
+                request = ModelRequest(
+                    model=config.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    max_tokens=5000,
+                    conversation_id=context.conversation_id,
+                    parent_message_id=context.parent_message_id,
+                )
+                response, items = self._request_and_validate(
+                    request,
+                    lambda payload: validate_visual_creative_recommendations(
+                        payload,
+                        carousel_config=None,
+                        tag_catalog=_load_tag_options(),
+                    ),
+                )
+                result = AiCreativeGenerationResult(
+                    items=items,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    total_tokens=response.total_tokens,
+                    usage_source="estimated",
+                    cost_amount=None,
+                    cost_currency="",
+                    latency_ms=response.latency_ms,
+                    conversation_id=response.conversation_id,
+                    assistant_message_id=response.assistant_message_id,
+                )
+                spec = self._prompt_spec(snapshot)
+                if spec is None:
+                    return result
+                return replace(result, prompt_id=spec.id, prompt_version=spec.version, prompt_hash=spec.template_sha256,
+                               input_schema_version=spec.input_schema, output_schema_version=spec.output_schema,
+                               model=spec.model, provider=spec.provider)
+            carousel_module = CarouselVisualGeneration(config.model, config.prompt_template)
+            prompt_input = CarouselPromptInput(
+                tags={key: list(values) for key, values in snapshot.creative_tags.items()},
                 task_type=snapshot.task_type,
                 task_description=snapshot.task_description,
                 aspect_ratio=snapshot.aspect_ratio,
                 product_evidence_summary=snapshot.product_evidence_summary,
                 reference_file_names=snapshot.reference_file_names,
-                carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
+                carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else {},
                 tag_catalog=_load_tag_options(),
             )
-            request = ModelRequest(
-                model=config.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                max_tokens=5000,
+            request = carousel_module.build_request(
+                prompt_input,
                 conversation_id=context.conversation_id,
                 parent_message_id=context.parent_message_id,
             )
             response, items = self._request_and_validate(
                 request,
-                lambda payload: validate_visual_creative_recommendations(
-                    payload,
-                    carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else None,
-                    tag_catalog=_load_tag_options(),
-                ),
+                lambda payload: carousel_module.validate(payload, prompt_input),
             )
             result = AiCreativeGenerationResult(
                 items=items,

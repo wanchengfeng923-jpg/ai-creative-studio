@@ -1,5 +1,28 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-04 Phase 4 轮播后台状态机与 Phase 5 治理收口
+
+### 已完成
+
+- 轮播 v1 采用共享 planner + 图片直出首帧的流程已写入 [`docs/adr/0003-carousel-v1-background-operation.md`](docs/adr/0003-carousel-v1-background-operation.md)，删除 prompt 中独立首帧文字会话的错误承诺。
+- 新增 `CarouselVisualGeneration`，把轮播 planner 请求、契约校验和后续图片编排从生成服务中抽出；registry 绑定升级为 `CarouselResult.v1` / `CarouselResultValidator.v1`。
+- 继续生成改为持久化 `carousel_operations` 后台 Operation，接口返回 `202` 和 operation id；lease、heartbeat、过期恢复、逐帧 claim、图片/会话游标/operation revision 原子提交和前端轮询均已接线。
+- 恢复逻辑会把崩溃 worker 遗留的当前 `generating` 帧重置为 `pending`，保留已成功帧和失败证据；新增 API 归属、202 响应、operation 隐私和恢复回归测试。
+- 补齐 `config/evals/carousel.v1.json` 的 10 个脱敏 case，并同步代码地图、运维手册和 CHANGELOG。
+
+### 验证
+
+- 定向轮播、后台 operation、API、生成服务、prompt registry 和叙事评测 fixture 测试通过；最终完整 deterministic unittest 为 `220` 项，Node 语法、Python compileall、JSON 解析和 `git diff --check` 均通过。
+- 未修改真实 `data/`、`data/images/`、`data/uploads/`、`chat2api/.env` 或监听配置；保留 `launcher.py` 中用户已有的 `WEB_BIND_HOST = "0.0.0.0"` 未暂存修改。
+
+### 未验证与保留项
+
+- 真实 AI 输出质量、真实图片网关、带认证浏览器、多进程生产竞态和真实运行库升级仍未验证；本阶段测试仅使用 deterministic fake 和临时 SQLite。
+- `LegacyCreativeGenerationAdapter`、旧视觉 schema 和 retired prompt 文件继续作为历史/兼容读取 seam，Phase 5 的删除条件是三个 production caller 均为零且完成保留期与回归评估，不能因本次 operation 接线强行删除。
+- 2026-09-04 对真实 `data/creative_studio.db` 仅执行只读 projection scrub dry-run：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`；未执行 `--apply`，真实历史 scrub/备份/恢复演练仍待单独变更卡。
+- 新增 [`docs/ai/quality-evaluation.md`](docs/ai/quality-evaluation.md)，集中记录三套 10-case 脱敏评测集、deterministic 证据和真实模型质量评测边界；没有把 fake 测试表述为真实质量通过。
+- 本阶段 checkpoint 提交：`32ef2c2`（未包含用户已有的 `launcher.py` 修改）。
+
 ## 2026-09-03 Phase 3 静态迁移收尾与 Phase 4 交接
 
 ### 已完成

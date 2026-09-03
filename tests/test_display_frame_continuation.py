@@ -69,11 +69,20 @@ class FakeFrameRunner:
         self.calls = []
         self.prompts = []
 
-    def enqueue_frame(self, scheme_id, frame_index, prompt, aspect_ratio, previous_image_path, conversation_id="", parent_message_id=""):
+    def enqueue_frame(self, scheme_id, frame_index, prompt, aspect_ratio, previous_image_path, conversation_id="", parent_message_id="", operation_id=0, operation_token=""):
         self.calls.append((scheme_id, frame_index, previous_image_path))
         self.prompts.append(prompt)
-        self.repo.claim_display_frame(scheme_id, frame_index)
-        self.repo.complete_display_frame(scheme_id, frame_index, 1, f"frame-{frame_index}-image")
+        frame = self.repo.claim_carousel_operation_frame(operation_id, operation_token, frame_index)
+        self.repo.complete_carousel_frame_atomic(
+            operation_id,
+            operation_token,
+            frame_index,
+            int(frame["image_attempt"]),
+            f"frame-{frame_index}-image",
+            "image/png",
+            "conversation",
+            f"message-{frame_index}",
+        )
 
     def enqueue(self, item_ids):
         for scheme_id in item_ids:
@@ -129,6 +138,7 @@ class DisplayFrameContinuationTests(unittest.TestCase):
         self.service = CreativeGenerationService(self.repo, model_client=self.model, image_runner=self.runner)
 
     def tearDown(self) -> None:
+        self.service.stop()
         self.temp.cleanup()
 
     def test_continue_is_serial_image_only_and_passes_previous_actual_image(self) -> None:
@@ -143,6 +153,7 @@ class DisplayFrameContinuationTests(unittest.TestCase):
         ):
             self.service.select_scheme(self.scheme_id)
             result = self.service.continue_scheme(self.scheme_id)
+            operation = _wait_for_operation(self.repo, result["operation"]["id"])
         # Continuation is an image-only flow; it must not create a follow-up
         # text-model conversation just to produce a prompt.
         self.assertEqual(self.model.requests, [])
@@ -159,8 +170,9 @@ class DisplayFrameContinuationTests(unittest.TestCase):
         self.assertEqual([call[1] for call in self.runner.calls], [2, 3])
         self.assertEqual(self.runner.calls[1][2], "frame-2-image")
         self.assertEqual(self.repo.get_display_scheme(self.scheme_id)["scheme_status"], "completed")
+        self.assertEqual(operation["status"], "completed")
         encoded = json.dumps(
-            PublicResultMapper().display_scheme(result),
+            PublicResultMapper().display_scheme(result["scheme"]),
             ensure_ascii=False,
         )
         self.assertNotIn("image_generation_instruction", encoded)
@@ -173,6 +185,18 @@ class DisplayFrameContinuationTests(unittest.TestCase):
         self.assertEqual(selected["scheme_id"], self.scheme_id)
         self.assertNotIn("conversation_id", encoded)
         self.assertNotIn("parent_message_id", encoded)
+
+
+def _wait_for_operation(repo, operation_id):
+    import time
+
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        operation = repo.get_carousel_operation(operation_id)
+        if operation and operation["status"] in {"completed", "failed", "blocked"}:
+            return operation
+        time.sleep(0.01)
+    raise AssertionError("operation did not finish")
 
 
 if __name__ == "__main__":

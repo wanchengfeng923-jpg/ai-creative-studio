@@ -474,6 +474,12 @@ failed -> blocked (达到策略上限)
 
 完成门禁：2、3、4、5 帧均有 fake 测试；首帧部分成功不影响其他方案；后续帧只在上一帧成功后提交；重试幂等；重启恢复不重复生成；前端移动/桌面都能观察状态；真实 AI 冒烟若未授权则明确未验证。
 
+当前状态（2026-09-04）：Phase 4 实现已完成。`CarouselVisualGeneration`、共享 planner prompt、后台
+`carousel_operations`、lease/heartbeat/过期恢复、逐帧公开状态、202 continue API 和前端 operation
+轮询均已接线；决策记录见 [`docs/adr/0003-carousel-v1-background-operation.md`](adr/0003-carousel-v1-background-operation.md)。
+轮播 deterministic fake 覆盖 2、3、4、5 帧、部分失败、重试幂等和恢复；真实 AI、图片网关、认证浏览器
+和多进程生产竞态仍未验证。
+
 ### Phase 5：清理和发布准备
 
 开始条件：三个用例均已切换且至少一个完整观察周期无旧路径写入。允许修改：清理旧代码、迁移脚本、文档和评测；禁止删除用户数据或直接覆盖运行库。
@@ -486,6 +492,8 @@ failed -> blocked (达到策略上限)
 4. 增加质量评测报告和供应商失败分类。
 
 完成门禁：`rg` 找不到旧生产调用者；每个 prompt registry 项有唯一 caller；文档互相不矛盾；全套测试、编译、前端检查和 `git diff --check` 通过。
+
+当前状态（2026-09-04）：Phase 5 的代码删除、真实历史 scrub、自动备份、恢复演练和真实质量报告尚未完成。三个新 Module 已接入 deterministic production harness，但尚无完整生产观察周期；旧 adapter、旧 schema 和 retired prompt 仍按删除条件保留。默认运行库只读 scrub dry-run 发现 `changed_rows=2`、`private_field_occurrences=6`，不得在没有独立备份/恢复变更卡和用户确认时直接 apply。
 
 ## 7. 测试和评测体系
 

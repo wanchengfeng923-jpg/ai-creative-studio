@@ -9,6 +9,9 @@
     activeBatch: 0,
     saveTimer: 0,
     pollTimer: 0,
+    operationPollTimers: new Map(),
+    operationIds: new Map(),
+    operationStatus: new Map(),
     generationStartedAt: 0,
     generationTimer: 0,
     continuingSchemes: new Set(),
@@ -572,6 +575,17 @@
     if (selectLatest && history.batches.length) state.activeBatch = history.batches.length - 1;
     state.activeBatch = Math.max(0, Math.min(state.activeBatch, Math.max(0, history.batches.length - 1)));
     if (history.adoption) state.project.adoption = history.adoption;
+    history.batches.forEach((batch) => (batch.items || []).forEach((item) => {
+      const operation = item.operation || null;
+      const operationId = Number(operation?.operation_id || 0);
+      if (!operationId || ["completed", "failed", "blocked"].includes(operation.status)) return;
+      state.operationIds.set(Number(item.id), operationId);
+      state.operationStatus.set(Number(item.id), operation);
+      state.continuingSchemes.add(Number(item.id));
+      if (!state.operationPollTimers.has(Number(item.id))) {
+        scheduleOperationPolling(Number(item.id), operationId);
+      }
+    }));
     renderHistory();
     if (history.batches.length && currentStep < 2) { currentStep = 2; applyStep(); }
   }
@@ -614,7 +628,9 @@
       const carouselFramesMarkup = Array.isArray(item.carousel_frames) && item.carousel_frames.length > 1 ? `<div class="carousel-result"><b>轮播定位</b>${item.carousel_frames.map((frame) => `<span>第${esc(frame)}轮</span>`).join("")}</div>` : "";
       const resolvedTags = item.resolved_tags && typeof item.resolved_tags === "object" ? Object.entries(item.resolved_tags).filter(([, values]) => Array.isArray(values) && values.length).map(([key, values]) => `<div><b>${esc({ visual_product_selling_points: "产品卖点", visual_display_contents: "展示内容", visual_motif: "视觉母题" }[key] || key)}：</b>${esc(values.join("、"))}</div>`).join("") : "";
       const frames = Array.isArray(item.frames) ? item.frames : [];
-      const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${frames.map((frame) => `<div class="display-frame-row"><div>第${esc(frame.frame_index)}张：${esc(frame.planned_content)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}?v=${Date.now()}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frame.frame_index)}张轮播画面">` : ""}</div>`).join("")}</div>` : "";
+      const operation = state.operationStatus.get(Number(item.id)) || item.operation || null;
+      const operationSummary = operation ? `<div class="operation-status">${esc(operation.status === "completed" ? "已完成" : operation.status === "blocked" ? "需要重试" : "后台生成中")} · ${esc(operation.completed_frame_count)}/${esc(operation.total_frame_count)} 张</div>` : "";
+      const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${operationSummary}${frames.map((frame) => `<div class="display-frame-row"><div>第${esc(frame.frame_index)}张：${esc(frame.planned_content)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}?v=${Date.now()}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frame.frame_index)}张轮播画面">` : ""}</div>`).join("")}</div>` : "";
       return `<article class="creative-card">
         ${image}
         <div class="card-body">
@@ -811,10 +827,17 @@
     renderHistory();
     try {
       toast("正在按方案路线生成后续画面");
-      await api(`/api/visual-items/${itemId}/continue`, { method: "POST" });
-    } catch (error) { toast(error.message, true); }
-    finally {
+      const payload = await api(`/api/visual-items/${itemId}/continue`, { method: "POST" });
+      const operationId = Number(payload.operation?.operation_id || payload.operation?.id || 0);
+      if (operationId) {
+        state.operationIds.set(itemId, operationId);
+        state.operationStatus.set(itemId, payload.operation);
+        scheduleOperationPolling(itemId, operationId);
+      }
+      await loadHistory(false);
+    } catch (error) {
       state.continuingSchemes.delete(itemId);
+      toast(error.message, true);
       await loadHistory(false).catch(() => {});
     }
   }
@@ -842,7 +865,7 @@
   }
 
   function schedulePolling() {
-    stopPolling();
+    stopImagePolling();
     const batch = state.history?.batches?.[state.activeBatch];
     if (state.history?.recommendation_kind !== "visual" || !batch) return;
     if (batch.items.some((item) => ["queued", "generating"].includes(item.image_status))) {
@@ -852,7 +875,44 @@
     }
   }
 
-  function stopPolling() { clearTimeout(state.pollTimer); state.pollTimer = 0; }
+  function scheduleOperationPolling(itemId, operationId) {
+    const existing = state.operationPollTimers.get(itemId);
+    if (existing) clearTimeout(existing);
+    const poll = async () => {
+      try {
+        const payload = await api(`/api/visual-items/${itemId}/operation/${operationId}`);
+        const operation = payload.operation || {};
+        state.operationStatus.set(itemId, operation);
+        await loadHistory(false);
+        if (["completed", "failed", "blocked"].includes(operation.status)) {
+          state.continuingSchemes.delete(itemId);
+          state.operationIds.delete(itemId);
+          state.operationStatus.set(itemId, operation);
+          state.operationPollTimers.delete(itemId);
+          await loadHistory(false).catch(() => {});
+          return;
+        }
+        const timer = setTimeout(poll, 2000);
+        state.operationPollTimers.set(itemId, timer);
+      } catch (_) {
+        const timer = setTimeout(poll, 3000);
+        state.operationPollTimers.set(itemId, timer);
+      }
+    };
+    const timer = setTimeout(poll, 0);
+    state.operationPollTimers.set(itemId, timer);
+  }
+
+  function stopPolling() {
+    stopImagePolling();
+    state.operationPollTimers.forEach((timer) => clearTimeout(timer));
+    state.operationPollTimers.clear();
+    state.operationIds.clear();
+    state.operationStatus.clear();
+    state.continuingSchemes.clear();
+  }
+
+  function stopImagePolling() { clearTimeout(state.pollTimer); state.pollTimer = 0; }
 
   async function uploadFiles(files) {
     for (const file of files) {

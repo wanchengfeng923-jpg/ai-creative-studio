@@ -248,6 +248,8 @@ class PublicResultMapper:
             public["image_error"] = _safe_image_error(source.get("image_error"))
         if "frames" in source:
             public["frames"] = [self.display_frame(frame) for frame in _list(source.get("frames"))]
+        if "operation" in source:
+            public["operation"] = self.carousel_operation(source.get("operation"))
         return public
 
     def static_visual_item(self, value: Any) -> dict[str, Any]:
@@ -389,6 +391,27 @@ class PublicResultMapper:
             "image_status": status,
             "image_url": f"/api/visual-items/{item_id}/image" if status == "success" else "",
             "image_error": _safe_image_error(source.get("image_error")),
+        }
+
+    def carousel_operation(self, value: Any) -> dict[str, Any]:
+        """Build the public status for a carousel background operation."""
+
+        source = _mapping(value)
+        operation_id = _optional_int(source.get("id")) or _optional_int(source.get("operation_id")) or 0
+        status = _text(source.get("status") or "queued")
+        return {
+            "operation_id": operation_id,
+            "scheme_id": _optional_int(source.get("scheme_id")) or 0,
+            "status": status,
+            "current_frame_index": _optional_int(source.get("current_frame_index")) or 0,
+            "completed_frame_count": _optional_int(source.get("completed_frame_count")) or 0,
+            "total_frame_count": _optional_int(source.get("total_frame_count")) or 0,
+            "retryable": bool(source.get("retryable")),
+            "error_code": _text(source.get("error_code")),
+            "error": _safe_image_error(source.get("error")),
+            "created_at": _text(source.get("created_at")),
+            "updated_at": _text(source.get("updated_at")),
+            "lease_expires_at": _text(source.get("lease_expires_at")),
         }
 
     def adoption(self, value: Any) -> dict[str, Any] | None:

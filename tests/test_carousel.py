@@ -1,4 +1,6 @@
+import json
 import unittest
+from pathlib import Path
 
 from creative_studio.carousel import (
     CarouselValidationError,
@@ -6,9 +8,45 @@ from creative_studio.carousel import (
     normalize_visual_carousel_config,
     normalize_visual_carousel_frames,
 )
+from creative_studio.contracts import contract_binding
+from creative_studio.prompt_registry import PromptRegistry
 
 
 class CarouselTests(unittest.TestCase):
+
+    def test_carousel_evaluation_fixture_has_ten_sanitized_cases(self):
+        path = Path(__file__).resolve().parents[1] / "config" / "evals" / "carousel.v1.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        cases = payload.get("cases") if isinstance(payload, dict) else None
+        self.assertIsInstance(cases, list)
+        self.assertGreaterEqual(len(cases), 10)
+        required = {"id", "input", "hard_constraints", "fact_boundary", "quality_checks", "failure_examples"}
+        for case in cases:
+            self.assertEqual(set(case), required)
+            self.assertTrue(case["id"])
+            self.assertIsInstance(case["input"], dict)
+            self.assertTrue(str(case["input"].get("task_description") or "").strip())
+            self.assertIn(case["input"].get("aspect_ratio"), {"16:9", "9:16"})
+            self.assertIsInstance(case["hard_constraints"], list)
+            self.assertIsInstance(case["fact_boundary"], list)
+            self.assertIsInstance(case["quality_checks"], list)
+            self.assertIsInstance(case["failure_examples"], list)
+
+    def test_carousel_registry_uses_canonical_v1_contract(self):
+        registry_path = Path(__file__).resolve().parents[1] / "config" / "prompts" / "registry.json"
+        spec = PromptRegistry.load(registry_path).get("creative.visual.carousel.plan", "visual-carousel-v1")
+        binding = contract_binding("creative.visual.carousel.plan")
+        self.assertEqual(spec.lifecycle, "production")
+        self.assertEqual(spec.caller, "carousel")
+        self.assertEqual(spec.output_schema, "CarouselResult.v1")
+        self.assertEqual(spec.validator, "CarouselResultValidator.v1")
+        self.assertEqual(binding.output_schema, spec.output_schema)
+        self.assertEqual(binding.validator, spec.validator)
+
+    def test_production_prompt_matches_shared_planner_v1_policy(self):
+        prompt = (Path(__file__).resolve().parents[1] / "config" / "ai_visual_carousel_prompt_v1.txt").read_text(encoding="utf-8")
+        self.assertIn("直接把该私有指令交给图片模型生成首帧", prompt)
+        self.assertNotIn("每套方案的新会话中重新生成实际首帧", prompt)
     def test_fixed_count_expands_inherited_rounds(self):
         config = normalize_visual_carousel_config(
             {
