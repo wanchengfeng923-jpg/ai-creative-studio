@@ -67,7 +67,7 @@
 `image_generation_instruction` 只写入 `visual_items.image_prompt` 和受控图片队列，静态方案不写入
 `display_frames`。浏览器 history/status/adopt 由 `StaticVisualPublicDTO.v1` 白名单投影，不能包含私有图片指令、完整模型响应、本地路径或 gateway job id。
 
-本阶段的 registry、临时 SQLite、fake model/image runner 和前端 canonical renderer 已通过 `202` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
+本阶段的 registry、临时 SQLite、fake model/image runner 和前端 canonical renderer 已通过当前 `220` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
 
 ## 轮播后台 Operation
 

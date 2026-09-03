@@ -14,7 +14,7 @@
 
 ## 当前证据
 
-- 全量 deterministic unittest：219 项通过。
+- 全量 deterministic unittest：220 项通过。
 - `PromptRegistry` 在启动时校验路径、hash、变量、contract、生命周期和唯一 production caller。
 - 叙事、静态、轮播 production caller 均穿过各自 Module；图片任务使用 deterministic fake 验证排队、失败、重试和恢复。
 - 真实 AI 输出质量、事实准确性、机制人工评分、成本/延迟 baseline、真实图片质量和供应商成功率尚未验证。
