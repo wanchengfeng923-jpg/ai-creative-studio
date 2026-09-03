@@ -1,7 +1,7 @@
 # AI 重构 Phase 2 变更卡
 
 - 日期：2026-09-03
-- 状态：进行中
+- 状态：已完成，Phase 2 门禁通过
 - 范围：叙事类生成 contract、module、生产调用、公开投影和测试
 
 ## 目标
@@ -55,3 +55,9 @@
 3. 视觉分支和 retired loader 无新增 caller。
 4. 全量 unittest、Node 语法、compileall、diff check 通过；真实 AI/图片/浏览器/真实数据库写入明确未验证。
 5. 本卡、`progress.md`、代码地图、运维手册和 Phase 3 交接文档同步事实。
+
+## 复核结论
+
+- 规格轴：PASS。叙事 production caller、v6 registry、canonical contract、repair、第二批去重、公开 DTO 和保留条件与总纲一致；未进入静态/轮播迁移。
+- 规范轴：PASS。修改集中在叙事责任域，使用临时 fake/确定性测试，未写入凭据或运行数据；`node --check`、`compileall` 和 `git diff --check` 通过。
+- Critical/Important：无。真实 AI、图片网关、浏览器和真实数据库写入均未验证。
