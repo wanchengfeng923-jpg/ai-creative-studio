@@ -1,5 +1,22 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-03 AI 创意能力重构总纲
+
+### 已完成
+
+- 完成 AI 能力的生产链路审计，记录叙事、静态展示、轮播、图片任务、提示词编译、网关参数、持久化、公开 DTO、测试和文档治理问题。
+- 新增 [`docs/ai-rebuild-master-plan.md`](docs/ai-rebuild-master-plan.md)，作为当前 AI 重构的唯一实施基线：包含当前真实事实、P0/P1/P2 问题台账、目标深模块和 port/adapter、PromptRegistry 与契约、公开 DTO、轮播状态机、质量评测、Phase 0 至 Phase 5 迁移门禁、回滚和后续 Agent 执行协议。
+- 新增 [`docs/ai/README.md`](docs/ai/README.md) 作为 AI 文档入口，并同步修正 `AGENTS.md`、`项目代码地图.md` 和 `docs/operations.md` 中已确认的登录/项目归属、监听地址和轮播首帧事实冲突。
+
+### 验证
+
+- 已通过静态审计确认真实 production composition root 为 `StudioApplication -> CreativeGenerationService -> HttpModelClient -> chat2api`；轮播首帧当前直接使用共享规划响应，提示词中的独立文字会话描述属于待清理漂移。
+- 本次只修改文档和工程治理入口；未修改业务代码、数据库、图片、上传文件或 `chat2api/.env`，未调用真实 AI/图片网关。
+
+### 未完成
+
+- 尚未执行 AI 重构 Phase 0；后续实现会话必须从 Phase 0 开始，按总纲完成每阶段门禁后再进入下一阶段。
+
 ## 2026-09-02 补充工作树整理与提交要求
 
 ### 已完成
