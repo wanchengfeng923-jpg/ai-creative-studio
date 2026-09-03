@@ -208,7 +208,9 @@ class CreativeGenerationService:
                 result = self.adapter.generate(snapshot, context)
             item_ids: tuple[int, ...] = ()
             if snapshot.kind == "visual":
-                if snapshot.carousel_enabled or self.prompt_registry is None:
+                # Explicit model_client=None is the documented legacy adapter seam;
+                # it must not persist the old visual shape as StaticVisualResult.v1.
+                if snapshot.carousel_enabled or self.prompt_registry is None or self.model_client is None:
                     item_ids = tuple(
                         self.repository.complete_visual_generation(
                             context.reservation_id,

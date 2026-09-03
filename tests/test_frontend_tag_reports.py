@@ -25,9 +25,28 @@ class FrontendTagReportTests(unittest.TestCase):
     def test_selected_options_remain_in_table_with_highlight_and_plain_text_summary(self):
         self.assertIn("items.map((option) => optionButton", APP_JS)
         self.assertIn("selected: selected.has(option.label)", APP_JS)
-        self.assertIn("class=\"selected-report-value\"", APP_JS)
-        self.assertIn(".selected-report-value { padding:0; border:0;", STYLES)
-        self.assertIn("background:transparent", STYLES)
+        self.assertIn("selected-tag-summary", APP_JS)
+        self.assertNotIn("renderSelectedChips(group, draft)", APP_JS)
+
+    def test_project_delete_is_available_on_each_row_and_navigates_after_delete(self):
+        self.assertNotIn('id="deleteProjectButton"', INDEX_HTML)
+        self.assertIn("data-delete-project=\"${item.id}\"", APP_JS)
+        self.assertIn("event.stopPropagation()", APP_JS)
+        self.assertIn("async function deleteProject(projectId)", APP_JS)
+        self.assertIn("nextProject", APP_JS)
+        self.assertIn("previousProject", APP_JS)
+
+    def test_visual_carousel_uses_dedicated_yes_no_control(self):
+        self.assertIn("function renderCarouselChoice(group, draft)", APP_JS)
+        self.assertIn("data-carousel-choice", APP_JS)
+        self.assertIn('value === "否"', APP_JS)
+        self.assertIn("renderCarouselChoice(group, draft)", APP_JS)
+
+    def test_display_contents_stays_visible_until_product_selling_point_is_selected(self):
+        self.assertIn('group.key === "visual_display_contents"', APP_JS)
+        self.assertIn("请先选择产品卖点", APP_JS)
+        self.assertIn("product_display", APP_JS)
+        self.assertIn("draft.visual_display_contents = (draft.visual_display_contents || []).filter", APP_JS)
 
     def test_brief_is_embedded_at_top_of_positioning_flow(self):
         self.assertNotIn('id="stepBrief"', INDEX_HTML)
@@ -47,13 +66,19 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn('<input id="taskDescription"', INDEX_HTML)
         self.assertNotIn('<textarea id="taskDescription"', INDEX_HTML)
 
-    def test_tag_options_replace_oldest_selection_instead_of_disabling_remaining_options(self):
-        self.assertIn("selectWithReplacement", APP_JS)
-        self.assertNotIn("disabled: !selected.has(option.label) && selected.size >= max", APP_JS)
-        self.assertNotIn("disabled: !selected.includes(option.label) && selected.length >= max", APP_JS)
-        self.assertIn('key === "visual_art_style_references" ? 2', APP_JS)
-        self.assertIn("round.overrides[key] = selectWithReplacement", APP_JS)
-        self.assertIn("if (ordered.length >= totalMax) ordered.shift()", APP_JS)
+    def test_tag_options_disable_unselected_values_at_limit_without_replacement(self):
+        self.assertIn("selectWithinLimit", APP_JS)
+        self.assertNotIn("selectWithReplacement", APP_JS)
+        self.assertIn("disabled: !selected.has(option.label) && selected.size >= max", APP_JS)
+        self.assertIn("selected.length >= max", APP_JS)
+        self.assertNotIn("ordered.shift()", APP_JS)
+
+    def test_carousel_inheritance_can_be_edited_and_reset(self):
+        self.assertIn("copyCarouselRoundOverrides", APP_JS)
+        self.assertIn("editInheritedSelection", APP_JS)
+        self.assertIn("round.mode = \"custom\"", APP_JS)
+        self.assertIn('round.mode = "inherit"', APP_JS)
+        self.assertNotIn("round.overrides[key] = selectWithReplacement", APP_JS)
 
     def test_generation_button_shows_unlimited_elapsed_wait_time(self):
         self.assertIn("generationStartedAt", APP_JS)
@@ -85,6 +110,13 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn('data-continue-scheme="${item.id}"', APP_JS)
         self.assertIn('data-adopt-visual="${item.id}"', APP_JS)
         self.assertIn("/api/visual-items/${itemId}/continue", APP_JS)
+
+    def test_static_visual_cards_render_canonical_fields_first(self):
+        self.assertIn("item.audience_tension", APP_JS)
+        self.assertIn("item.product_value", APP_JS)
+        self.assertIn("item.visual_mechanism", APP_JS)
+        self.assertIn("item.static_frame", APP_JS)
+        self.assertIn("item.evidence_ledger", APP_JS)
 
     def test_continue_action_shows_in_progress_state_while_request_runs(self):
         self.assertIn("continuingSchemes", APP_JS)

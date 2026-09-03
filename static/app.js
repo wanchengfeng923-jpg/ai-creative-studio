@@ -112,12 +112,11 @@
     return String(value || "").split(/[，,、\n]/).map((item) => item.trim()).filter(Boolean);
   }
 
-  function selectWithReplacement(values, value, max) {
+  function selectWithinLimit(values, value, max) {
     const next = values.slice();
     const index = next.indexOf(value);
     if (index >= 0) { next.splice(index, 1); return next; }
-    if (max <= 0) return next;
-    if (next.length >= max) next.shift();
+    if (max <= 0 || next.length >= max) return next;
     next.push(value);
     return next;
   }
@@ -166,7 +165,7 @@
         const relation = state.tagConfig.visual.relations?.product_display || {};
         const selectedIds = selling.map((label) => sellingGroup.options.find((option) => option.label === label)?.id).filter(Boolean);
         const allowedIds = new Set(selectedIds.flatMap((id) => relation[id] || []));
-        if (allowedIds.size) draft.visual_display_contents = (draft.visual_display_contents || []).filter((label) => {
+        draft.visual_display_contents = (draft.visual_display_contents || []).filter((label) => {
           const option = displayGroup.options.find((item) => item.label === label);
           return option && allowedIds.has(option.id);
         });
@@ -249,6 +248,9 @@
   function renderReportTable(group, key, options, maxOverride = null, selectedOverride = null) {
     const draft = ensureTagDraft();
     const selected = selectedOverride ? new Set(selectedOverride) : new Set(draft[key] || []);
+    if (!options.length) {
+      return key === "visual_display_contents" ? '<p class="tag-empty-hint">请先选择产品卖点</p>' : '<p class="tag-empty-hint">暂无可选项</p>';
+    }
     const categories = new Map();
     options.forEach((option) => {
       const category = option.category || "未分组";
@@ -257,14 +259,8 @@
     });
     const max = maxOverride ?? group.max ?? group.main_max ?? 1;
     const columns = Array.from(categories.entries()).map(([category, items]) => `<th scope="col">${esc(category)}</th>`).join("");
-    const cells = Array.from(categories.values()).map((items) => `<td><div class="report-choice-list">${items.map((option) => optionButton(group, option, key, { selected: selected.has(option.label) })).join("")}</div></td>`).join("");
+    const cells = Array.from(categories.values()).map((items) => `<td><div class="report-choice-list">${items.map((option) => optionButton(group, option, key, { selected: selected.has(option.label), disabled: !selected.has(option.label) && selected.size >= max })).join("")}</div></td>`).join("");
     return `<div class="creative-position-table-scroll"><table class="creative-position-table"><tbody><tr><th scope="row">定位名称</th>${columns}</tr><tr><th scope="row">选项</th>${cells}</tr></tbody></table></div>`;
-  }
-
-  function renderSelectedChips(group, draft) {
-    const keys = group.key === "visual_target_audiences" || group.key === "target_audiences" ? [group.key, group.secondary_key] : [group.key];
-    const values = keys.flatMap((key) => (draft[key] || []).map((value) => `<button type="button" class="selected-report-value" data-remove-tag-key="${esc(key)}" data-remove-tag-value="${esc(value)}">${esc(displayTagLabel(value))} ×</button>`));
-    return values.length ? `<div class="selected-report-values">${values.join("、")}</div>` : "";
   }
 
   function renderReportBody(group, options, draft) {
@@ -280,6 +276,11 @@
     return renderReportTable(group, group.key, options, max, selected);
   }
 
+  function renderCarouselChoice(group, draft) {
+    const value = draft.visual_carousel?.[0] || "";
+    return `<div class="carousel-choice-field"><strong>是否轮播</strong><div class="carousel-choice-options">${["是", "否"].map((option) => `<button type="button" class="carousel-choice-option${value === option ? " selected" : ""}" data-carousel-choice="${option}" aria-pressed="${value === option}">${option}${value === option ? '<span aria-hidden="true">✓</span>' : ""}</button>`).join("")}</div></div>`;
+  }
+
   function renderTagReport(chapter, index) {
     const { group, key, label, options } = chapter;
     const draft = ensureTagDraft();
@@ -288,16 +289,21 @@
     const status = groupSummaryText(group, draft);
     const hidden = group.visible_when && !((draft[group.visible_when.key] || []).some((value) => group.visible_when.values.includes(value)));
     if (hidden) return "";
+    if (group.key === "visual_carousel") {
+      if (confirmed && selected.length) return "";
+      return `<section class="creative-position-report" data-tag-report="${esc(key)}"><div class="creative-position-report-title"><h3>${esc(label)}</h3><button type="button" class="report-confirm-button" data-confirm-tag="${esc(key)}">确认</button><span class="creative-position-limit-hint">最多选择1项</span></div><div class="creative-position-tables">${renderCarouselChoice(group, draft)}</div></section>`;
+    }
     // A completed chapter is represented only by the top summary; editing restores its report.
     if (confirmed && selected.length) return "";
-    const body = confirmed ? "" : `${renderSelectedChips(group, draft)}${renderReportBody(group, options, draft)}`;
+    const body = confirmed ? "" : renderReportBody(group, options, draft);
     const limit = group.type === "style_cascade" ? 2 : (group.main_max || group.max || 1) + (group.secondary_max || 0);
     return `<section class="creative-position-report${confirmed ? " is-confirmed" : ""}" data-tag-report="${esc(key)}"><div class="creative-position-report-title"><h3>${esc(label)}</h3>${confirmed ? "" : `<button type="button" class="report-confirm-button" data-confirm-tag="${esc(key)}">确认</button>`}<span class="creative-position-limit-hint">最多选择${esc(limit)}项</span></div>${confirmed ? `<div class="report-summary-line">${esc(status)}</div>` : `<div class="creative-position-tables">${body}</div>`}</section>`;
   }
 
   function renderStyleChapter(group, draft) {
     const relevance = draft.visual_art_style_relevance || []; const styles = group.options.filter((option) => !relevance.length || relevance.includes(option.category)); const selectedStyle = draft.visual_art_style || []; const currentStyle = group.options.find((option) => selectedStyle.includes(option.label)); const refs = currentStyle?.references || [];
-    return `<div class="cascade-step"><strong>1 · 与产品视觉的相关度</strong><div class="tag-option-grid">${Array.from(new Set(group.options.map((option) => option.category))).map((value) => optionButton(group, { label: value, description: "一级相关度，用于表达与真实产品视觉的距离" }, "visual_art_style_relevance", { selected: relevance.includes(value) })).join("")}</div></div><div class="cascade-step"><strong>2 · 具体美术风格</strong><div class="tag-option-grid">${styles.map((option) => optionButton(group, option, "visual_art_style", { selected: selectedStyle.includes(option.label) })).join("")}</div></div>${currentStyle ? `<div class="cascade-step"><strong>3 · 参考作品 <small>可选，最多 2 项</small></strong><div class="tag-option-grid">${refs.map((option) => optionButton(group, option, "visual_art_style_references", { selected: (draft.visual_art_style_references || []).includes(option.label) })).join("")}</div></div>` : ""}`;
+    const relevanceOptions = Array.from(new Set(group.options.map((option) => option.category)));
+    return `<div class="cascade-step"><strong>1 · 与产品视觉的相关度</strong><div class="tag-option-grid">${relevanceOptions.map((value) => optionButton(group, { label: value, description: "一级相关度，用于表达与真实产品视觉的距离" }, "visual_art_style_relevance", { selected: relevance.includes(value), disabled: !relevance.includes(value) && relevance.length >= 1 })).join("")}</div></div><div class="cascade-step"><strong>2 · 具体美术风格</strong><div class="tag-option-grid">${styles.map((option) => optionButton(group, option, "visual_art_style", { selected: selectedStyle.includes(option.label), disabled: !selectedStyle.includes(option.label) && selectedStyle.length >= 1 })).join("")}</div></div>${currentStyle ? `<div class="cascade-step"><strong>3 · 参考作品 <small>可选，最多 2 项</small></strong><div class="tag-option-grid">${refs.map((option) => optionButton(group, option, "visual_art_style_references", { selected: (draft.visual_art_style_references || []).includes(option.label), disabled: !(draft.visual_art_style_references || []).includes(option.label) && (draft.visual_art_style_references || []).length >= 2 })).join("")}</div></div>` : ""}`;
   }
 
   function buildChapters(mode, groups) {
@@ -311,7 +317,7 @@
         const selectedIds = new Set(selling.map((label) => sellingGroup?.options.find((option) => option.label === label)?.id).filter(Boolean));
         const relation = state.tagConfig.visual.relations?.product_display || {};
         const allowedIds = new Set(); selectedIds.forEach((id) => (relation[id] || []).forEach((displayId) => allowedIds.add(displayId)));
-        if (allowedIds.size) groupOptions = groupOptions.filter((option) => allowedIds.has(option.id));
+        groupOptions = allowedIds.size ? groupOptions.filter((option) => allowedIds.has(option.id)) : [];
       }
       // 两种创意类型共用同一套章节和选项交互；分类只负责在章节内部整理选项。
       chapters.push({ id: group.key, group, key: group.key, label: group.label, options: groupOptions });
@@ -376,6 +382,19 @@
     return rounds;
   }
 
+  function copyCarouselRoundOverrides(source) {
+    return Object.fromEntries(carouselFieldGroups().map((field) => [field.key, (source?.overrides?.[field.key] || []).slice(0, field.max)]));
+  }
+
+  function editInheritedSelection(values, value, max) {
+    const next = values.slice();
+    const index = next.indexOf(value);
+    if (index >= 0) { next.splice(index, 1); return next; }
+    if (next.length >= max) next.shift();
+    next.push(value);
+    return next;
+  }
+
   function renderCarouselRoundEditor() {
     const draft = ensureTagDraft(); const count = carouselCountValue(draft);
     if (!count || draft.visual_carousel?.[0] !== "是") return "";
@@ -384,7 +403,10 @@
     const fieldMarkup = fields.map((field) => {
       const values = current.mode === "inherit" && current.index > 1 ? (inherited.overrides[field.key] || []) : (current.overrides[field.key] || []);
       const options = field.options;
-      return `<section class="carousel-round-field"><div class="carousel-round-field-heading"><strong>${esc(field.label)}</strong><small>${current.mode === "inherit" && current.index > 1 ? "跟随第1轮" : "可选，留空由AI补全"}</small></div><div class="tag-option-grid">${options.map((option) => optionButton(null, option, `round:${current.index}:${field.key}`, { selected: values.includes(option.label) })).join("")}</div></section>`;
+      const isInherited = current.mode === "inherit" && current.index > 1;
+      const selected = values;
+      const max = field.max;
+      return `<section class="carousel-round-field"><div class="carousel-round-field-heading"><strong>${esc(field.label)}</strong><small>${isInherited ? "跟随第1轮" : "可选，留空由AI补全"}</small></div><div class="tag-option-grid">${options.map((option) => optionButton(null, option, `round:${current.index}:${field.key}`, { selected: selected.includes(option.label), disabled: !selected.includes(option.label) && selected.length >= max && !isInherited })).join("")}</div></section>`;
     }).join("");
     return `<section class="carousel-round-editor"><div class="carousel-round-heading"><div><strong>逐轮创意定位</strong><small>固定 ${count} 屏；第2轮起默认继承第1轮，可随时改为自定义</small></div><span>仅最终生成时调用AI</span></div><div class="carousel-round-tabs">${rounds.map((round) => `<button type="button" class="${round.index === current.index ? "active" : ""}" data-carousel-round="${round.index}">第${round.index}轮${round.index > 1 && round.mode === "inherit" ? " · 继承" : ""}</button>`).join("")}</div>${current.index > 1 ? `<div class="carousel-round-mode"><button type="button" class="${current.mode === "inherit" ? "active" : ""}" data-carousel-mode="inherit">跟随第1轮</button><button type="button" class="${current.mode === "custom" ? "active" : ""}" data-carousel-mode="custom">本轮自定义</button></div>` : ""}<div class="carousel-round-fields">${fieldMarkup}</div></section>`;
   }
@@ -415,20 +437,18 @@
     }
     els.list.innerHTML = state.projects.map((item) => {
       const isActive = state.project?.id === item.id;
+      const deleteButton = `<button type="button" class="project-delete-button" data-delete-project="${item.id}" aria-label="删除项目" title="删除项目">×</button>`;
       if (isActive) return `
-        <div class="project-item active" data-project-id="${item.id}">
+        <div class="project-item-row"><div class="project-item active" data-project-id="${item.id}">
           <label class="project-item-name"><input data-project-name-input value="${esc(item.name)}" maxlength="120" aria-label="重命名当前项目"><span aria-hidden="true">编辑</span></label>
           <span><em>${esc(item.script_type)}</em><time>${esc(item.updated_at.slice(5, 16))}</time></span>
-        </div>`;
+        </div>${deleteButton}</div>`;
       return `
-        <button class="project-item" data-project-id="${item.id}">
+        <div class="project-item-row"><button class="project-item" data-project-id="${item.id}">
           <strong>${esc(item.name)}</strong>
           <span><em>${esc(item.script_type)}</em><time>${esc(item.updated_at.slice(5, 16))}</time></span>
-        </button>`;
+        </button>${deleteButton}</div>`;
     }).join("");
-    els.list.querySelectorAll("button[data-project-id]").forEach((button) => {
-      button.addEventListener("click", () => openProject(Number(button.dataset.projectId)));
-    });
     const projectNameInput = els.list.querySelector("[data-project-name-input]");
     projectNameInput?.addEventListener("input", () => {
       state.project.name = projectNameInput.value;
@@ -583,6 +603,10 @@
   }
 
   function renderVisualBatch(batch) {
+    if (batch.items.some((item) => item && typeof item.static_frame === "object")) {
+      renderStaticVisualBatch(batch);
+      return;
+    }
     els.resultsGrid.className = "results-grid";
     els.resultsGrid.innerHTML = batch.items.map((item, index) => {
       const image = visualImageMarkup(item);
@@ -623,6 +647,51 @@
     }));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
     els.resultsGrid.querySelectorAll("[data-continue-scheme]").forEach((button) => button.addEventListener("click", () => continueScheme(Number(button.dataset.continueScheme))));
+    els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
+  }
+
+  function renderStaticVisualBatch(batch) {
+    els.resultsGrid.className = "results-grid static-grid";
+    els.resultsGrid.innerHTML = batch.items.map((item, index) => {
+      const image = visualImageMarkup(item);
+      const frame = item.static_frame || {};
+      const copy = frame.copy || {};
+      const evidence = item.evidence_ledger || {};
+      const sources = (item.creative_sources || []).map((source) => `<li>${esc(source)}</li>`).join("");
+      const confirmed = (evidence.confirmed || []).map((value) => `<li>${esc(value)}</li>`).join("");
+      const inferred = (evidence.inferred || []).map((value) => `<li>${esc(value)}</li>`).join("");
+      const toConfirm = (evidence.to_confirm || []).map((value) => `<li>${esc(value)}</li>`).join("");
+      const attentionOrder = (frame.attention_order || []).map((value) => `<span>${esc(value)}</span>`).join("");
+      const assets = (item.asset_plan || []).map((asset) => `<li><b>${esc(asset.asset)}</b> · ${esc(asset.status)} · ${esc(asset.fallback)}</li>`).join("");
+      const risks = (item.production_risks || []).map((risk) => `<li><b>${esc(risk.risk)}</b> · ${esc(risk.mitigation)}</li>`).join("");
+      return `<article class="creative-card static-creative-card">
+        ${image}
+        <div class="card-body">
+          <div class="card-kicker">CONCEPT ${String(index + 1).padStart(2, "0")}</div>
+          <h3>${esc(item.title)}</h3>
+          <p class="description">${esc(item.creative_summary)}</p>
+          <div class="static-positioning">
+            <p><b>受众张力：</b>${esc(item.audience_tension)}</p>
+            <p><b>产品价值：</b>${esc(item.product_value)}</p>
+            <p><b>视觉机制：</b>${esc(item.visual_mechanism)}</p>
+          </div>
+          <details class="detail-list"><summary>查看方案细节</summary>
+            <div><b>创意来源：</b><ul>${sources}</ul></div>
+            <div class="evidence-ledger"><b>证据台账</b><p>已确认</p><ul>${confirmed}</ul><p>推断</p><ul>${inferred}</ul><p>待确认</p><ul>${toConfirm}</ul></div>
+            <div class="static-frame-detail"><b>静态画面</b><p>${esc(frame.visual_event)}</p><p><b>主体：</b>${esc(frame.hero_subject)}</p><p><b>构图：</b>${esc(frame.composition)}</p><div class="attention-order">${attentionOrder}</div><p><b>媒介与美术：</b>${esc(frame.medium_and_art_direction)}</p><p><b>产品证明：</b>${esc((frame.product_proof || []).join("；"))}</p><p><b>缩小可读性：</b>${esc(frame.legibility_notes)}</p></div>
+            <div class="static-copy"><b>文案</b><p>${esc(copy.headline)}</p>${copy.supporting_line ? `<p>${esc(copy.supporting_line)}</p>` : ""}<p>${esc(copy.brand_line)}</p>${copy.cta ? `<p>${esc(copy.cta)}</p>` : ""}</div>
+            <div class="asset-plan"><b>素材计划</b><ul>${assets}</ul></div>
+            <div class="production-risks"><b>制作风险</b><ul>${risks}</ul></div>
+            <div class="review"><b>评审</b><p>${esc((item.review || {}).stop_reason)}</p><p>${esc((item.review || {}).why_make_next)}</p><p>${esc((item.review || {}).first_validation)}</p></div>
+          </details>
+          <div class="card-actions">
+            ${item.image_status === "failed" ? `<button data-retry-item="${item.id}">重新生成此图</button>` : ""}
+            <button data-adopt-visual="${item.id}">${isAdopted("visual", String(item.id)) ? "已采用" : "采用此方案"}</button>
+          </div>
+        </div></article>`;
+    }).join("");
+    els.resultsGrid.querySelectorAll("[data-image-url]").forEach((image) => image.addEventListener("click", () => openImage(image.dataset.imageUrl)));
+    els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
   }
 
@@ -798,12 +867,23 @@
     state.project = payload.project; renderFiles();
   }
 
-  async function deleteProject() {
-    if (!state.project || !confirm(`确定删除“${state.project.name}”吗？`)) return;
-    await api(`/api/projects/${state.project.id}`, { method: "DELETE" });
-    state.project = null; state.history = null; stopPolling();
-    els.workspace.classList.add("hidden"); els.empty.classList.remove("hidden");
-    await loadProjects(); toast("项目已删除");
+  async function deleteProject(projectId) {
+    const index = state.projects.findIndex((item) => item.id === projectId);
+    const target = state.projects[index];
+    if (!target || !confirm(`确定删除“${target.name}”吗？`)) return;
+    await api(`/api/projects/${projectId}`, { method: "DELETE" });
+    const wasCurrent = state.project?.id === projectId;
+    await loadProjects();
+    if (!wasCurrent) { toast("项目已删除"); return; }
+    const nextProject = state.projects[index] || null;
+    const previousProject = state.projects[index - 1] || null;
+    const fallbackProject = nextProject || previousProject;
+    if (fallbackProject) await openProject(fallbackProject.id);
+    else {
+      state.project = null; state.history = null; stopPolling();
+      els.workspace.classList.add("hidden"); els.empty.classList.remove("hidden");
+    }
+    toast("项目已删除");
   }
 
   function openImage(url) { els.dialogImage.src = `${url}?v=${Date.now()}`; els.imageDialog.showModal(); }
@@ -837,7 +917,16 @@
     els.adminUsersList.addEventListener("click", async (event) => { const button = event.target.closest("button[data-user-action]"); if (!button) return; const id = button.dataset.userId; const actionType = button.dataset.userAction; if (actionType === "delete" && !window.confirm("确定删除该普通账号吗？该账号的项目将变为未分配状态。")) return; button.disabled = true; try { if (actionType === "edit") { const username = window.prompt("修改登录账号", button.dataset.username || ""); if (!username || username === button.dataset.username) { button.disabled = false; return; } await api(`/api/admin/users/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username }) }); toast("账号已更新"); } else if (actionType === "delete") { await api(`/api/admin/users/${id}/delete`, { method: "POST" }); toast("账号已删除"); } else if (actionType === "toggle") { const action = button.dataset.active === "true" ? "disable" : "enable"; await api(`/api/admin/users/${id}/${action}`, { method: "POST" }); toast("账号状态已更新"); } else { const payload = await api(`/api/admin/users/${id}/reset-password`, { method: "POST" }); window.prompt("请立即保存这次显示的临时密码", payload.temporary_password || ""); } await loadAdminUsers(); } catch (error) { toast(error.message, true); } finally { button.disabled = false; } });
     $("#newProjectButton").addEventListener("click", createProject);
     $("#emptyNewButton").addEventListener("click", createProject);
-    $("#deleteProjectButton").addEventListener("click", deleteProject);
+    els.list.addEventListener("click", (event) => {
+      const deleteButton = event.target.closest("[data-delete-project]");
+      if (deleteButton) {
+        event.stopPropagation();
+        deleteProject(Number(deleteButton.dataset.deleteProject)).catch((error) => toast(error.message, true));
+        return;
+      }
+      const projectButton = event.target.closest("button[data-project-id]");
+      if (projectButton) openProject(Number(projectButton.dataset.projectId)).catch((error) => toast(error.message, true));
+    });
     els.projectMenu.addEventListener("click", () => setProjectDrawer(!els.sidebar.classList.contains("drawer-open")));
     els.sidebarBackdrop.addEventListener("click", () => setProjectDrawer(false));
     els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 2; applyStep(); await loadHistory(false).catch(() => {}); });
@@ -871,20 +960,40 @@
       }
       const clear = event.target.closest("[data-clear-tag]");
       if (clear) { const draft = collectTagValues(); draft[clear.dataset.clearTag] = []; state.tagUi.draft = draft; renderTagControls(); scheduleSave(); return; }
+      const carouselChoice = event.target.closest("[data-carousel-choice]");
+      if (carouselChoice) {
+        const draft = collectTagValues(); const value = carouselChoice.dataset.carouselChoice;
+        draft.visual_carousel = [value];
+        if (value === "否") { draft.visual_carousel_count = []; draft.visual_carousel_form = []; draft.visual_carousel_rounds = []; }
+        state.tagUi.draft = draft; state.tagUi.confirmed.delete("visual_carousel"); renderTagControls(); scheduleSave(); return;
+      }
       const carouselRound = event.target.closest("[data-carousel-round]");
       if (carouselRound) { state.tagUi.roundIndex = Number(carouselRound.dataset.carouselRound); renderTagControls(); return; }
       const carouselMode = event.target.closest("[data-carousel-mode]");
       if (carouselMode) {
         const draft = collectTagValues(); const rounds = ensureCarouselRounds(draft); const current = rounds[state.tagUi.roundIndex - 1];
-        if (current && current.index > 1) { current.mode = carouselMode.dataset.carouselMode; if (current.mode === "inherit") current.overrides = Object.fromEntries(carouselFieldGroups().map((field) => [field.key, []])); }
+        if (current && current.index > 1) {
+          const round = current;
+          if (carouselMode.dataset.carouselMode === "inherit") {
+            round.mode = "inherit";
+            round.overrides = {};
+          } else {
+            round.mode = "custom";
+            round.overrides = copyCarouselRoundOverrides(rounds[0]);
+          }
+        }
         state.tagUi.draft = draft;
-        if (group && groupSelectedValues(group, draft).length) state.tagUi.confirmed.add(group.key);
         renderTagControls(); scheduleSave(); return;
       }
       const roundOption = event.target.closest("[data-tag-key^='round:'][data-tag-value]");
       if (roundOption) {
         const [, indexText, key] = roundOption.dataset.tagKey.split(":"); const index = Number(indexText); const draft = collectTagValues(); const rounds = ensureCarouselRounds(draft); const round = rounds[index - 1]; const field = carouselFieldGroups().find((item) => item.key === key);
-        if (round && field && (index === 1 || round.mode === "custom")) { const values = round.overrides[key] || []; round.overrides[key] = selectWithReplacement(values, roundOption.dataset.tagValue, field.max); }
+        if (round && field) {
+          const inherited = index > 1 && round.mode === "inherit";
+          const sourceValues = inherited ? (rounds[0].overrides[key] || []) : (round.overrides[key] || []);
+          round.overrides[key] = inherited ? editInheritedSelection(sourceValues, roundOption.dataset.tagValue, field.max) : selectWithinLimit(sourceValues, roundOption.dataset.tagValue, field.max);
+          if (inherited) round.mode = "custom";
+        }
         state.tagUi.draft = draft; renderTagControls(); scheduleSave(); return;
       }
       const option = event.target.closest("[data-tag-key][data-tag-value]");
@@ -897,18 +1006,14 @@
           if (mainIndex >= 0) main.splice(mainIndex, 1);
           else if (secondaryIndex >= 0) secondary.splice(secondaryIndex, 1);
           else {
-            const totalMax = (group.main_max || 0) + (group.secondary_max || 0);
-            const ordered = [...main, ...secondary];
-            if (ordered.length >= totalMax) ordered.shift();
-            ordered.push(value);
-            main.splice(0, main.length, ...ordered.slice(0, group.main_max || 0));
-            secondary.splice(0, secondary.length, ...ordered.slice(group.main_max || 0, totalMax));
+            if (main.length < (group.main_max || 0)) main.push(value);
+            else if (secondary.length < (group.secondary_max || 0)) secondary.push(value);
           }
           if (!main.length && secondary.length) main.push(secondary.shift());
           draft[group.key] = main; draft[group.secondary_key] = secondary;
         } else {
           const max = key === "visual_art_style_references" ? 2 : (group?.max || group?.main_max || 1);
-          draft[key] = selectWithReplacement(current, value, max);
+          draft[key] = selectWithinLimit(current, value, max);
         }
         if (key === "visual_art_style_relevance") { draft.visual_art_style = []; draft.visual_art_style_references = []; }
         if (key === "visual_art_style") draft.visual_art_style_references = [];

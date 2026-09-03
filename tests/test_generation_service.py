@@ -39,11 +39,13 @@ from creative_studio.generation_service import (
     LegacyCreativeGenerationAdapter,
 )
 from creative_studio.model_client import HttpModelClient, ModelResponse
+from creative_studio.prompt_registry import PromptRegistry
 from creative_studio.repository import StudioRepository
 from creative_studio.app import StudioApplication
 
 
 NARRATIVE_PROMPT_TEMPLATE = "{{task_type}}\n{{task_description}}\n{{creative_tags}}"
+PROMPT_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "prompts" / "registry.json"
 
 
 def valid_narrative_payload() -> dict[str, object]:
@@ -226,6 +228,28 @@ class GenerationServiceTests(unittest.TestCase):
         )
         self.assertTrue(LegacyCreativeGenerationAdapter.new_callers_forbidden)
         self.assertIn("zero production callers", LegacyCreativeGenerationAdapter.removal_condition)
+
+    def test_legacy_static_adapter_keeps_legacy_persistence_with_registry_loaded(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {"task_description": "兼容旧展示生成"},
+        )
+        image_runner = FakeImageRunner()
+        service = CreativeGenerationService(
+            repository=self.repo,
+            adapter=self.service.adapter,
+            model_client=None,
+            image_runner=image_runner,
+            prompt_registry=PromptRegistry.load(PROMPT_REGISTRY_PATH),
+        )
+
+        result = service.generate(
+            CreativeGenerationRequest(project_id=self.visual_project["id"]),
+        )
+
+        self.assertEqual(result.snapshot.kind, "visual")
+        self.assertEqual(len(image_runner.enqueued), 1)
+        self.assertIn("subtitle", result.history["batches"][0]["items"][0])
 
     def test_generate_narrative_calls_model_once_and_creates_no_image_jobs(self) -> None:
         result = self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
