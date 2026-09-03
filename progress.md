@@ -21,7 +21,7 @@
 - `LegacyCreativeGenerationAdapter`、旧视觉 schema 和 retired prompt 文件继续作为历史/兼容读取 seam，Phase 5 的删除条件是三个 production caller 均为零且完成保留期与回归评估，不能因本次 operation 接线强行删除。
 - 2026-09-04 对真实 `data/creative_studio.db` 仅执行只读 projection scrub dry-run：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`；未执行 `--apply`，真实历史 scrub/备份/恢复演练仍待单独变更卡。
 - 新增 [`docs/ai/quality-evaluation.md`](docs/ai/quality-evaluation.md)，集中记录三套 10-case 脱敏评测集、deterministic 证据和真实模型质量评测边界；没有把 fake 测试表述为真实质量通过。
-- 本阶段 checkpoint 提交：`32ef2c2`（未包含用户已有的 `launcher.py` 修改）。
+- 本阶段 checkpoint 提交：`5ad827c`（未包含用户已有的 `launcher.py` 修改）；随后以 docs-only 提交记录该哈希。
 
 ## 2026-09-03 Phase 3 静态迁移收尾与 Phase 4 交接
 
