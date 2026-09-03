@@ -1,12 +1,12 @@
 # AI 重构 Phase 3 交接文档：静态展示类
 
 - 日期：2026-09-03
-- 状态：Phase 3 实施入口，代码尚未切换
+- 状态：Phase 3 实施前历史交接（已完成）
 - 项目：`D:\code\ai_creative_studio`
 - 当前分支：`codex/tag-accordion-prototype`
 - Phase 3 基线 HEAD：`b4110ea27d4690575e023dc37e8969ccc17b31dc`（`docs: close phase 2 change card`）
 - 本次交接内容通过独立 docs-only 提交保存。
-- 本文性质：给下一次实现会话使用的执行契约，不是静态功能已完成的声明
+- 本文性质：实施前执行契约；当前静态事实以 Phase 4 handoff 和运行代码为准
 
 本文只授权静态展示类迁移。轮播路线、继续生成、逐帧后台 Operation 和轮播 prompt 不属于本阶段；任何需要修改这些内容的发现都必须记录后转交 Phase 4。
 
@@ -102,7 +102,9 @@ Phase 3 必须保持叙事 Module、v6 registry、叙事 DTO 和叙事测试行�
 - 任何新代码从生产 composition root 进入同一 StaticVisualGeneration seam；只测旧函数或手工内部对象不算通过。
 - 静态输入快照、prompt 版本/hash、schema 版本、model/provider 和 reference 文件名策略必须持久化可追溯，但供应商游标和完整模型正文不得公开。
 
-## 5. 当前静态生产链路：以代码为准
+## 5. Phase 2 基线静态生产链路（历史记录）
+
+以下 5.1 至 5.7 记录的是 `b4110ea` 基线的实施前事实，用于解释本阶段为什么需要迁移；它们不再代表当前 static-v1 生产链路。当前路径、保留条件和验证证据见 `docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md`。
 
 ### 5.1 Composition root 和 caller
 

@@ -1,5 +1,70 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-03 Phase 3 静态迁移收尾与 Phase 4 交接
+
+### 已完成
+
+- Task 4 已提交为 `7e74b70`：`static-v1` 成为唯一静态 production，`visual-v2.3` 进入 retired inventory；静态 canonical renderer、10 个脱敏评估 case 和 registry contract 测试已纳入提交。
+- 修正显式 `model_client=None` 的 legacy adapter 边界：旧视觉结果继续走 `complete_visual_generation()`，不会因 registry 已加载而误写入静态 canonical persistence；新增回归测试覆盖该条件。
+- Phase 3 handoff 已标记为实施前历史契约；新增 [`docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md`](docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md)，记录 static-v1 registry、Module、DTO、repository、图片 request、旧 alias caller、状态恢复、隐私边界、回滚和 Phase 4 范围。
+
+### 验证
+
+- `$env:PYTHONPATH='D:\\code\\ai_creative_studio\\src'; python -m unittest discover -s tests -v`：`202` 项通过。
+- `node --check static\\app.js`、`python -m compileall -q src chat2api`、`git diff --check`：通过。
+- 测试使用临时 SQLite、隔离图片目录、deterministic fake 和固定输入；未修改真实 `data/`、`data/images/`、`data/uploads/` 或 `chat2api/.env`。
+- `launcher.py` 保留用户已有的 `WEB_BIND_HOST = "0.0.0.0"` 修改，未暂存；默认部署和监听边界未因本阶段改变。
+
+### 未验证
+
+- 真实 AI 输出质量、真实图片网关成功率/画质、带认证浏览器流程、真实数据库升级/历史 scrub、Chat2API 真实参数语义、参考文件内容传递和多进程生产竞态仍未验证。
+
+### 下一阶段
+
+- Phase 4 只处理轮播 v1 的 ADR、后续画面 prompt/编排、Operation/lease/heartbeat、逐帧状态查询和轮播前端轮询；不得提前修改 static-v1 或静态 persistence。
+
+## 2026-09-03 正式页面项目删除与标签交互迁移
+
+### 已完成
+
+- 项目列表每行增加删除图标，删除当前项目后按原位置打开下一个或前一个项目；删除非当前项目保持当前工作区，全部删除后才显示空状态。
+- 移除标签组展开区重复的已选标签芯片，保留表格高亮、章节摘要和顶部汇总。
+- “是否轮播”改为独立的“是/否”单行控件；选择“否”会清理轮播屏数、形式和逐轮配置。
+- 展示内容章节始终保留，未选择产品卖点时显示提示；选择卖点后按 `product_display` 关系过滤，并清理失效展示内容。
+- 标签达到上限后禁用未选项，已选项仍可取消；普通标签、主副标签、美术风格和轮播轮次不再自动顶替最早选择。
+- 轮播第 2 轮起支持继承第 1 轮、首次编辑转为自定义、按上限替换以及重新继承时丢弃覆盖值。
+
+### 验证
+
+- 新增并通过前端契约测试：`python -m unittest tests.test_frontend_tag_reports -q`，19 项通过。
+- 全量确定性测试：`python -m unittest discover -s tests -v`，201 项通过。
+- `node --check static/app.js`、`git diff --check` 通过。
+- 已连接本地页面检查；正式页面需要登录，未使用或索取凭据，因此未完成带认证的 `1280x720` / `390x844` 人工浏览器验收。
+- 未调用真实 AI 或图片网关，未修改数据库、上传文件或 `chat2api/.env`。
+
+## 2026-09-03 AI 重构 Phase 3 静态展示类迁移（实现完成）
+
+### 已完成
+
+- `src/creative_studio/static_visual.py` 提供 `StaticVisualPromptInput`、`StaticVisualResult.v1`、严格 validator、一次字段路径 repair 和私有图片指令分离。
+- `StudioRepository.complete_static_generation()` 与 `PublicResultMapper.static_visual_item()` 已接入；新静态写入不包含 `subtitle`、`creative_description`、`core_subject`、`layout`、`visual_style`，不创建 `display_frames`，私有图片指令只进入 `visual_items.image_prompt` 和受控图片任务。
+- `CreativeGenerationService` 的正式非轮播展示路径进入 `StaticVisualGeneration`；每批 3 个方案、每案 1 个 `StaticVisualImageRequest`，叙事 v6、轮播 prompt/validator/继续生成和逐帧状态机保持原路径。
+- `config/prompts/registry.json` 将 `creative.visual.static.generate@static-v1` 设为唯一静态 production；`visual-v2.3` 标记 `retired`，禁止新 caller，并写明 replacement、deprecated_since 和 Phase 5 removal condition。
+- `config/evals/static.v1.json` 已建立 10 个脱敏 case，覆盖空白 brief、画幅、仅文件名参考、未确认事实、缺失素材、机制重复、超长文案、URL/Markdown 注入和 repair 失败。
+- `static/app.js` 对含 `static_frame` 的结果优先呈现用户张力、产品价值、视觉机制、证据台账、静态画面、素材计划、制作风险和 review；旧 carousel 结果继续使用原渲染逻辑。
+
+### 验证
+
+- 实现提交：`c0d86a0`、`42ebc83`、`08492ca`；Task 4 配置/评估/前端和文档收尾提交见当前分支日志。
+- 静态定向测试 23 项通过；完整 deterministic unittest、Node 语法、Python compileall、`git diff --check` 和工作树门禁在本次收尾前重新执行。
+- 测试只使用临时 SQLite、fake model/image runner 和隔离路径；未修改真实 `data/`、`data/images/`、`data/uploads/` 或 `chat2api/.env`。
+- 未调用真实 AI、图片网关或带认证浏览器；真实数据库升级/历史 scrub 和图片质量仍未验证。
+
+### Phase 4 输入
+
+- Phase 4 只处理轮播 v1 的 ADR、后续画面 prompt/编排、Operation/lease/heartbeat、逐帧状态查询和轮播前端轮询。
+- static-v1 的实际路径、旧 alias 读取 caller、首图 typed request、部分成功/人工 retry/重启恢复和隐私边界记录在 `docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md`。
+
 ## 2026-09-03 Phase 3 交接文档深度复核
 
 ### 已完成

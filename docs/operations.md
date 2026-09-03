@@ -9,7 +9,10 @@
 应用在 HTTP server bind 前加载 `config/prompts/registry.json`，校验 prompt 文件路径、模板
 变量/hash、production contract 映射和生命周期；校验失败时启动终止。叙事生产项当前为
 `creative.narrative.generate@v6`，旧 v5 仅作为 retired inventory。旧 `WEB_ERP_AI_*_PROMPT_PATH`
-仅作兼容输入，叙事已完成 Phase 2 切换，静态/轮播在对应阶段完成后删除。
+仅作兼容输入，叙事已完成 Phase 2 切换，非轮播静态展示已切换到
+`creative.visual.static.generate@static-v1`，轮播仍使用
+`creative.visual.carousel.plan@visual-carousel-v1`。旧静态
+`creative.visual.static.generate@visual-v2.3` 仅保留在 registry 的 retired inventory；历史行通过公开投影兼容读取，不能作为新 caller，也不会再执行旧 prompt。
 
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。
@@ -54,6 +57,16 @@
 4. 重新启动后，用备份目录复制到临时位置做一次读取检查，不要直接覆盖当前数据。
 
 多人内网版本上线前，必须改成自动备份，并至少恢复一份备份验证数据库、项目记录和图片都能打开。
+
+## 静态展示生成边界
+
+非轮播展示生成从 `StaticVisualGeneration` 进入 `StaticVisualResult.v1` 校验；一批固定三案，成功后为每案创建一个首图任务。`generation_service.py` 通过
+`StaticVisualImageRequest` 把画幅、私有指令和稳定 request id 交给图片队列。canonical 正文写入
+`generations.items_json` 和 `visual_items.content_json`，私有
+`image_generation_instruction` 只写入 `visual_items.image_prompt` 和受控图片队列，静态方案不写入
+`display_frames`。浏览器 history/status/adopt 由 `StaticVisualPublicDTO.v1` 白名单投影，不能包含私有图片指令、完整模型响应、本地路径或 gateway job id。
+
+本阶段的 registry、临时 SQLite、fake model/image runner 和前端 canonical renderer 已通过 `202` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
 
 ## 历史公开投影 scrub
 

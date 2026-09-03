@@ -25,11 +25,11 @@
   - 不恢复独立首帧/后续文字 prompt，不新增动态轮播字段。
 - 是否改变数据库、API、提示词、模型、端口或权限：改变静态 prompt、内部 contract 和静态公开字段；复用现有表和 HTTP 包络，不增加必须迁移的表，不改变端口、权限或外部 URL。
 
-## 当前事实冲突
+## 实施前事实冲突（已解决）
 
 - Phase 3 交接文档的基线 HEAD 是 `b4110ea`，当前 HEAD 是其后的 docs-only 提交 `c4e3624`；差异仅为静态 Phase 3 交接文档加深，不改变实现基线。
 - 交接文档和运维手册描述默认回环监听，但工作树保留用户对 `launcher.py` 的未暂存 `WEB_BIND_HOST = "0.0.0.0"` 修改。本变更不触碰该文件，也不把它纳入提交。
-- 当前静态生产 caller 仍是 `CreativeGenerationService._generate_with_model_client()` 的旧视觉分支，registry 使用 `visual-v2.3`；`static-v1` 仍是 candidate。切换前必须由 composition-root fake harness 证明新 Module 已接线。
+- 实施前静态生产 caller 是 `CreativeGenerationService._generate_with_model_client()` 的旧视觉分支，registry 使用 `visual-v2.3`；`static-v1` 当时仍是 candidate。该冲突已由 `c0d86a0`、`42ebc83` 和 `08492ca` 以及当前 Task 4 接线解决；当前 production caller 和 registry 事实以 Phase 4 handoff 为准。
 
 ## 设计决策
 
@@ -58,9 +58,9 @@
 ## 实施记录
 
 - 分支：`codex/tag-accordion-prototype`
-- 提交：待实施
-- 修改文件：待实施
-- 做了什么：待实施
-- 验证命令和结果：待实施
+- 实现提交：`c0d86a0`（canonical contract）、`42ebc83`（静态持久化/公开投影）、`08492ca`（composition root 和图片 request seam）。Task 4 配置、评估、前端和文档收尾在后续提交中保存。
+- 修改文件：`src/creative_studio/static_visual.py`、`src/creative_studio/contracts.py`、`src/creative_studio/repository.py`、`src/creative_studio/public_projection.py`、`src/creative_studio/generation_service.py`、`src/creative_studio/image_jobs.py`、`config/prompts/registry.json`、`config/evals/static.v1.json`、`static/app.js` 及对应定向测试。
+- 做了什么：静态生产路径现由 `StaticVisualGeneration` 生成和有限 repair，使用 `StaticVisualResult.v1`；`complete_static_generation()` 只保存 canonical 正文、私有 `image_prompt` 和三个首图任务，不创建 `display_frames`；history/status/adopt 通过静态白名单 DTO；registry 将 `static-v1` 设为唯一 production 并将 v2.3 标为 retired；前端按 canonical 字段优先渲染，旧视觉历史继续走兼容 renderer。
+- 验证命令和结果：静态 contract、临时 SQLite 持久化/隐私、composition root、registry/evaluation、前端标签与 canonical renderer 定向测试共 23 项通过；`node --check static/app.js` 通过；完整门禁在本次收尾前重新运行并记录于 Phase 4 handoff。
 - 尚未验证：真实 AI、真实图片网关、认证浏览器、真实数据库写入和图片质量。
 - 遗留风险：旧静态 alias 读取兼容和 `LegacyCreativeGenerationAdapter` 按 Phase 5 删除条件保留；用户 `launcher.py` 未暂存修改必须持续保留。
