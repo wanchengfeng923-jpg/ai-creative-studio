@@ -43,7 +43,8 @@ from .generation_models import (
     GenerationOutcome,
     error_details,
 )
-from .model_client import ModelClient, ModelRequest, ModelResponseFormatError
+from .model_client import ModelClient, ModelRequest, ModelResponse, ModelResponseFormatError
+from .narrative import NarrativeGeneration, NarrativeInput, NarrativeOutputError
 from .prompting import CompiledPrompt
 from .prompt_registry import PromptRegistry, PromptRegistryError
 from .repository import StudioRepository
@@ -465,23 +466,49 @@ class CreativeGenerationService:
                            model=spec.model, provider=spec.provider)
 
         config = load_ai_creative_config(self.environment)
-        prompt = build_creative_prompt(
-            {key: list(values) for key, values in snapshot.creative_tags.items()},
-            config.prompt_template,
-            game_info=load_ai_creative_game_info(self.environment).content,
-            task_type=snapshot.task_type,
-            task_description=snapshot.task_description,
-            script_type=snapshot.script_type,
+        spec = self._prompt_spec(snapshot)
+        template = config.prompt_template
+        if spec is not None and self.prompt_registry is not None:
+            template = (self.prompt_registry.root / spec.path).read_text(encoding="utf-8").strip()
+        previous_items: tuple[str, ...] = ()
+        if context.batch_index > 0:
+            prior = self.repository.generation_history(snapshot.project_id, "narrative", snapshot.fingerprint)
+            previous_items = tuple(
+                str(item.get("story") or "")
+                for batch in prior.get("batches", [])
+                for item in batch.get("items", [])
+                if isinstance(item, Mapping) and item.get("story")
+            )
+        module = NarrativeGeneration(
+            self.model_client,
+            prompt_template=template,
+            model_name=(spec.model if spec is not None else config.model),
         )
-        request = ModelRequest(
-            model=config.model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            max_tokens=10000,
-            conversation_id=context.conversation_id,
-            parent_message_id=context.parent_message_id,
-        )
-        response, items = self._request_and_validate(request, validate_creative_recommendations)
+        try:
+            narrative = module.generate(
+                NarrativeInput(
+                    task_type=snapshot.task_type,
+                    task_description=snapshot.task_description,
+                    creative_tags=snapshot.creative_tags,
+                    game_info=load_ai_creative_game_info(self.environment).content,
+                    reference_file_names=snapshot.reference_file_names,
+                    batch_index=context.batch_index,
+                    previous_items=previous_items,
+                ),
+                conversation_id=context.conversation_id,
+                parent_message_id=context.parent_message_id,
+            )
+        except NarrativeOutputError as exc:
+            raise AiCreativeRequestError(
+                f"AI返回结果格式无效：{exc}", error_code=exc.error_code,
+                phase=exc.phase, field_path=exc.field_path, retryable=False,
+            ) from exc
+        except requests.Timeout as exc:
+            raise GenerationQueueTimeoutError("AI排队超时") from exc
+        except Exception as exc:
+            raise AiCreativeRequestError("AI接口请求失败") from exc
+        items = list(narrative.items)
+        response = module.last_response or ModelResponse(content="", latency_ms=0)
         result = AiCreativeGenerationResult(
             items=items,
             input_tokens=response.input_tokens,
@@ -505,7 +532,7 @@ class CreativeGenerationService:
         if self.prompt_registry is None:
             return None
         if snapshot.kind == "narrative":
-            return self.prompt_registry.get("creative.narrative.generate", "v5")
+            return self.prompt_registry.get("creative.narrative.generate", "v6")
         if snapshot.carousel_enabled:
             return self.prompt_registry.get("creative.visual.carousel.plan", "visual-carousel-v1")
         return self.prompt_registry.get("creative.visual.static.generate", "visual-v2.3")

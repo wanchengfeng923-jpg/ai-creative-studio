@@ -1,5 +1,24 @@
 # 当前项目进度（2026-09-01）
 
+# 2026-09-03 AI 重构 Phase 2 叙事类重构（已完成）
+
+### 已完成
+
+- 新增 `src/creative_studio/narrative.py`，建立 `NarrativeGeneration`、`NarrativeInput` 和 `NarrativeResult.v1` canonical contract；固定 5 个故事、每故事 2 个钩子、每钩子 3 个场景，并校验故事/钩子差异、证据台账和风险字段。
+- 叙事生产 prompt 升级为 `config/prompts/narrative/v6.txt`，明确注入游戏资料与参考文件名；registry 登记 `creative.narrative.generate@v6`，v5 标记 retired。
+- 生产 `CreativeGenerationService` 叙事分支接入新 Module；格式 repair 携带上次校验字段路径，第二批携带上一批摘要和显式去重约束；旧 UI 通过白名单 DTO 保持 `story/hooks` 兼容。
+- 新增 deterministic fake 叙事 contract 测试和固定评估样例；更新代码地图、运维边界和 registry contract 映射。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest discover -s tests -q`：185 项通过。
+- `node --check static/app.js`、`python -m compileall -q src chat2api`、`git diff --check`：通过。
+- 未调用真实 AI、图片网关或浏览器；未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+
+### 保留项
+
+- `LegacyCreativeGenerationAdapter` 和旧叙事校验函数仍保留为无 model client/历史兼容 caller，删除条件为三个新业务 Module 均切换且 legacy production caller 为零；本阶段不进入 Phase 3。
+
 # 2026-09-03 AI 重构 Phase 1 实现（已完成）
 
 ### 已完成

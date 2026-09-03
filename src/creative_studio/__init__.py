@@ -26,6 +26,7 @@ from .ai_creative import (
 from .model_client import HttpModelClient, ModelClient, ModelRequest, ModelResponse
 from .prompting import CompiledPrompt, compile_prompt
 from .prompt_registry import GenerationPolicy, PromptRegistry, PromptRegistryError, PromptSpec
+from .narrative import NarrativeGeneration, NarrativeInput, NarrativeOutputError, NarrativeResult, validate_narrative_result
 from .model_ports import DeterministicImageModel, DeterministicTextModel, ImageModelPort, TextModelPort
 from .schemas import (
     CarouselRecommendationSchema,
@@ -55,6 +56,10 @@ __all__ = [
     "ModelClient",
     "ModelRequest",
     "ModelResponse",
+    "NarrativeGeneration",
+    "NarrativeInput",
+    "NarrativeOutputError",
+    "NarrativeResult",
     "NarrativeRecommendationSchema",
     "SchemaValidationError",
     "VisualRecommendationSchema",
@@ -74,4 +79,5 @@ __all__ = [
     "recommendation_kind_for_script_type",
     "validate_creative_recommendations",
     "validate_visual_creative_recommendations",
+    "validate_narrative_result",
 ]

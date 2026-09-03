@@ -148,7 +148,20 @@ class PublicResultMapper:
                     "scenes": _text_list(hook.get("scenes")),
                 }
             )
-        return {"story": _text(source.get("story")), "hooks": hooks}
+        public = {"story": _text(source.get("story")), "hooks": hooks}
+        for key in ("concept_id", "audience_tension", "product_value"):
+            if key in source:
+                public[key] = _text(source.get(key))
+        evidence = _mapping(source.get("evidence"))
+        if evidence:
+            public["evidence"] = {
+                key: _text_list(evidence.get(key))
+                for key in ("confirmed", "inferred", "to_confirm")
+                if key in evidence
+            }
+        if "risks" in source:
+            public["risks"] = _text_list(source.get("risks"))
+        return public
 
     def visual_item(self, value: Any) -> dict[str, Any]:
         """Build a public visual item while omitting execution-only fields."""

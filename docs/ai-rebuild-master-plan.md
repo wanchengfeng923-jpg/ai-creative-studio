@@ -428,6 +428,8 @@ failed -> blocked (达到策略上限)
 
 开始条件：Phase 1 全部完成门禁通过，Phase 1 实现已提交且工作树状态已检查；叙事 contract harness 通过是其中的必要子条件。允许修改：叙事 prompt/contract/module、生成服务的叙事分支、叙事 UI renderer 和对应测试。禁止修改视觉生产分支。
 
+当前状态（2026-09-03）：Phase 2 已完成。生产叙事 caller 为 `NarrativeGeneration`，使用 registry 的 `creative.narrative.generate@v6` 和 `NarrativeResult.v1`；旧 v5 仅保留 retired inventory，旧 adapter 仅保留兼容 caller。真实 AI、图片网关、浏览器和真实数据库写入仍未验证。
+
 范围：叙事输入、输出和第二批先收口，保持 UI 基本形状。
 
 动作：

@@ -11,11 +11,11 @@ REGISTRY = ROOT / "config" / "prompts" / "registry.json"
 
 
 class PromptRegistryTests(unittest.TestCase):
-    def test_loads_six_entries_and_three_production_specs(self):
+    def test_loads_narrative_v6_and_three_production_specs(self):
         registry = PromptRegistry.load(REGISTRY)
-        self.assertEqual(len(registry.inventory()), 6)
+        self.assertEqual(len(registry.inventory()), 7)
         self.assertEqual(sum(spec.lifecycle == "production" for spec in registry.inventory()), 3)
-        self.assertEqual(registry.get("creative.narrative.generate", "v5").template_sha256[:8], "262d97be")
+        self.assertEqual(registry.get("creative.narrative.generate", "v6").template_sha256[:8], "c7ee5762")
 
     def test_candidate_cannot_resolve_as_production_without_explicit_version(self):
         registry = PromptRegistry.load(REGISTRY)

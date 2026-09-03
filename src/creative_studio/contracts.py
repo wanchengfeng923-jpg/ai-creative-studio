@@ -17,7 +17,7 @@ class ContractBinding:
 
 CONTRACT_BINDINGS: Mapping[str, ContractBinding] = {
     "creative.narrative.generate": ContractBinding(
-        "NarrativePromptInput.v1", "LegacyNarrativeResult.v5", "NarrativeResultValidator.v5", "NarrativePublicDTO.v1", "narrative",
+        "NarrativePromptInput.v1", "NarrativeResult.v1", "NarrativeResultValidator.v1", "NarrativePublicDTO.v1", "narrative",
     ),
     "creative.visual.static.generate": ContractBinding(
         "StaticVisualPromptInput.v1", "LegacyStaticVisualResult.v2.3", "StaticVisualResultValidator.v2.3", "StaticVisualPublicDTO.v1", "static",
@@ -28,10 +28,10 @@ CONTRACT_BINDINGS: Mapping[str, ContractBinding] = {
 }
 
 SCHEMA_IDS = frozenset({
-    "NarrativePromptInput.v1", "LegacyNarrativeResult.v5", "StaticVisualPromptInput.v1",
+    "NarrativePromptInput.v1", "NarrativeResult.v1", "StaticVisualPromptInput.v1",
     "LegacyStaticVisualResult.v2.3", "CarouselPromptInput.v1", "LegacyCarouselPlanResult.v1",
 })
-VALIDATOR_IDS = frozenset(binding.validator for binding in CONTRACT_BINDINGS.values())
+VALIDATOR_IDS = frozenset(binding.validator for binding in CONTRACT_BINDINGS.values()) | {"NarrativeResultValidator.v5"}
 PROJECTOR_IDS = frozenset(binding.public_projector for binding in CONTRACT_BINDINGS.values())
 
 

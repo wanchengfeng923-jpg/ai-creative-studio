@@ -1,0 +1,11 @@
+「根据这些输入，生成叙事类广告创意」
+
+任务类型：{{task_type}}
+任务描述：{{task_description}}
+创意标签：{{creative_tags}}
+游戏资料：{{game_info}}
+参考资料文件：{{reference_file_names}}
+
+只返回合法 JSON 对象，不要 Markdown 或解释。根对象只能有 items，items 恰好包含 5 个故事。
+每个故事包含 concept_id、story、audience_tension、product_value、hooks、evidence、risks；hooks 恰好 2 个且文本明显不同，每个 hooks 有恰好 3 个 scenes。
+evidence 只能包含 confirmed、inferred、to_confirm 三个字符串数组。故事和钩子都必须与其他方案不同。

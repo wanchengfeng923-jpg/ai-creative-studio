@@ -7,8 +7,9 @@
 ## 启动
 
 应用在 HTTP server bind 前加载 `config/prompts/registry.json`，校验 prompt 文件路径、模板
-变量/hash、production contract 映射和生命周期；校验失败时启动终止。旧 `WEB_ERP_AI_*_PROMPT_PATH`
-仅作兼容输入，Phase 2/3/4 完成对应切换后删除。
+变量/hash、production contract 映射和生命周期；校验失败时启动终止。叙事生产项当前为
+`creative.narrative.generate@v6`，旧 v5 仅作为 retired inventory。旧 `WEB_ERP_AI_*_PROMPT_PATH`
+仅作兼容输入，叙事已完成 Phase 2 切换，静态/轮播在对应阶段完成后删除。
 
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。

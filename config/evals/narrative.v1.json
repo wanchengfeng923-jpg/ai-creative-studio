@@ -1,1 +1,1 @@
-{"name":"narrative.v1","cases":[]}
+{"name":"narrative.v1","minimum_score":1.0,"cases":[{"id":"deterministic-structure","input":{"task_type":"短视频","task_description":"讲清玩法","game_info":"脱敏游戏资料","reference_file_names":["brief.pdf"]},"assertions":{"item_count":5,"hooks_per_item":2,"scenes_per_hook":3,"distinct_stories":true,"distinct_hooks":true}}]}
