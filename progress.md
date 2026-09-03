@@ -1,5 +1,10 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-03 Phase 3 交接文档
+
+- Phase 2 实现提交：`1c681cc2b82fcaaee9416111ccd15b96bdf4efe9`。
+- 已生成 [`docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-3-handoff.md`](docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-3-handoff.md)，下一阶段只允许静态展示类重构；不进入轮播 Phase 4。
+
 # 2026-09-03 AI 重构 Phase 2 叙事类重构（已完成）
 
 ### 已完成
