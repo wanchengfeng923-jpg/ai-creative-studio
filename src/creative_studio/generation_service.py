@@ -45,6 +45,7 @@ from .generation_models import (
 )
 from .model_client import ModelClient, ModelRequest, ModelResponseFormatError
 from .prompting import CompiledPrompt
+from .prompt_registry import PromptRegistry, PromptRegistryError
 from .repository import StudioRepository
 
 
@@ -97,8 +98,9 @@ class LegacyCreativeGenerationAdapter:
 
     deprecated_since = "phase-0"
     replacement = "CreativeGenerationService with ModelClient"
+    replacement_detail = "CreativeGenerationService via TextModelPort; three use-case Modules"
     new_callers_forbidden = True
-    removal_condition = "Remove after the three replacement modules have zero production callers."
+    removal_condition = "Remove after the three replacement modules have zero production callers; legacy adapter production caller is zero."
 
     def generate(
         self,
@@ -144,6 +146,7 @@ class CreativeGenerationService:
         image_runner: Any | None = None,
         pending_timeout_seconds: int = 15 * 60,
         environment: Mapping[str, str] | None = None,
+        prompt_registry: PromptRegistry | None = None,
     ) -> None:
         self.repository = repository
         self.adapter = adapter or LegacyCreativeGenerationAdapter()
@@ -151,6 +154,7 @@ class CreativeGenerationService:
         self.image_runner = image_runner
         self.pending_timeout_seconds = max(1, int(pending_timeout_seconds))
         self.environment = environment if environment is not None else os.environ
+        self.prompt_registry = prompt_registry
         self._recover_pending_generations()
 
     def generate(self, request: CreativeGenerationRequest) -> GenerationOutcome:
@@ -431,7 +435,7 @@ class CreativeGenerationService:
                     tag_catalog=_load_tag_options(),
                 ),
             )
-            return AiCreativeGenerationResult(
+            result = AiCreativeGenerationResult(
                 items=items,
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
@@ -443,6 +447,12 @@ class CreativeGenerationService:
                 conversation_id=response.conversation_id,
                 assistant_message_id=response.assistant_message_id,
             )
+            spec = self._prompt_spec(snapshot)
+            if spec is None:
+                return result
+            return replace(result, prompt_id=spec.id, prompt_version=spec.version, prompt_hash=spec.template_sha256,
+                           input_schema_version=spec.input_schema, output_schema_version=spec.output_schema,
+                           model=spec.model, provider=spec.provider)
 
         config = load_ai_creative_config(self.environment)
         prompt = build_creative_prompt(
@@ -462,7 +472,7 @@ class CreativeGenerationService:
             parent_message_id=context.parent_message_id,
         )
         response, items = self._request_and_validate(request, validate_creative_recommendations)
-        return AiCreativeGenerationResult(
+        result = AiCreativeGenerationResult(
             items=items,
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
@@ -474,6 +484,21 @@ class CreativeGenerationService:
             conversation_id=response.conversation_id,
             assistant_message_id=response.assistant_message_id,
         )
+        spec = self._prompt_spec(snapshot)
+        if spec is None:
+            return result
+        return replace(result, prompt_id=spec.id, prompt_version=spec.version, prompt_hash=spec.template_sha256,
+                       input_schema_version=spec.input_schema, output_schema_version=spec.output_schema,
+                       model=spec.model, provider=spec.provider)
+
+    def _prompt_spec(self, snapshot: CreativeInputSnapshot):
+        if self.prompt_registry is None:
+            return None
+        if snapshot.kind == "narrative":
+            return self.prompt_registry.get("creative.narrative.generate", "v5")
+        if snapshot.carousel_enabled:
+            return self.prompt_registry.get("creative.visual.carousel.plan", "visual-carousel-v1")
+        return self.prompt_registry.get("creative.visual.static.generate", "visual-v2.3")
 
     def _request_and_validate(self, request: ModelRequest, validator):
         """调用模型并对格式错误执行一次有限修复重试。"""

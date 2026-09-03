@@ -8,6 +8,8 @@ from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 
 import requests
 
+from .provider_capabilities import ProviderCapabilities
+
 
 class ModelResponseFormatError(ValueError):
     """The provider response does not match the chat completion envelope."""
@@ -104,6 +106,14 @@ class HttpModelClient:
     api_key: str
     transport: Callable[..., Any] = requests.post
     timeout_seconds: float = 60.0
+    # Chat2API currently accepts these fields at its boundary but does not
+    # enforce them in the ChatGPT Web request body.
+    capabilities = ProviderCapabilities(
+        structured_output_enforced=False,
+        token_limit_enforced=False,
+        conversation_resume=True,
+        multimodal_input=False,
+    )
 
     def generate(self, request: ModelRequest) -> ModelResponse:
         payload: dict[str, Any] = {

@@ -25,6 +25,8 @@ from .ai_creative import (
 )
 from .model_client import HttpModelClient, ModelClient, ModelRequest, ModelResponse
 from .prompting import CompiledPrompt, compile_prompt
+from .prompt_registry import GenerationPolicy, PromptRegistry, PromptRegistryError, PromptSpec
+from .model_ports import DeterministicImageModel, DeterministicTextModel, ImageModelPort, TextModelPort
 from .schemas import (
     CarouselRecommendationSchema,
     NarrativeRecommendationSchema,
@@ -42,6 +44,14 @@ __all__ = [
     "CarouselRecommendationSchema",
     "CompiledPrompt",
     "HttpModelClient",
+    "PromptRegistry",
+    "PromptRegistryError",
+    "PromptSpec",
+    "GenerationPolicy",
+    "TextModelPort",
+    "ImageModelPort",
+    "DeterministicTextModel",
+    "DeterministicImageModel",
     "ModelClient",
     "ModelRequest",
     "ModelResponse",

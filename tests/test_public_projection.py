@@ -177,6 +177,7 @@ class PublicResultMapperTests(unittest.TestCase):
             "task_type": "产品展示",
             "task_description": "说明",
             "creative_tags": {
+                "art_style": ["国风水墨"],
                 "visual_target_audiences": [
                     "玩家",
                     {"image_prompt": "nested tag secret"},
@@ -223,6 +224,7 @@ class PublicResultMapperTests(unittest.TestCase):
         self.assertEqual(
             public["creative_tags"],
             {
+                "art_style": ["国风水墨"],
                 "visual_target_audiences": ["玩家"],
                 "visual_carousel_rounds": [
                     {

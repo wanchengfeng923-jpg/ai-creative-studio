@@ -301,6 +301,13 @@ class StudioRepository:
             ("error_retryable", "INTEGER NOT NULL DEFAULT 0"),
             ("error_trace_id", "TEXT NOT NULL DEFAULT ''"),
             ("error_detail", "TEXT NOT NULL DEFAULT ''"),
+            ("prompt_id", "TEXT NOT NULL DEFAULT ''"),
+            ("prompt_version", "TEXT NOT NULL DEFAULT ''"),
+            ("prompt_hash", "TEXT NOT NULL DEFAULT ''"),
+            ("input_schema_version", "TEXT NOT NULL DEFAULT ''"),
+            ("output_schema_version", "TEXT NOT NULL DEFAULT ''"),
+            ("model", "TEXT NOT NULL DEFAULT ''"),
+            ("provider", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in generation_columns:
                 connection.execute(f"ALTER TABLE generations ADD COLUMN {column} {definition}")
@@ -1542,7 +1549,9 @@ class StudioRepository:
                 """
                 UPDATE generations
                 SET status='success', items_json=?, usage_json=?, conversation_id=?,
-                    assistant_message_id=?, error='', updated_at=?
+                    assistant_message_id=?, prompt_id=?, prompt_version=?, prompt_hash=?,
+                    input_schema_version=?, output_schema_version=?, model=?, provider=?,
+                    error='', updated_at=?
                 WHERE id=? AND status='pending'
                 """,
                 (
@@ -1550,6 +1559,13 @@ class StudioRepository:
                     _json(usage),
                     str(result.conversation_id or ""),
                     str(result.assistant_message_id or ""),
+                    str(getattr(result, "prompt_id", "") or ""),
+                    str(getattr(result, "prompt_version", "") or ""),
+                    str(getattr(result, "prompt_hash", "") or ""),
+                    str(getattr(result, "input_schema_version", "") or ""),
+                    str(getattr(result, "output_schema_version", "") or ""),
+                    str(getattr(result, "model", "") or ""),
+                    str(getattr(result, "provider", "") or ""),
                     timestamp,
                     int(generation_id),
                 ),

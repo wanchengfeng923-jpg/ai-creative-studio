@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from creative_studio.ai_creative import (
     AiCreativeRequestError,
+    build_creative_input_fingerprint,
     build_visual_creative_prompt,
     format_creative_tags_for_prompt,
     load_ai_visual_creative_config,
@@ -17,11 +18,40 @@ from creative_studio.app import load_tag_options
 class TagOptionsTests(unittest.TestCase):
     def test_config_contains_complete_narrative_and_visual_groups(self):
         config = load_tag_options()
-        self.assertEqual(config["version"], "tags-2026-08-31-v1")
-        self.assertEqual(len(config["narrative"]["groups"]), 5)
-        self.assertEqual(sum(len(group["options"]) for group in config["narrative"]["groups"]), 125)
+        self.assertEqual(config["version"], "tags-2026-09-03-v2")
+        self.assertEqual(
+            [group["key"] for group in config["narrative"]["groups"]],
+            ["target_audiences", "art_style", "player_desires", "content_forms", "opening_hooks", "product_evidences"],
+        )
+        self.assertEqual(len(config["narrative"]["groups"]), 6)
+        self.assertEqual(sum(len(group["options"]) for group in config["narrative"]["groups"]), 139)
+        narrative_limits = {group["key"]: (group.get("main_max"), group.get("secondary_max")) for group in config["narrative"]["groups"]}
+        self.assertEqual(narrative_limits["target_audiences"], (1, 2))
+        self.assertEqual(narrative_limits["art_style"], (1, 0))
+        self.assertEqual(narrative_limits["content_forms"], (3, 0))
+        self.assertEqual(narrative_limits["product_evidences"], (4, 0))
+        self.assertEqual(len(next(group for group in config["narrative"]["groups"] if group["key"] == "art_style")["options"]), 9)
         self.assertEqual(len(config["visual"]["groups"]), 11)
+        self.assertEqual(len(next(group for group in config["visual"]["groups"] if group["key"] == "visual_target_audiences")["options"]), 34)
+        self.assertEqual(len(next(group for group in config["visual"]["groups"] if group["key"] == "visual_art_style")["options"]), 35)
         self.assertIn("product_display", config["visual"]["relations"])
+
+    def test_narrative_art_style_is_in_unified_prompt_and_fingerprint(self):
+        tags = normalize_creative_tags({"art_style": ["国风水墨"]})
+        self.assertEqual(tags["art_style"], ["国风水墨"])
+        prompt_tags = format_creative_tags_for_prompt(tags, mode="narrative")
+        self.assertIn("叙事类美术风格：国风水墨", prompt_tags)
+
+        common = {
+            "script_type": "叙事类",
+            "task_type": "产品宣传",
+            "task_description": "展示游戏卖点",
+            "product_evidence_summary": "",
+            "aspect_ratio": "16:9",
+        }
+        without_style = build_creative_input_fingerprint(creative_tags={}, **common)
+        with_style = build_creative_input_fingerprint(creative_tags=tags, **common)
+        self.assertNotEqual(without_style, with_style)
 
     def test_normalization_and_prompt_include_visual_selection(self):
         tags = normalize_creative_tags({

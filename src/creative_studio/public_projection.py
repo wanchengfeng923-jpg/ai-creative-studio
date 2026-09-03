@@ -27,6 +27,7 @@ PRIVATE_RESULT_FIELDS = frozenset(
 PUBLIC_CREATIVE_TAG_KEYS = (
     "target_audiences",
     "secondary_target_audiences",
+    "art_style",
     "player_desires",
     "secondary_player_desires",
     "content_forms",

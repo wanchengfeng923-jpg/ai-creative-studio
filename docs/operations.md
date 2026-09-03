@@ -6,6 +6,10 @@
 
 ## 启动
 
+应用在 HTTP server bind 前加载 `config/prompts/registry.json`，校验 prompt 文件路径、模板
+变量/hash、production contract 映射和生命周期；校验失败时启动终止。旧 `WEB_ERP_AI_*_PROMPT_PATH`
+仅作兼容输入，Phase 2/3/4 完成对应切换后删除。
+
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。
 3. 在“登录配置”中填写 Access Token 或 Session Cookie，点击“保存配置”；代理配置请使用独立的“网络代理工作台”。

@@ -31,10 +31,28 @@ from .schemas import (
 
 AI_LOGGER = logging.getLogger("web_erp.http")
 
+DEPRECATED_PROMPT_LOADERS = {
+    "load_ai_visual_first_frame_prompt": {
+        "deprecated_since": "phase-1",
+        "replacement": "creative.visual.carousel.plan@visual-carousel-v1",
+        "new_callers_forbidden": True,
+        "allowed_read": "inventory/deprecation/audit only",
+        "removal_condition": "Phase 5 after carousel migration and zero generation callers",
+    },
+    "load_ai_visual_follow_up_prompt": {
+        "deprecated_since": "phase-1",
+        "replacement": "CarouselVisualGeneration policy",
+        "new_callers_forbidden": True,
+        "allowed_read": "inventory/deprecation/audit only",
+        "removal_condition": "Phase 5 after carousel migration and zero generation callers",
+    },
+}
+
 
 CREATIVE_TAG_KEYS = (
     "target_audiences",
     "secondary_target_audiences",
+    "art_style",
     "player_desires",
     "secondary_player_desires",
     "content_forms",
@@ -62,8 +80,8 @@ CREATIVE_TAG_KEYS = (
     "visual_carousel_count",
     "visual_carousel_form",
 )
-NARRATIVE_TAG_KEYS = CREATIVE_TAG_KEYS[:10]
-VISUAL_TAG_KEYS = CREATIVE_TAG_KEYS[10:]
+NARRATIVE_TAG_KEYS = CREATIVE_TAG_KEYS[:11]
+VISUAL_TAG_KEYS = CREATIVE_TAG_KEYS[11:]
 NARRATIVE_PROMPT_VARIABLES = frozenset(
     {"task_type", "task_description", "creative_tags"}
 )
@@ -195,6 +213,13 @@ class AiCreativeGenerationResult:
     latency_ms: int
     conversation_id: str = ""
     assistant_message_id: str = ""
+    prompt_id: str = ""
+    prompt_version: str = ""
+    prompt_hash: str = ""
+    input_schema_version: str = ""
+    output_schema_version: str = ""
+    model: str = ""
+    provider: str = ""
 
     def __iter__(self):
         """兼容旧调用方把返回值当作十条创意列表遍历。"""
@@ -243,7 +268,7 @@ def _clean_text_list(value: Any) -> List[str]:
 
 
 def normalize_creative_tags(value: Any) -> Dict[str, List[str]]:
-    """只保留 ERP 当前五类创意定位及其主、副定位选项。"""
+    """只保留当前六类叙事定位、展示定位及其兼容主副选项。"""
 
     source = value if isinstance(value, dict) else {}
     return {key: _clean_text_list(source.get(key)) for key in CREATIVE_TAG_KEYS}
@@ -301,6 +326,7 @@ def format_creative_tags_for_prompt(value: Any, mode: str = "") -> str:
     groups = (
         ("主目标人群", "target_audiences"),
         ("副目标人群", "secondary_target_audiences"),
+        ("叙事类美术风格", "art_style"),
         ("玩家欲望候选", "player_desires"),
         ("副玩家欲望候选", "secondary_player_desires"),
         ("内容形式候选", "content_forms"),

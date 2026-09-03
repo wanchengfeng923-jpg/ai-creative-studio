@@ -44,6 +44,7 @@ from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
 from .model_client import HttpModelClient, ModelClient
 from .public_projection import PublicResultMapper
+from .prompt_registry import PromptRegistry, PromptRegistryError
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 
@@ -55,6 +56,7 @@ DATA_DIR = ROOT_DIR / "data"
 DATABASE_PATH = DATA_DIR / "creative_studio.db"
 IMAGES_DIR = DATA_DIR / "images"
 UPLOADS_DIR = DATA_DIR / "uploads"
+PROMPT_REGISTRY_PATH = ROOT_DIR / "config" / "prompts" / "registry.json"
 
 
 class StudioApplication:
@@ -69,6 +71,7 @@ class StudioApplication:
         *,
         public_mapper: PublicResultMapper,
         uploads_dir: Path,
+        prompt_registry: PromptRegistry | None = None,
     ) -> None:
         self.repository = repository
         self.auth = auth
@@ -76,6 +79,7 @@ class StudioApplication:
         self.generation_service = generation_service
         self.public_mapper = public_mapper
         self.uploads_dir = Path(uploads_dir).resolve()
+        self.prompt_registry = prompt_registry
 
     @staticmethod
     def _load_model_client(environment: Mapping[str, str] | None = None) -> HttpModelClient | None:
@@ -210,11 +214,13 @@ def create_application(
     image_client: GptWebImageClient | None = None,
     clock: Callable[[], str] | None = None,
     environment: MutableMapping[str, str] | None = None,
+    prompt_registry: PromptRegistry | None = None,
 ) -> StudioApplication:
     """Build the application graph, allowing deterministic adapters in tests."""
 
     source = environment if environment is not None else os.environ
     StudioApplication._ensure_default_ai_environment(source)
+    prompt_registry = prompt_registry or PromptRegistry.load(PROMPT_REGISTRY_PATH)
     public_mapper = PublicResultMapper()
     repository = StudioRepository(
         database_path,
@@ -244,6 +250,7 @@ def create_application(
         model_client=resolved_model_client,
         image_runner=image_runner,
         environment=source,
+        prompt_registry=prompt_registry,
     )
     return StudioApplication(
         repository,
@@ -252,6 +259,7 @@ def create_application(
         generation_service,
         public_mapper=public_mapper,
         uploads_dir=uploads_dir,
+        prompt_registry=prompt_registry,
     )
 
 

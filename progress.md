@@ -1,5 +1,48 @@
 # 当前项目进度（2026-09-01）
 
+# 2026-09-03 AI 重构 Phase 1 实现（进行中）
+
+### 已完成
+
+- 新增 `config/prompts/registry.json`，登记三个 production PromptSpec、一个 candidate 和两个 retired inventory；模板 hash 使用规范化 UTF-8 SHA-256。
+- 新增 `prompt_registry.py`、`contracts.py`、`model_ports.py` 和 provider capability 声明；registry 对缺文件、越界路径、错 hash、错变量、未知 contract 和生命周期规则 fail closed。
+- `create_application()` 启动时加载 registry；生成完成记录以加法迁移保存 prompt id/version/hash、schema 版本、model/provider；新增 deterministic text/image fake。
+- registry/port 定向测试和全量确定性测试共 181 项通过。
+
+### 边界与未完成
+
+- 未切换用户可见输出，未调用真实 AI、图片网关或浏览器；未写入真实数据库、图片、上传文件或 `chat2api/.env`。
+- 工作树原有标签目录同步和启动器局域网配置修改均保留；尚未完成独立双轴 review、Phase 1 提交及 Phase 2 交接文档。
+
+# 2026-09-03 叙事标签选择上限调整
+
+### 已完成
+
+- 更新 `config/creative_tag_options.json`：副目标人群最多 2 项、美术风格 1 项、内容形式 3 项、产品证据 4 项。
+- 增加标签配置契约测试，锁定上述选择上限；展示类上限保持不变。
+
+### 验证
+
+- 待本次改动完成后运行完整单元测试、前端语法检查、Python 编译检查和 `git diff --check`。
+
+# 2026-09-03 叙事与展示标签目录同步
+
+### 已完成
+
+- 以 `C:\Users\admin\Downloads\叙事类标签_重制版.xlsx` 和 `C:\Users\admin\Downloads\展示类标签.xlsx` 为来源，更新 `config/creative_tag_options.json` 至 `tags-2026-09-03-v2`。
+- 叙事类新增“美术风格”组并置于“目标人群”之后；叙事目录更新为 6 组、139 个选项，展示目标用户更新为 34 项，展示美术风格按重复参考作品行归并为 35 项。
+- 将叙事 `art_style` 接入统一标签规范化、生成指纹、`{{creative_tags}}` prompt 注入和公开项目投影；未修改 `config/ai_creative_prompt_v5.txt`。
+- 保留展示类产品卖点→展示内容关系表；旧数据库中的历史标签值未迁移或删除。
+
+### 验证
+
+- 新增标签目录、prompt、指纹和公开投影契约测试；定向标签/投影测试通过。
+- 尚未调用真实 AI、图片网关或浏览器；未修改数据库、图片、上传文件或 `chat2api/.env`。
+
+### 未完成
+
+- 尚未在正式页面逐项人工验收新增标签的桌面/移动端显示；需要后续按项目要求检查 `1280x720` 和 `390x844`。
+
 # 2026-09-03 AI 重构 Phase 1 交接准备
 
 ### 已完成
