@@ -13,6 +13,7 @@ from creative_studio.app import StudioApplication
 from creative_studio.ai_creative import validate_visual_creative_recommendations
 from creative_studio.generation_models import GenerationConflictError
 from creative_studio.auth import hash_password, token_digest
+from creative_studio.public_projection import PublicResultMapper
 from creative_studio.repository import StudioDataError, StudioRepository
 
 
@@ -171,6 +172,42 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(GenerationConflictError):
             self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
 
+    def test_two_failures_with_same_fingerprint_are_both_kept_in_history(self):
+        for batch_index in (1, 2):
+            reservation = self.repo.reserve_generation(
+                self.project["id"],
+                "visual",
+                "visual.v1",
+                "failed-fingerprint",
+            )
+            self.assertEqual(reservation["batch_index"], batch_index)
+            self.repo.fail_generation(
+                reservation["id"],
+                "AI返回结果格式无效",
+                error_code="model_output_invalid",
+                phase="validation",
+                field_path="items[0].title",
+                retryable=False,
+                trace_id=f"trace-{batch_index}",
+                detail=f"diagnostic-{batch_index}",
+            )
+
+        history = self.repo.generation_history(
+            self.project["id"],
+            "visual",
+            "failed-fingerprint",
+        )
+
+        self.assertEqual(len(history["failed_generations"]), 2)
+        self.assertEqual(
+            [item["batch_index"] for item in history["failed_generations"]],
+            [1, 2],
+        )
+        self.assertEqual(history["failed_generations"][0]["error_code"], "model_output_invalid")
+        self.assertEqual(history["failed_generations"][0]["field_path"], "items[0].title")
+        self.assertNotIn("diagnostic", json.dumps(history, ensure_ascii=False))
+        self.assertEqual(history["remaining_generations"], 2)
+
     def test_recover_visual_items_only_requeues_stale_generating_rows(self):
         reservation = self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
         item_ids = self.repo.complete_visual_generation(reservation["id"], result([VISUAL_ITEM] * 3), "16:9")
@@ -278,10 +315,75 @@ class RepositoryTests(unittest.TestCase):
     def test_adoption_can_be_replaced(self):
         reservation = self.repo.reserve_generation(self.project["id"], "visual", "visual.v1", "fingerprint")
         ids = self.repo.complete_visual_generation(reservation["id"], result([VISUAL_ITEM] * 3), "16:9")
-        self.repo.adopt_visual(self.project["id"], ids[0])
-        self.repo.adopt_visual(self.project["id"], ids[1])
+        mapper = PublicResultMapper()
+        for item_id in ids[:2]:
+            reference_id, source = self.repo.visual_adoption_source(self.project["id"], item_id)
+            snapshot = mapper.result_item(source, recommendation_kind="visual")
+            self.repo.save_adoption(self.project["id"], "visual", reference_id, snapshot)
         project = self.repo.get_project(self.project["id"])
         self.assertEqual(project["adoption"]["reference_id"], str(ids[1]))
+
+    def test_visual_adoption_persists_and_returns_only_public_projection(self):
+        private_item = copy.deepcopy(VISUAL_ITEM)
+        private_item.update(
+            {
+                "conversation_id": "private-conversation",
+                "parent_message_id": "private-message",
+                "image_generation_instruction": "private-instruction",
+                "first_frame": {
+                    "index": 1,
+                    "content": "首帧",
+                    "image_generation_instruction": "nested-private-instruction",
+                },
+            }
+        )
+        reservation = self.repo.reserve_generation(
+            self.project["id"], "visual", "visual.v1", "private-adoption"
+        )
+        item_id = self.repo.complete_visual_generation(
+            reservation["id"], result([private_item] * 3), "16:9"
+        )[0]
+
+        reference_id, source = self.repo.visual_adoption_source(self.project["id"], item_id)
+        snapshot = PublicResultMapper().result_item(source, recommendation_kind="visual")
+        self.repo.save_adoption(self.project["id"], "visual", reference_id, snapshot)
+
+        encoded = json.dumps(snapshot, ensure_ascii=False)
+        self.assertNotIn("image_prompt", encoded)
+        self.assertNotIn("image_generation_instruction", encoded)
+        self.assertNotIn("conversation_id", encoded)
+        with closing(sqlite3.connect(self.repo.database_path)) as connection:
+            stored = connection.execute(
+                "SELECT snapshot_json FROM adoptions WHERE project_id=?",
+                (self.project["id"],),
+            ).fetchone()[0]
+        self.assertEqual(json.loads(stored), snapshot)
+
+    def test_generation_history_keeps_internal_fields_without_http_urls(self):
+        private_item = copy.deepcopy(VISUAL_ITEM)
+        private_item["first_frame"] = {
+            "index": 1,
+            "content": "首帧",
+            "image_generation_instruction": "internal instruction",
+        }
+        reservation = self.repo.reserve_generation(
+            self.project["id"], "visual", "visual.v1", "internal-history"
+        )
+        self.repo.complete_visual_generation(
+            reservation["id"], result([private_item] * 3), "16:9"
+        )
+
+        history = self.repo.generation_history(
+            self.project["id"], "visual", "internal-history"
+        )
+
+        first = history["batches"][0]["items"][0]
+        self.assertIn("image_generation_instruction", first["first_frame"])
+        self.assertEqual(
+            first["first_frame"]["image_generation_instruction"],
+            "internal instruction",
+        )
+        self.assertNotIn("image_url", first)
 
     def test_fingerprint_changes_when_visual_carousel_round_override_changes(self):
         base_project = self.repo.update_project(self.project["id"], {
@@ -313,8 +415,12 @@ class RepositoryTests(unittest.TestCase):
 
         with closing(sqlite3.connect(legacy_path)) as connection:
             columns = [row[1] for row in connection.execute("PRAGMA table_info(projects)")]
+            visual_columns = [row[1] for row in connection.execute("PRAGMA table_info(visual_items)")]
+            frame_columns = [row[1] for row in connection.execute("PRAGMA table_info(display_frames)")]
             self.assertIn("owner_user_id", columns)
-            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertIn("image_mime", visual_columns)
+            self.assertIn("image_mime", frame_columns)
+            self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
             row = connection.execute("SELECT name, owner_user_id FROM projects WHERE id=1").fetchone()
         self.assertEqual(row[0], "旧项目")
         self.assertIsNone(row[1])
@@ -333,6 +439,10 @@ class RepositoryTests(unittest.TestCase):
             ).fetchone()
         self.assertIn("context_json", columns)
         self.assertIn("request_id", columns)
+        self.assertIn("error_code", columns)
+        self.assertIn("error_field_path", columns)
+        self.assertIn("error_trace_id", columns)
+        self.assertIn("error_detail", columns)
         self.assertEqual(row[0], "pending")
         self.assertIsNone(row[1])
         self.assertIsNone(row[2])

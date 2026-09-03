@@ -1,5 +1,31 @@
 # 当前项目进度（2026-09-01）
 
+# 2026-09-03 AI 重构 Phase 0 安全止血与事实收口
+
+### 已完成
+
+- 新增统一的 `PublicResultMapper`，history、status、adopt、项目采用快照、visual item 和 display frame 均按稳定顺序的白名单重建公开对象；递归私有字段清单覆盖供应商游标和内部错误详情。仓库当前没有 export 路由，因此本阶段无 export caller 可迁移。
+- 新增 dry-run 优先的 projection scrub；工具以 SQLite `mode=ro` 扫描，写入只允许显式指定的非生产副本且强制先备份，遇到无效 JSON 或未知 recommendation kind 会中止，并拒绝直接 apply `data/creative_studio.db`。
+- prompt 编译器收敛为 `{{name}}` 单次字面替换；缺失变量、多余变量和 hash 不匹配均 fail closed，不再二次解释用户输入中的 `$` 或 `{{...}}`。
+- JPEG、PNG、WebP 参考图与下载 artifact 现在校验 magic bytes、MIME 和规范扩展名，并在 SQLite 中持久化 `image_mime`。
+- 生成失败记录不再被同 fingerprint 的后续请求删除；错误增加稳定 `error_code`、阶段、字段路径、可重试性和 trace id，公开响应只返回安全摘要。
+- 新旧模型调用路径的 JSON 解析失败统一使用根路径 `$`，`HttpModelClient` 在 transport 边界保留畸形 `choices` 路径，叙事各层 validator、视觉 wrapper 和供应商游标错误使用精确字段路径；公开文本列表拒绝数字和布尔值，仅旧 `carousel_frames` 继续兼容整数索引。
+- 轮播数量缺失或不在 2 至 5 时会在 reservation 和模型调用前失败；`none` 保持 1 帧，AI 数量仍允许每套独立返回 2 至 5 帧。
+- 移除 `creative_studio.app` 的 import-time composition root；`create_application()` 支持临时 SQLite、fake model/image queue、隔离环境和固定 clock seam。叙事游戏资料默认路径已改为 v2。
+
+### 验证
+
+- `PYTHONPATH=src python -m unittest discover -s tests -v`：175 项通过。
+- `node --check static\app.js`、`python -m compileall -q src chat2api`、`git diff --check`：通过。
+- 对真实默认数据库仅执行只读 dry-run：扫描 8 行，6 行投影会变化，发现 25 处私有字段，0 行无效 JSON，0 行未知 recommendation kind；`applied=false`，未创建备份，执行前后 SHA-256 均为 `F7DA1AA20D5FBAC7A3785C0D81096B1096749DE40025874644F37E1AD461DFA8`，未写入数据库。
+- 在临时 SQLite 副本验证 dry-run、强制备份 apply、写后重读和从备份恢复；未对真实数据库执行 `--apply`。
+
+### 边界与后续
+
+- 未调用真实 AI、图片网关或浏览器；未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+- `LegacyCreativeGenerationAdapter`、旧 schema，以及 retired 的首帧/后续帧 prompt loader 仍保留，按变更卡中的删除条件留待后续阶段处理。
+- Phase 0 门禁完成后才可另开 Phase 1；本条不实现 PromptRegistry、ContractRegistry 或新业务契约。
+
 ## 2026-09-03 AI 创意能力重构总纲
 
 ### 已完成
@@ -13,9 +39,9 @@
 - 已通过静态审计确认真实 production composition root 为 `StudioApplication -> CreativeGenerationService -> HttpModelClient -> chat2api`；轮播首帧当前直接使用共享规划响应，提示词中的独立文字会话描述属于待清理漂移。
 - 本次只修改文档和工程治理入口；未修改业务代码、数据库、图片、上传文件或 `chat2api/.env`，未调用真实 AI/图片网关。
 
-### 未完成
+### 当时未完成
 
-- 尚未执行 AI 重构 Phase 0；后续实现会话必须从 Phase 0 开始，按总纲完成每阶段门禁后再进入下一阶段。
+- 本条记录形成时尚未执行 AI 重构 Phase 0；其完成情况以文件顶部更新的 Phase 0 记录为准。
 
 ## 2026-09-02 补充工作树整理与提交要求
 

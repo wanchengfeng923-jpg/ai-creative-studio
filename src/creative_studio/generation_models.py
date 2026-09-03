@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -9,21 +10,84 @@ from typing import Any, Mapping
 class GenerationError(RuntimeError):
     """Base class for generation-specific domain errors."""
 
+    error_code = "generation_failed"
+    phase = "generation"
+    field_path = ""
+    retryable = False
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str | None = None,
+        phase: str | None = None,
+        field_path: str = "",
+        retryable: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = str(error_code or self.__class__.error_code)
+        self.phase = str(phase or self.__class__.phase)
+        self.field_path = str(field_path or self.__class__.field_path)
+        self.retryable = self.__class__.retryable if retryable is None else bool(retryable)
+
 
 class GenerationInputError(GenerationError):
     """The user must change the submitted input."""
+
+    error_code = "generation_input_invalid"
+    phase = "input_validation"
 
 
 class GenerationNotFoundError(GenerationError):
     """The requested project or generation resource does not exist."""
 
+    error_code = "generation_not_found"
+    phase = "lookup"
+
 
 class GenerationConflictError(GenerationError):
     """The generation request conflicts with an active state."""
 
+    error_code = "generation_conflict"
+    phase = "reservation"
+
 
 class GenerationQueueTimeoutError(GenerationError):
     """The upstream queue did not accept the request in time."""
+
+    error_code = "generation_queue_timeout"
+    phase = "model_request"
+    retryable = True
+
+
+@dataclass(frozen=True)
+class ErrorDetails:
+    error_code: str
+    phase: str
+    field_path: str
+    retryable: bool
+    trace_id: str
+
+    def public_fields(self) -> dict[str, Any]:
+        return {
+            "error_code": self.error_code,
+            "phase": self.phase,
+            "field_path": self.field_path,
+            "retryable": self.retryable,
+            "trace_id": self.trace_id,
+        }
+
+
+def error_details(exc: BaseException, *, trace_id: str = "") -> ErrorDetails:
+    """Normalize an exception into stable public and persisted error metadata."""
+
+    return ErrorDetails(
+        error_code=str(getattr(exc, "error_code", "generation_failed") or "generation_failed"),
+        phase=str(getattr(exc, "phase", "generation") or "generation"),
+        field_path=str(getattr(exc, "field_path", "") or ""),
+        retryable=bool(getattr(exc, "retryable", False)),
+        trace_id=str(trace_id or getattr(exc, "trace_id", "") or uuid.uuid4().hex),
+    )
 
 
 @dataclass(frozen=True)

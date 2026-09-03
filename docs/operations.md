@@ -50,6 +50,40 @@
 
 多人内网版本上线前，必须改成自动备份，并至少恢复一份备份验证数据库、项目记录和图片都能打开。
 
+## 历史公开投影 scrub
+
+Phase 0 提供 `creative_studio.projection_scrub`，用于统计或重建旧 `generations.items_json` 与 `adoptions.snapshot_json` 的公开投影。默认模式只读；工具会通过 SQLite `mode=ro` 打开目标库，不写数据，也不创建备份。
+
+先在仓库根目录执行真实运行库的只读 dry-run：
+
+```powershell
+$env:PYTHONPATH = "D:\code\ai_creative_studio\src"
+python -m creative_studio.projection_scrub --database data\creative_studio.db
+```
+
+输出中的 `scanned_rows` 是检查行数，`changed_rows` 是重建后会变化的行数，`private_field_occurrences` 是旧 JSON 中命中的私有字段次数，`invalid_json_rows` 是无法安全重建的行数，`unknown_kind_rows` 是 recommendation kind 不在 `narrative`/`visual` 范围内的行数。只有 `applied=false` 才是 dry-run；该命令不得改为带 `--apply` 的真实库命令。
+
+需要验证写入时，只操作临时副本，并让工具另建一个不存在的 backup 文件：
+
+```powershell
+New-Item -ItemType Directory -Force .scratch\projection-scrub | Out-Null
+Copy-Item -LiteralPath data\creative_studio.db -Destination .scratch\projection-scrub\creative_studio-copy.db
+python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db
+python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db --apply --backup .scratch\projection-scrub\creative_studio-before.db
+python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db
+```
+
+`--apply` 在 `invalid_json_rows` 或 `unknown_kind_rows` 非零时会在创建 backup 和写入之前直接中止，不允许跳过问题行做部分重建。最后一次 dry-run 应报告 `changed_rows=0`、`private_field_occurrences=0`、`invalid_json_rows=0` 和 `unknown_kind_rows=0`。若任一检查不为零，停止处理并保留副本、backup 和输出供诊断，不要尝试绕过保护后修改真实库。
+
+恢复演练同样只针对临时副本。保留 apply 后的副本作为对照，从 backup 创建另一个恢复文件，再重新 dry-run：
+
+```powershell
+Copy-Item -LiteralPath .scratch\projection-scrub\creative_studio-before.db -Destination .scratch\projection-scrub\creative_studio-restored.db
+python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-restored.db
+```
+
+恢复文件的统计应与 apply 前的临时副本一致。工具硬拒绝直接 apply 仓库默认 `data/creative_studio.db`；本文档也不授权绕过该保护。若未来确需处理真实运行库，必须另行取得用户确认，停止服务，完成数据库、图片和上传目录的独立备份与恢复演练，再通过单独评审的迁移方案执行。
+
 ## 故障处理
 
 ### 账号初始化与会话

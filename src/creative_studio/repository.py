@@ -9,7 +9,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from .auth import AuthDataError, hash_password, normalize_username, token_digest
 from .generation_models import GenerationConflictError, GenerationNotFoundError
@@ -25,7 +25,7 @@ PROJECT_FIELDS = {
     "product_evidence_summary",
 }
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 SESSION_IDLE_SECONDS = 12 * 60 * 60
 SESSION_ABSOLUTE_SECONDS = 7 * 24 * 60 * 60
 LOGIN_WINDOW_SECONDS = 15 * 60
@@ -57,8 +57,14 @@ def _loads(value: Any, fallback: Any) -> Any:
 
 
 class StudioRepository:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        clock: Callable[[], str] = now_text,
+    ) -> None:
         self.database_path = Path(database_path).resolve()
+        self._clock = clock
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -115,6 +121,12 @@ class StudioRepository:
                     conversation_id TEXT NOT NULL DEFAULT '',
                     assistant_message_id TEXT NOT NULL DEFAULT '',
                     error TEXT NOT NULL DEFAULT '',
+                    error_code TEXT NOT NULL DEFAULT '',
+                    error_phase TEXT NOT NULL DEFAULT '',
+                    error_field_path TEXT NOT NULL DEFAULT '',
+                    error_retryable INTEGER NOT NULL DEFAULT 0,
+                    error_trace_id TEXT NOT NULL DEFAULT '',
+                    error_detail TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(project_id, recommendation_kind, input_fingerprint, batch_index)
@@ -130,6 +142,7 @@ class StudioRepository:
                     aspect_ratio TEXT NOT NULL,
                     image_status TEXT NOT NULL DEFAULT 'queued',
                     image_path TEXT NOT NULL DEFAULT '',
+                    image_mime TEXT NOT NULL DEFAULT '',
                     image_error TEXT NOT NULL DEFAULT '',
                     gateway_job_id TEXT NOT NULL DEFAULT '',
                     image_attempt INTEGER NOT NULL DEFAULT 0,
@@ -151,6 +164,7 @@ class StudioRepository:
                     image_generation_instruction TEXT NOT NULL DEFAULT '',
                     image_status TEXT NOT NULL DEFAULT 'pending',
                     image_path TEXT NOT NULL DEFAULT '',
+                    image_mime TEXT NOT NULL DEFAULT '',
                     image_error TEXT NOT NULL DEFAULT '',
                     image_attempt INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
@@ -209,9 +223,15 @@ class StudioRepository:
             ("scheme_status", "TEXT NOT NULL DEFAULT 'ready'"),
             ("continuation_token", "TEXT NOT NULL DEFAULT ''"),
             ("continuation_updated_at", "TEXT NOT NULL DEFAULT ''"),
+            ("image_mime", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in visual_columns:
                 connection.execute(f"ALTER TABLE visual_items ADD COLUMN {column} {definition}")
+        frame_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(display_frames)")}
+        if "image_mime" not in frame_columns:
+            connection.execute(
+                "ALTER TABLE display_frames ADD COLUMN image_mime TEXT NOT NULL DEFAULT ''"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -274,6 +294,16 @@ class StudioRepository:
             connection.execute("ALTER TABLE generations ADD COLUMN context_json TEXT")
         if "request_id" not in generation_columns:
             connection.execute("ALTER TABLE generations ADD COLUMN request_id TEXT")
+        for column, definition in (
+            ("error_code", "TEXT NOT NULL DEFAULT ''"),
+            ("error_phase", "TEXT NOT NULL DEFAULT ''"),
+            ("error_field_path", "TEXT NOT NULL DEFAULT ''"),
+            ("error_retryable", "INTEGER NOT NULL DEFAULT 0"),
+            ("error_trace_id", "TEXT NOT NULL DEFAULT ''"),
+            ("error_detail", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in generation_columns:
+                connection.execute(f"ALTER TABLE generations ADD COLUMN {column} {definition}")
         if current_version < SCHEMA_VERSION:
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -903,7 +933,7 @@ class StudioRepository:
     def create_project(
         self, name: str = "未命名创意", script_type: str = "展示类", owner_user_id: int | None = None
     ) -> dict[str, Any]:
-        timestamp = now_text()
+        timestamp = self._clock()
         normalized_type = "叙事类" if str(script_type).strip() == "叙事类" else "展示类"
         with closing(self._connect()) as connection:
             if owner_user_id is not None:
@@ -1095,17 +1125,13 @@ class StudioRepository:
         context_json: Mapping[str, Any] | None = None,
         request_id: str = "",
     ) -> dict[str, Any]:
-        timestamp = now_text()
+        timestamp = self._clock()
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             project = connection.execute("SELECT id FROM projects WHERE id=?", (int(project_id),)).fetchone()
             if project is None:
                 connection.rollback()
                 raise GenerationNotFoundError("项目不存在")
-            connection.execute(
-                "DELETE FROM generations WHERE project_id=? AND recommendation_kind=? AND input_fingerprint=? AND status='failed'",
-                (int(project_id), kind, fingerprint),
-            )
             rows = connection.execute(
                 """
                 SELECT id,batch_index,status,conversation_id,assistant_message_id
@@ -1280,41 +1306,6 @@ class StudioRepository:
             }
         )
         return result
-
-    def public_display_scheme(self, scheme_id: int) -> dict[str, Any] | None:
-        """返回展示方案和逐帧公开状态，不暴露内部路径、提示词或会话游标。"""
-
-        scheme = self.get_display_scheme(scheme_id)
-        if scheme is None:
-            return None
-        public_frames = []
-        for frame in scheme.get("frames", []):
-            frame_index = int(frame["frame_index"])
-            public_frames.append({
-                "frame_index": frame_index,
-                "planned_content": str(frame.get("planned_content") or ""),
-                "actual_content": str(frame.get("actual_content") or ""),
-                "transition_from_previous": str(frame.get("transition_from_previous") or ""),
-                "transition_to_next": frame.get("transition_to_next"),
-                "ending_note": frame.get("ending_note"),
-                "image_status": str(frame.get("image_status") or "pending"),
-                "image_url": (
-                    f"/api/visual-items/{int(scheme_id)}/frames/{frame_index}/image"
-                    if str(frame.get("image_status")) == "success" else ""
-                ),
-                "image_error": str(frame.get("image_error") or ""),
-            })
-        return {
-            "scheme_id": int(scheme["scheme_id"]),
-            "title": str(scheme.get("title") or ""),
-            "creative_summary": str(scheme.get("creative_summary") or ""),
-            "creative_sources": list(scheme.get("creative_sources") or []),
-            "frame_count": int(scheme.get("frame_count") or len(public_frames)),
-            "visual_continuity_rules": list(scheme.get("visual_continuity_rules") or []),
-            "frame_plan": list(scheme.get("frame_plan") or []),
-            "scheme_status": str(scheme.get("scheme_status") or "ready"),
-            "frames": public_frames,
-        }
 
     def reserve_scheme_continuation(self, scheme_id: int, token: str = "") -> dict[str, Any]:
         """以事务方式锁定一套方案的继续生成流程。"""
@@ -1498,15 +1489,29 @@ class StudioRepository:
             connection.commit()
         return dict(row) if row is not None else None
 
-    def complete_display_frame(self, scheme_id: int, frame_index: int, attempt: int, image_path: str) -> bool:
+    def complete_display_frame(
+        self,
+        scheme_id: int,
+        frame_index: int,
+        attempt: int,
+        image_path: str,
+        image_mime: str = "",
+    ) -> bool:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
                 """
                 UPDATE display_frames
-                SET image_status='success',image_path=?,image_error='',updated_at=?
+                SET image_status='success',image_path=?,image_mime=?,image_error='',updated_at=?
                 WHERE scheme_id=? AND frame_index=? AND image_status='generating' AND image_attempt=?
                 """,
-                (str(image_path), now_text(), int(scheme_id), int(frame_index), int(attempt)),
+                (
+                    str(image_path),
+                    str(image_mime),
+                    now_text(),
+                    int(scheme_id),
+                    int(frame_index),
+                    int(attempt),
+                ),
             )
         return cursor.rowcount == 1
 
@@ -1521,24 +1526,8 @@ class StudioRepository:
             )
         return cursor.rowcount == 1
 
-    def public_display_history(self, project_id: int, fingerprint: str) -> dict[str, Any]:
-        """返回展示画面公开状态，主动过滤所有服务端生成字段。"""
-
-        history = self.generation_history(project_id, "visual", fingerprint)
-        for batch in history.get("batches", []):
-            for item in batch.get("items", []):
-                item.pop("image_prompt", None)
-                item.pop("image_generation_instruction", None)
-                first_frame = item.get("first_frame")
-                if isinstance(first_frame, dict):
-                    first_frame.pop("image_generation_instruction", None)
-                for frame in item.get("frames", []) if isinstance(item.get("frames"), list) else []:
-                    frame.pop("image_generation_instruction", None)
-                    frame.pop("image_path", None)
-        return history
-
     def _complete_generation(self, generation_id: int, result: Any, visual_items: tuple[Any, str] | None) -> list[int]:
-        timestamp = now_text()
+        timestamp = self._clock()
         usage = {
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
@@ -1629,11 +1618,37 @@ class StudioRepository:
             connection.commit()
         return item_ids
 
-    def fail_generation(self, generation_id: int, error: str) -> None:
+    def fail_generation(
+        self,
+        generation_id: int,
+        error: str,
+        *,
+        error_code: str = "generation_failed",
+        phase: str = "generation",
+        field_path: str = "",
+        retryable: bool = False,
+        trace_id: str = "",
+        detail: str = "",
+    ) -> None:
         with closing(self._connect()) as connection:
             connection.execute(
-                "UPDATE generations SET status='failed',error=?,updated_at=? WHERE id=? AND status='pending'",
-                (" ".join(str(error or "").split())[:500], now_text(), int(generation_id)),
+                """
+                UPDATE generations
+                SET status='failed',error=?,error_code=?,error_phase=?,error_field_path=?,
+                    error_retryable=?,error_trace_id=?,error_detail=?,updated_at=?
+                WHERE id=? AND status='pending'
+                """,
+                (
+                    " ".join(str(error or "").split())[:500],
+                    str(error_code or "generation_failed")[:100],
+                    str(phase or "generation")[:100],
+                    str(field_path or "")[:300],
+                    int(bool(retryable)),
+                    str(trace_id or "")[:100],
+                    " ".join(str(detail or "").split())[:2000],
+                    self._clock(),
+                    int(generation_id),
+                ),
             )
 
     def generation_history(self, project_id: int, kind: str, fingerprint: str) -> dict[str, Any]:
@@ -1642,6 +1657,14 @@ class StudioRepository:
                 """
                 SELECT * FROM generations
                 WHERE project_id=? AND recommendation_kind=? AND status='success'
+                ORDER BY created_at,id
+                """,
+                (int(project_id), kind),
+            ).fetchall()
+            failed_rows = connection.execute(
+                """
+                SELECT * FROM generations
+                WHERE project_id=? AND recommendation_kind=? AND status='failed'
                 ORDER BY created_at,id
                 """,
                 (int(project_id), kind),
@@ -1663,41 +1686,19 @@ class StudioRepository:
                 """,
                 (int(project_id), kind),
             ).fetchall()
-        public_frames: dict[int, list[dict[str, Any]]] = {}
+        frames_by_scheme: dict[int, list[dict[str, Any]]] = {}
         for frame in frame_rows:
-            frame_index = int(frame["frame_index"])
-            public_frames.setdefault(int(frame["scheme_id"]), []).append({
-                "frame_index": frame_index,
-                "planned_content": str(frame["planned_content"] or ""),
-                "actual_content": str(frame["actual_content"] or ""),
-                "transition_from_previous": str(frame["transition_from_previous"] or ""),
-                "transition_to_next": frame["transition_to_next"],
-                "ending_note": frame["ending_note"],
-                "image_status": str(frame["image_status"] or "pending"),
-                "image_url": (
-                    f"/api/visual-items/{int(frame['scheme_id'])}/frames/{frame_index}/image"
-                    if str(frame["image_status"]) == "success" else ""
-                ),
-                "image_error": str(frame["image_error"] or ""),
-            })
+            frames_by_scheme.setdefault(int(frame["scheme_id"]), []).append(dict(frame))
         visuals: dict[int, list[dict[str, Any]]] = {}
         for row in visual_rows:
             item = _loads(row["content_json"], {})
-            item.pop("image_prompt", None)
-            item.pop("image_generation_instruction", None)
-            item.pop("conversation_id", None)
-            item.pop("parent_message_id", None)
-            first_frame = item.get("first_frame")
-            if isinstance(first_frame, dict):
-                first_frame.pop("image_generation_instruction", None)
             item.update({
                 "id": int(row["id"]),
                 "item_index": int(row["item_index"]),
                 "aspect_ratio": row["aspect_ratio"],
                 "image_status": row["image_status"],
-                "image_url": f"/api/visual-items/{int(row['id'])}/image" if row["image_status"] == "success" else "",
                 "image_error": row["image_error"],
-                "frames": public_frames.get(int(row["id"]), []),
+                "frames": frames_by_scheme.get(int(row["id"]), []),
             })
             visuals.setdefault(int(row["generation_id"]), []).append(item)
         current: list[dict[str, Any]] = []
@@ -1712,11 +1713,28 @@ class StudioRepository:
                 "created_at": row["created_at"],
             }
             (current if row["input_fingerprint"] == fingerprint else stale).append(entry)
-        return {
+        raw_history = {
             "batches": current,
             "stale_batches": stale,
+            "failed_generations": [
+                {
+                    "id": int(row["id"]),
+                    "batch_index": int(row["batch_index"]),
+                    "input_fingerprint": str(row["input_fingerprint"] or ""),
+                    "error": str(row["error"] or "生成失败"),
+                    "error_code": str(row["error_code"] or "generation_failed"),
+                    "phase": str(row["error_phase"] or "generation"),
+                    "field_path": str(row["error_field_path"] or ""),
+                    "retryable": bool(row["error_retryable"] or 0),
+                    "trace_id": str(row["error_trace_id"] or ""),
+                    "created_at": str(row["created_at"] or ""),
+                }
+                for row in failed_rows
+                if str(row["input_fingerprint"] or "") == fingerprint
+            ],
             "remaining_generations": max(0, 2 - len(current)),
         }
+        return raw_history
 
     def visual_item(self, item_id: int) -> dict[str, Any] | None:
         with closing(self._connect()) as connection:
@@ -1780,20 +1798,26 @@ class StudioRepository:
             )
         return cursor.rowcount == 1
 
-    def complete_visual_item(self, item_id: int, attempt: int, image_path: str) -> bool:
+    def complete_visual_item(
+        self,
+        item_id: int,
+        attempt: int,
+        image_path: str,
+        image_mime: str = "",
+    ) -> bool:
         with closing(self._connect()) as connection:
             cursor = connection.execute(
                 """
                 UPDATE visual_items
-                SET image_status='success',image_path=?,image_error='',updated_at=?
+                SET image_status='success',image_path=?,image_mime=?,image_error='',updated_at=?
                 WHERE id=? AND image_status='generating' AND image_attempt=?
                 """,
-                (str(image_path), now_text(), int(item_id), int(attempt)),
+                (str(image_path), str(image_mime), now_text(), int(item_id), int(attempt)),
             )
             if cursor.rowcount == 1:
                 connection.execute(
-                    "UPDATE display_frames SET image_status='success',image_path=?,image_error='',image_attempt=?,updated_at=? WHERE scheme_id=? AND frame_index=1",
-                    (str(image_path), int(attempt), now_text(), int(item_id)),
+                    "UPDATE display_frames SET image_status='success',image_path=?,image_mime=?,image_error='',image_attempt=?,updated_at=? WHERE scheme_id=? AND frame_index=1",
+                    (str(image_path), str(image_mime), int(attempt), now_text(), int(item_id)),
                 )
         return cursor.rowcount == 1
 
@@ -1820,14 +1844,14 @@ class StudioRepository:
                 cursor = connection.execute(
                     """
                     UPDATE visual_items
-                    SET image_status='queued',image_error='',gateway_job_id='',image_path='',updated_at=?
+                    SET image_status='queued',image_error='',gateway_job_id='',image_path='',image_mime='',updated_at=?
                     WHERE id=? AND image_status='failed'
                     """,
                     (now_text(), int(item_id)),
                 )
                 if cursor.rowcount == 1:
                     connection.execute(
-                        "UPDATE display_frames SET image_status='pending',image_path='',image_error='',updated_at=? WHERE scheme_id=? AND frame_index=1",
+                        "UPDATE display_frames SET image_status='pending',image_path='',image_mime='',image_error='',updated_at=? WHERE scheme_id=? AND frame_index=1",
                         (now_text(), int(item_id)),
                     )
                 connection.commit()
@@ -1836,15 +1860,18 @@ class StudioRepository:
                 raise
         return cursor.rowcount == 1
 
-    def adopt_visual(self, project_id: int, item_id: int) -> dict[str, Any]:
+    def visual_adoption_source(self, project_id: int, item_id: int) -> tuple[str, dict[str, Any]]:
         item = self.visual_item(item_id)
         if item is None or int(item["project_id"]) != int(project_id):
             raise StudioDataError("视觉方案不属于当前项目")
-        snapshot = _loads(item["content_json"], {})
-        self._save_adoption(project_id, "visual", str(item_id), snapshot)
-        return snapshot
+        return str(item_id), _loads(item["content_json"], {})
 
-    def adopt_narrative(self, project_id: int, generation_id: int, item_index: int) -> dict[str, Any]:
+    def narrative_adoption_source(
+        self,
+        project_id: int,
+        generation_id: int,
+        item_index: int,
+    ) -> tuple[str, dict[str, Any]]:
         with closing(self._connect()) as connection:
             row = connection.execute(
                 "SELECT items_json FROM generations WHERE id=? AND project_id=? AND recommendation_kind='narrative' AND status='success'",
@@ -1853,11 +1880,10 @@ class StudioRepository:
         items = _loads(row["items_json"], []) if row is not None else []
         if not isinstance(items, list) or item_index < 0 or item_index >= len(items):
             raise StudioDataError("叙事方案不存在")
-        snapshot = items[item_index]
-        self._save_adoption(project_id, "narrative", f"{generation_id}:{item_index}", snapshot)
-        return snapshot
+        source = items[item_index] if isinstance(items[item_index], dict) else {}
+        return f"{generation_id}:{item_index}", source
 
-    def _save_adoption(self, project_id: int, kind: str, reference_id: str, snapshot: Any) -> None:
+    def save_adoption(self, project_id: int, kind: str, reference_id: str, snapshot: Any) -> None:
         timestamp = now_text()
         with closing(self._connect()) as connection:
             connection.execute(

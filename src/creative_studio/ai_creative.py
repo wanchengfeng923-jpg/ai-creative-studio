@@ -20,7 +20,7 @@ from .model_client import HttpModelClient, ModelClient, ModelRequest, ModelRespo
 from .ai_service_settings import AiServiceSettings
 from .ai_provider import chat_completions_url
 from .carousel import CarouselValidationError, normalize_visual_carousel_config, normalize_visual_carousel_frames
-from .prompting import CompiledPrompt, compile_prompt
+from .prompting import CompiledPrompt, PromptCompilationError, compile_prompt, prompt_variable_names
 from .schemas import (
     CarouselRecommendationSchema,
     NarrativeRecommendationSchema,
@@ -64,6 +64,19 @@ CREATIVE_TAG_KEYS = (
 )
 NARRATIVE_TAG_KEYS = CREATIVE_TAG_KEYS[:10]
 VISUAL_TAG_KEYS = CREATIVE_TAG_KEYS[10:]
+NARRATIVE_PROMPT_VARIABLES = frozenset(
+    {"task_type", "task_description", "creative_tags"}
+)
+VISUAL_PROMPT_VARIABLES = frozenset(
+    {
+        "task_type",
+        "task_description",
+        "creative_tags",
+        "aspect_ratio",
+        "product_evidence_summary",
+        "reference_file_names",
+    }
+)
 AI_TASK_TYPE_MAX_LENGTH = 100
 AI_TASK_DESCRIPTION_MAX_LENGTH = 1000
 AI_SCRIPT_TYPE_MAX_LENGTH = 20
@@ -109,13 +122,42 @@ AI_VISUAL_CREATIVE_CONTINUATION_PROMPT = (
 class AiCreativeConfigurationError(ValueError):
     """AI 创意服务配置不完整或不合法。"""
 
+    error_code = "ai_configuration_error"
+    phase = "configuration"
+    field_path = ""
+    retryable = False
+
 
 class AiCreativeRequestError(RuntimeError):
     """AI 创意服务请求失败或返回结果不符合约定。"""
 
+    error_code = "ai_request_failed"
+    phase = "model_request"
+    field_path = ""
+    retryable = True
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: str | None = None,
+        phase: str | None = None,
+        field_path: str = "",
+        retryable: bool | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = str(error_code or self.__class__.error_code)
+        self.phase = str(phase or self.__class__.phase)
+        self.field_path = str(field_path or "")
+        self.retryable = self.__class__.retryable if retryable is None else bool(retryable)
+
 
 class AiCreativeQueueTimeoutError(AiCreativeRequestError):
     """AI 网关排队或请求超时。"""
+
+    error_code = "ai_queue_timeout"
+    phase = "model_request"
+    retryable = True
 
 
 @dataclass(frozen=True)
@@ -478,14 +520,20 @@ def _visual_id_lookup(tag_catalog: Mapping[str, Any] | None, key: str) -> Dict[s
     return dict(catalog["ids_by_key"].get(key) or {})
 
 
-def _validate_visual_text_list(value: Any, label: str) -> List[str]:
+def _validate_visual_text_list(value: Any, label: str, *, field_path: str) -> List[str]:
     if not isinstance(value, list) or not value:
-        raise AiCreativeRequestError(f"AI视觉返回的{label}必须是非空列表")
-    return [_visual_text(item, label) for item in value]
+        raise AiCreativeRequestError(
+            f"AI视觉返回的{label}必须是非空列表",
+            field_path=field_path,
+        )
+    return [
+        _visual_text(item, label, field_path=f"{field_path}[{index}]")
+        for index, item in enumerate(value)
+    ]
 
 
 def _default_game_info_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "ai_creative_game_info_v1.json"
+    return Path(__file__).resolve().parents[2] / "config" / "ai_creative_game_info_v2.json"
 
 
 def load_ai_creative_game_info(
@@ -529,25 +577,18 @@ def build_creative_prompt(
     bounded_task_description = _bounded_context_text(task_description, AI_TASK_DESCRIPTION_MAX_LENGTH)
     raw_script_type = script_type or (tags.get("script_type") if isinstance(tags, dict) else "")
     bounded_script_type = _bounded_context_text(raw_script_type, AI_SCRIPT_TYPE_MAX_LENGTH)
-    content = compile_prompt(
+    values = {
+        "game_info": str(game_info or "").strip(),
+        "creative_tags": tags_text,
+        "task_type": bounded_task_type,
+        "task_description": bounded_task_description,
+        "script_type": bounded_script_type,
+    }
+    return _render_known_prompt(
         template,
-        {
-            "game_info": str(game_info or "").strip(),
-            "creative_tags": tags_text,
-            "task_type": bounded_task_type,
-            "task_description": bounded_task_description,
-            "script_type": bounded_script_type,
-        },
-    ).render()
-    if "{{creative_tags}}" not in template:
-        content = f"{content}\n\n创意标签数据：\n{tags_text}"
-    if "{{task_type}}" not in template and bounded_task_type:
-        content = f"{content}\n\n任务类型参考：\n{bounded_task_type}"
-    if "{{task_description}}" not in template and bounded_task_description:
-        content = f"{content}\n\n任务描述参考：\n{bounded_task_description}"
-    if "{{script_type}}" not in template and bounded_script_type:
-        content = f"{content}\n\n脚本类型参考：\n{bounded_script_type}"
-    return content
+        values,
+        required_variables=NARRATIVE_PROMPT_VARIABLES,
+    )
 
 
 def load_ai_creative_config(
@@ -706,30 +747,52 @@ def build_visual_creative_prompt(
     if not template:
         raise AiCreativeConfigurationError("AI视觉提示词尚未配置")
     reference_names = "、".join(_clean_text_list(reference_file_names)) or "（无参考文件）"
-    replacements = {
-        "{{task_type}}": _bounded_context_text(task_type, AI_TASK_TYPE_MAX_LENGTH),
-        "{{task_description}}": _bounded_context_text(task_description, AI_TASK_DESCRIPTION_MAX_LENGTH),
-        "{{creative_tags}}": format_creative_tags_for_prompt(tags, mode="visual"),
-        "{{aspect_ratio}}": str(aspect_ratio or "").strip() or "16:9",
-        "{{product_evidence_summary}}": str(product_evidence_summary or "").strip(),
-        "{{reference_file_names}}": reference_names,
-    }
-    content = compile_prompt(
-        template,
-        {
-            "task_type": replacements["{{task_type}}"],
-            "task_description": replacements["{{task_description}}"],
-            "creative_tags": replacements["{{creative_tags}}"],
-            "aspect_ratio": replacements["{{aspect_ratio}}"],
-            "product_evidence_summary": replacements["{{product_evidence_summary}}"],
-            "reference_file_names": replacements["{{reference_file_names}}"],
-            "carousel_context": _visual_carousel_context_text(carousel_config, tag_catalog),
-        },
-    ).render()
     carousel_context = _visual_carousel_context_text(carousel_config, tag_catalog)
-    if "{{carousel_context}}" not in template and carousel_context:
-        content = f"{content}\n\n{carousel_context}"
-    return content
+    values = {
+        "task_type": _bounded_context_text(task_type, AI_TASK_TYPE_MAX_LENGTH),
+        "task_description": _bounded_context_text(task_description, AI_TASK_DESCRIPTION_MAX_LENGTH),
+        "creative_tags": format_creative_tags_for_prompt(tags, mode="visual"),
+        "aspect_ratio": str(aspect_ratio or "").strip() or "16:9",
+        "product_evidence_summary": str(product_evidence_summary or "").strip(),
+        "reference_file_names": reference_names,
+        "carousel_context": carousel_context,
+    }
+    required_variables = set(VISUAL_PROMPT_VARIABLES)
+    if carousel_context:
+        required_variables.add("carousel_context")
+    return _render_known_prompt(
+        template,
+        values,
+        required_variables=required_variables,
+    )
+
+
+def _render_known_prompt(
+    template: str,
+    values: Mapping[str, Any],
+    *,
+    required_variables: Any,
+) -> str:
+    """Compile an existing prompt while rejecting undeclared placeholder names."""
+
+    declared = prompt_variable_names(template)
+    missing = sorted(set(required_variables) - declared)
+    if missing:
+        raise AiCreativeConfigurationError(
+            f"AI提示词缺失变量：{', '.join(missing)}"
+        )
+    unsupported = sorted(declared - set(values))
+    if unsupported:
+        raise AiCreativeConfigurationError(
+            f"AI提示词包含未知变量：{', '.join(unsupported)}"
+        )
+    try:
+        return compile_prompt(
+            template,
+            {name: values[name] for name in declared},
+        ).render()
+    except PromptCompilationError as exc:
+        raise AiCreativeConfigurationError(str(exc)) from exc
 
 
 def _parse_json_object_text(value: str) -> Dict[str, Any]:
@@ -737,7 +800,7 @@ def _parse_json_object_text(value: str) -> Dict[str, Any]:
 
     text = str(value or "").strip()
     if not text:
-        raise AiCreativeRequestError("AI返回结果无法解析")
+        raise AiCreativeRequestError("AI返回结果无法解析", field_path="$")
     try:
         payload = json.loads(text)
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -751,9 +814,9 @@ def _parse_json_object_text(value: str) -> Dict[str, Any]:
                 continue
             if isinstance(payload, dict):
                 return payload
-        raise AiCreativeRequestError("AI返回结果无法解析")
+        raise AiCreativeRequestError("AI返回结果无法解析", field_path="$")
     if not isinstance(payload, dict):
-        raise AiCreativeRequestError("AI返回结果无法解析")
+        raise AiCreativeRequestError("AI返回结果无法解析", field_path="$")
     return payload
 
 
@@ -765,11 +828,14 @@ def _recommendation_payload(value: Any) -> Any:
     if isinstance(value, dict) and "choices" in value:
         choices = value.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise AiCreativeRequestError("AI返回结果缺少choices")
+            raise AiCreativeRequestError("AI返回结果缺少choices", field_path="choices")
         first = choices[0] if isinstance(choices[0], dict) else {}
         message = first.get("message") if isinstance(first, dict) else None
         if not isinstance(message, dict) or "content" not in message:
-            raise AiCreativeRequestError("AI返回结果缺少正文")
+            raise AiCreativeRequestError(
+                "AI返回结果缺少正文",
+                field_path="choices[0].message.content",
+            )
         return _recommendation_payload(message["content"])
     return value
 
@@ -779,29 +845,50 @@ def validate_creative_recommendations(value: Any) -> List[Dict[str, Any]]:
 
     items = _recommendation_payload(value)
     if not isinstance(items, list) or len(items) != 5:
-        raise AiCreativeRequestError("AI返回结果必须正好包含5个故事")
+        raise AiCreativeRequestError("items 必须正好包含5个故事", field_path="items")
     result: List[Dict[str, Any]] = []
-    for item in items:
+    for item_index, item in enumerate(items):
+        item_path = f"items[{item_index}]"
         if not isinstance(item, dict):
-            raise AiCreativeRequestError("AI返回的每个故事必须是对象")
+            raise AiCreativeRequestError(
+                f"{item_path} 必须是对象",
+                field_path=item_path,
+            )
         story = str(item.get("story") or "").strip()
         if not story or "\n" in story or "\r" in story:
-            raise AiCreativeRequestError("AI返回的每个故事必须是非空单行文本")
+            raise AiCreativeRequestError(
+                f"{item_path}.story 必须是非空单行文本",
+                field_path=f"{item_path}.story",
+            )
         hooks = item.get("hooks")
         if not isinstance(hooks, list) or len(hooks) != 2:
-            raise AiCreativeRequestError("AI返回的每个故事必须恰好包含2个钩子")
+            raise AiCreativeRequestError(
+                f"{item_path}.hooks 必须恰好包含2个钩子",
+                field_path=f"{item_path}.hooks",
+            )
         clean_hooks: List[Dict[str, Any]] = []
-        for hook in hooks:
+        for hook_index, hook in enumerate(hooks):
+            hook_path = f"{item_path}.hooks[{hook_index}]"
             if not isinstance(hook, dict):
-                raise AiCreativeRequestError("AI返回的每个钩子必须是对象")
+                raise AiCreativeRequestError(
+                    f"{hook_path} 必须是对象",
+                    field_path=hook_path,
+                )
             text = str(hook.get("text") or "").strip()
             if not text or "\n" in text or "\r" in text:
-                raise AiCreativeRequestError("AI返回的每个钩子必须包含非空单行文本")
+                raise AiCreativeRequestError(
+                    f"{hook_path}.text 必须是非空单行文本",
+                    field_path=f"{hook_path}.text",
+                )
             scenes = hook.get("scenes")
             if not isinstance(scenes, list) or len(scenes) != 3:
-                raise AiCreativeRequestError("AI返回的每个钩子必须恰好包含3个画面建议")
+                raise AiCreativeRequestError(
+                    f"{hook_path}.scenes 必须恰好包含3个画面建议",
+                    field_path=f"{hook_path}.scenes",
+                )
             clean_scenes: List[str] = []
-            for scene in scenes:
+            for scene_index, scene in enumerate(scenes):
+                scene_path = f"{hook_path}.scenes[{scene_index}]"
                 scene_text = str(scene or "").strip()
                 if (
                     not scene_text
@@ -810,7 +897,8 @@ def validate_creative_recommendations(value: Any) -> List[Dict[str, Any]]:
                     or len(scene_text) > 80
                 ):
                     raise AiCreativeRequestError(
-                        "AI返回的每条画面建议必须是非空单行文本且不超过80个字符"
+                        f"{scene_path} 必须是非空单行文本且不超过80个字符",
+                        field_path=scene_path,
                     )
                 clean_scenes.append(scene_text)
             clean_hooks.append({"text": text, "scenes": clean_scenes})
@@ -824,30 +912,48 @@ def _visual_recommendation_payload(value: Any) -> Any:
     if isinstance(value, dict) and "choices" in value:
         choices = value.get("choices")
         if not isinstance(choices, list) or not choices:
-            raise AiCreativeRequestError("AI返回结果缺少choices")
+            raise AiCreativeRequestError("AI返回结果缺少choices", field_path="choices")
         first = choices[0] if isinstance(choices[0], dict) else {}
         message = first.get("message") if isinstance(first, dict) else None
         if not isinstance(message, dict) or "content" not in message:
-            raise AiCreativeRequestError("AI返回结果缺少正文")
+            raise AiCreativeRequestError(
+                "AI返回结果缺少正文",
+                field_path="choices[0].message.content",
+            )
         return _visual_recommendation_payload(message["content"])
     if not isinstance(value, dict) or set(value) != {"items"}:
-        raise AiCreativeRequestError("AI视觉返回结果必须只有items字段")
+        raise AiCreativeRequestError(
+            "AI视觉返回结果必须只有items字段",
+            field_path="items",
+        )
     return value["items"]
 
 
-def _visual_text(value: Any, label: str) -> str:
+def _visual_text(value: Any, label: str, *, field_path: str = "") -> str:
     text = value.strip() if isinstance(value, str) else ""
     if not text:
-        raise AiCreativeRequestError(f"AI视觉返回的{label}不能为空")
+        raise AiCreativeRequestError(
+            f"AI视觉返回的{label}不能为空",
+            field_path=field_path or label,
+        )
     if "://" in text.lower() or VISUAL_BARE_DOMAIN_URL_PATTERN.search(text):
-        raise AiCreativeRequestError(f"AI视觉返回的{label}不能包含网址")
+        raise AiCreativeRequestError(
+            f"AI视觉返回的{label}不能包含网址",
+            field_path=field_path or label,
+        )
     return text
 
 
 def _visual_text_list(value: Any, label: str) -> List[str]:
     if not isinstance(value, list) or not value:
-        raise AiCreativeRequestError(f"AI视觉返回的{label}必须是非空列表")
-    return [_visual_text(item, label) for item in value]
+        raise AiCreativeRequestError(
+            f"AI视觉返回的{label}必须是非空列表",
+            field_path=label,
+        )
+    return [
+        _visual_text(item, label, field_path=f"{label}[{index}]")
+        for index, item in enumerate(value)
+    ]
 
 
 def validate_visual_creative_recommendations(
@@ -861,61 +967,146 @@ def validate_visual_creative_recommendations(
     config = _normalize_visual_carousel_request(carousel_config)
     items = _visual_recommendation_payload(value)
     if not isinstance(items, list) or len(items) != 3:
-        raise AiCreativeRequestError("AI视觉返回结果必须正好包含3个方案")
+        raise AiCreativeRequestError(
+            "AI视觉返回结果必须正好包含3个方案",
+            field_path="items",
+        )
 
     # 新展示流程的首帧 schema；保留下面旧 schema 分支以兼容历史批次。
     if any(isinstance(item, Mapping) and "first_frame" in item for item in items):
         result: List[Dict[str, Any]] = []
         mode = str((config or {}).get("count_mode") or "none").strip().lower()
         requested = (config or {}).get("count")
-        for index, item in enumerate(items, start=1):
+        for item_index, item in enumerate(items):
+            item_path = f"items[{item_index}]"
             if not isinstance(item, Mapping):
-                raise AiCreativeRequestError(f"AI视觉第{index}个方案格式无效")
+                raise AiCreativeRequestError(
+                    f"AI视觉第{item_index + 1}个方案格式无效",
+                    field_path=item_path,
+                )
             allowed = {
                 "title", "creative_summary", "creative_sources", "frame_count",
                 "visual_continuity_rules", "frame_plan", "first_frame",
             }
             if set(item) != allowed:
-                raise AiCreativeRequestError("AI视觉首帧方案字段结构无效")
-            title = _visual_text(item.get("title"), "title")
-            summary = _visual_text(item.get("creative_summary"), "creative_summary")
-            sources = _validate_visual_text_list(item.get("creative_sources"), "creative_sources")
+                raise AiCreativeRequestError(
+                    "AI视觉首帧方案字段结构无效",
+                    field_path=item_path,
+                )
+            title = _visual_text(
+                item.get("title"),
+                "title",
+                field_path=f"{item_path}.title",
+            )
+            summary = _visual_text(
+                item.get("creative_summary"),
+                "creative_summary",
+                field_path=f"{item_path}.creative_summary",
+            )
+            sources = _validate_visual_text_list(
+                item.get("creative_sources"),
+                "creative_sources",
+                field_path=f"{item_path}.creative_sources",
+            )
             continuity = _validate_visual_text_list(
-                item.get("visual_continuity_rules"), "visual_continuity_rules"
+                item.get("visual_continuity_rules"),
+                "visual_continuity_rules",
+                field_path=f"{item_path}.visual_continuity_rules",
             )
             try:
                 frame_count = int(item.get("frame_count") or 0)
             except (TypeError, ValueError) as exc:
-                raise AiCreativeRequestError("frame_count必须是整数") from exc
+                raise AiCreativeRequestError(
+                    "frame_count必须是整数",
+                    field_path=f"{item_path}.frame_count",
+                ) from exc
             if mode == "none":
                 if frame_count != 1:
-                    raise AiCreativeRequestError("不轮播方案的frame_count必须为1")
+                    raise AiCreativeRequestError(
+                        "不轮播方案的frame_count必须为1",
+                        field_path=f"{item_path}.frame_count",
+                    )
             elif mode == "fixed":
                 if not isinstance(requested, int) or frame_count != requested or frame_count not in range(2, 6):
-                    raise AiCreativeRequestError("固定轮播方案的frame_count必须等于用户指定数量")
+                    raise AiCreativeRequestError(
+                        "固定轮播方案的frame_count必须等于用户指定数量",
+                        field_path=f"{item_path}.frame_count",
+                    )
             elif mode == "ai":
                 if frame_count not in range(2, 6):
-                    raise AiCreativeRequestError("AI决定的frame_count必须为2至5")
+                    raise AiCreativeRequestError(
+                        "AI决定的frame_count必须为2至5",
+                        field_path=f"{item_path}.frame_count",
+                    )
             else:
-                raise AiCreativeRequestError("AI视觉轮播配置无效")
+                raise AiCreativeRequestError(
+                    "AI视觉轮播配置无效",
+                    field_path="carousel_config.count_mode",
+                )
             raw_plan = item.get("frame_plan")
             if not isinstance(raw_plan, list) or len(raw_plan) != frame_count:
-                raise AiCreativeRequestError("frame_plan必须完整覆盖frame_count")
+                raise AiCreativeRequestError(
+                    "frame_plan必须完整覆盖frame_count",
+                    field_path=f"{item_path}.frame_plan",
+                )
             plan: List[Dict[str, Any]] = []
-            for expected_index, raw_frame in enumerate(raw_plan, start=1):
+            for frame_offset, raw_frame in enumerate(raw_plan):
+                expected_index = frame_offset + 1
+                frame_path = f"{item_path}.frame_plan[{frame_offset}]"
                 if not isinstance(raw_frame, Mapping) or set(raw_frame) != {"index", "description"}:
-                    raise AiCreativeRequestError("frame_plan字段结构无效")
-                if int(raw_frame.get("index") or 0) != expected_index:
-                    raise AiCreativeRequestError("frame_plan序号必须从1连续递增")
-                plan.append({"index": expected_index, "description": _visual_text(raw_frame.get("description"), "frame_plan.description")})
+                    raise AiCreativeRequestError(
+                        "frame_plan字段结构无效",
+                        field_path=frame_path,
+                    )
+                try:
+                    actual_index = int(raw_frame.get("index") or 0)
+                except (TypeError, ValueError) as exc:
+                    raise AiCreativeRequestError(
+                        "frame_plan序号必须是整数",
+                        field_path=f"{frame_path}.index",
+                    ) from exc
+                if actual_index != expected_index:
+                    raise AiCreativeRequestError(
+                        "frame_plan序号必须从1连续递增",
+                        field_path=f"{frame_path}.index",
+                    )
+                plan.append(
+                    {
+                        "index": expected_index,
+                        "description": _visual_text(
+                            raw_frame.get("description"),
+                            "frame_plan.description",
+                            field_path=f"{frame_path}.description",
+                        ),
+                    }
+                )
             first = item.get("first_frame")
             if not isinstance(first, Mapping) or set(first) != {"index", "content", "image_generation_instruction"}:
-                raise AiCreativeRequestError("first_frame字段结构无效")
-            if int(first.get("index") or 0) != 1:
-                raise AiCreativeRequestError("first_frame.index必须为1")
-            first_content = _visual_text(first.get("content"), "first_frame.content")
+                raise AiCreativeRequestError(
+                    "first_frame字段结构无效",
+                    field_path=f"{item_path}.first_frame",
+                )
+            try:
+                first_index = int(first.get("index") or 0)
+            except (TypeError, ValueError) as exc:
+                raise AiCreativeRequestError(
+                    "first_frame.index必须是整数",
+                    field_path=f"{item_path}.first_frame.index",
+                ) from exc
+            if first_index != 1:
+                raise AiCreativeRequestError(
+                    "first_frame.index必须为1",
+                    field_path=f"{item_path}.first_frame.index",
+                )
+            first_content = _visual_text(
+                first.get("content"),
+                "first_frame.content",
+                field_path=f"{item_path}.first_frame.content",
+            )
             image_instruction = _visual_text(
-                first.get("image_generation_instruction"), "first_frame.image_generation_instruction"
+                first.get("image_generation_instruction"),
+                "first_frame.image_generation_instruction",
+                field_path=f"{item_path}.first_frame.image_generation_instruction",
             )
             result.append({
                 "title": title,
@@ -951,24 +1142,56 @@ def validate_visual_creative_recommendations(
             "visual_style",
             "image_prompt",
         )
-        for item in items:
+        for item_index, item in enumerate(items):
+            item_path = f"items[{item_index}]"
             if not isinstance(item, dict) or set(item) != set(VISUAL_CREATIVE_ITEM_FIELDS):
-                raise AiCreativeRequestError("AI视觉返回的每个方案必须符合批准字段结构")
-            cleaned = {field: _visual_text(item.get(field), field) for field in text_fields}
+                raise AiCreativeRequestError(
+                    "AI视觉返回的每个方案必须符合批准字段结构",
+                    field_path=item_path,
+                )
+            cleaned = {
+                field: _visual_text(
+                    item.get(field),
+                    field,
+                    field_path=f"{item_path}.{field}",
+                )
+                for field in text_fields
+            }
             cleaned["content_extensions"] = _validate_visual_text_list(
-                item.get("content_extensions"), "content_extensions"
+                item.get("content_extensions"),
+                "content_extensions",
+                field_path=f"{item_path}.content_extensions",
             )
-            cleaned["keywords"] = _validate_visual_text_list(item.get("keywords"), "keywords")
+            cleaned["keywords"] = _validate_visual_text_list(
+                item.get("keywords"),
+                "keywords",
+                field_path=f"{item_path}.keywords",
+            )
             sources = item.get("reference_sources")
             if not isinstance(sources, list) or not sources:
-                raise AiCreativeRequestError("AI视觉返回的reference_sources必须是非空列表")
+                raise AiCreativeRequestError(
+                    "AI视觉返回的reference_sources必须是非空列表",
+                    field_path=f"{item_path}.reference_sources",
+                )
             cleaned_sources: List[Dict[str, str]] = []
-            for source in sources:
+            for source_index, source in enumerate(sources):
+                source_path = f"{item_path}.reference_sources[{source_index}]"
                 if not isinstance(source, dict) or set(source) != {"name", "note"}:
-                    raise AiCreativeRequestError("AI视觉返回的参考来源只能包含name和note")
+                    raise AiCreativeRequestError(
+                        "AI视觉返回的参考来源只能包含name和note",
+                        field_path=source_path,
+                    )
                 cleaned_sources.append({
-                    "name": _visual_text(source.get("name"), "reference_sources.name"),
-                    "note": _visual_text(source.get("note"), "reference_sources.note"),
+                    "name": _visual_text(
+                        source.get("name"),
+                        "reference_sources.name",
+                        field_path=f"{source_path}.name",
+                    ),
+                    "note": _visual_text(
+                        source.get("note"),
+                        "reference_sources.note",
+                        field_path=f"{source_path}.note",
+                    ),
                 })
             cleaned["reference_sources"] = cleaned_sources
             result.append({field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS})
@@ -977,53 +1200,101 @@ def validate_visual_creative_recommendations(
     if str(config.get("count_mode") or "").strip() == "fixed":
         count = config.get("count")
         if not isinstance(count, int) or not 2 <= count <= 5:
-            raise AiCreativeRequestError("AI视觉轮播固定数量必须在2到5之间")
+            raise AiCreativeRequestError(
+                "AI视觉轮播固定数量必须在2到5之间",
+                field_path="carousel_config.count",
+            )
     elif str(config.get("count_mode") or "").strip() == "ai":
         count = config.get("count")
         if count is not None and (not isinstance(count, int) or not 2 <= count <= 5):
-            raise AiCreativeRequestError("AI视觉轮播数量必须在2到5之间")
+            raise AiCreativeRequestError(
+                "AI视觉轮播数量必须在2到5之间",
+                field_path="carousel_config.count",
+            )
     else:
-        raise AiCreativeRequestError("AI视觉轮播配置无效")
+        raise AiCreativeRequestError(
+            "AI视觉轮播配置无效",
+            field_path="carousel_config.count_mode",
+        )
 
     result = []
     required_fields = set(VISUAL_CREATIVE_ITEM_FIELDS) | {"carousel"}
-    for index, item in enumerate(items, start=1):
+    for item_index, item in enumerate(items):
+        item_path = f"items[{item_index}]"
         if not isinstance(item, dict) or set(item) != required_fields:
-            raise AiCreativeRequestError("AI视觉返回的每个方案必须符合批准字段结构")
-        cleaned = {field: _visual_text(item.get(field), field) for field in (
-            "title",
-            "subtitle",
-            "creative_description",
-            "core_subject",
-            "layout",
-            "visual_style",
-            "image_prompt",
-        )}
+            raise AiCreativeRequestError(
+                "AI视觉返回的每个方案必须符合批准字段结构",
+                field_path=item_path,
+            )
+        cleaned = {
+            field: _visual_text(
+                item.get(field),
+                field,
+                field_path=f"{item_path}.{field}",
+            )
+            for field in (
+                "title",
+                "subtitle",
+                "creative_description",
+                "core_subject",
+                "layout",
+                "visual_style",
+                "image_prompt",
+            )
+        }
         cleaned["content_extensions"] = _validate_visual_text_list(
-            item.get("content_extensions"), "content_extensions"
+            item.get("content_extensions"),
+            "content_extensions",
+            field_path=f"{item_path}.content_extensions",
         )
-        cleaned["keywords"] = _validate_visual_text_list(item.get("keywords"), "keywords")
+        cleaned["keywords"] = _validate_visual_text_list(
+            item.get("keywords"),
+            "keywords",
+            field_path=f"{item_path}.keywords",
+        )
         sources = item.get("reference_sources")
         if not isinstance(sources, list) or not sources:
-            raise AiCreativeRequestError("AI视觉返回的reference_sources必须是非空列表")
+            raise AiCreativeRequestError(
+                "AI视觉返回的reference_sources必须是非空列表",
+                field_path=f"{item_path}.reference_sources",
+            )
         cleaned_sources: List[Dict[str, str]] = []
-        for source in sources:
+        for source_index, source in enumerate(sources):
+            source_path = f"{item_path}.reference_sources[{source_index}]"
             if not isinstance(source, dict) or set(source) != {"name", "note"}:
-                raise AiCreativeRequestError("AI视觉返回的参考来源只能包含name和note")
+                raise AiCreativeRequestError(
+                    "AI视觉返回的参考来源只能包含name和note",
+                    field_path=source_path,
+                )
             cleaned_sources.append({
-                "name": _visual_text(source.get("name"), "reference_sources.name"),
-                "note": _visual_text(source.get("note"), "reference_sources.note"),
+                "name": _visual_text(
+                    source.get("name"),
+                    "reference_sources.name",
+                    field_path=f"{source_path}.name",
+                ),
+                "note": _visual_text(
+                    source.get("note"),
+                    "reference_sources.note",
+                    field_path=f"{source_path}.note",
+                ),
             })
         cleaned["reference_sources"] = cleaned_sources
         try:
             clean_carousel = normalize_visual_carousel_frames(item.get("carousel"))
         except CarouselValidationError as exc:
-            raise AiCreativeRequestError(str(exc)) from exc
+            relative_path = str(getattr(exc, "field_path", "") or "carousel")
+            raise AiCreativeRequestError(
+                str(exc),
+                field_path=f"{item_path}.{relative_path}",
+            ) from exc
         carousel_count = int(clean_carousel["count"])
         if str(config.get("count_mode") or "").strip() == "fixed":
             expected_count = int(config["count"])
             if carousel_count != expected_count:
-                raise AiCreativeRequestError("AI视觉返回的carousel.count必须与固定屏数一致")
+                raise AiCreativeRequestError(
+                    "AI视觉返回的carousel.count必须与固定屏数一致",
+                    field_path=f"{item_path}.carousel.count",
+                )
         cleaned["carousel"] = clean_carousel
         result.append({
             field: cleaned[field] for field in VISUAL_CREATIVE_ITEM_FIELDS
@@ -1125,19 +1396,29 @@ def generate_visual_creative_recommendations(
             if config.provider == "chatgpt-web" and (
                 not response_conversation_id or not response_assistant_message_id
             ):
-                raise AiCreativeRequestError("AI会话标识缺失，无法继续生成")
+                raise AiCreativeRequestError(
+                    "AI会话标识缺失，无法继续生成",
+                    field_path=(
+                        "conversation_id"
+                        if not response_conversation_id
+                        else "assistant_message_id"
+                    ),
+                )
             _log_ai_response_diagnostics(config, response_payload, attempt=attempt, outcome="success")
             break
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
             _log_ai_response_diagnostics(config, None, attempt=attempt, outcome="response_json_error")
             if attempt == attempt_limit:
-                raise AiCreativeRequestError("AI接口返回内容无法解析") from exc
+                raise AiCreativeRequestError(
+                    "AI接口返回内容无法解析",
+                    field_path="$",
+                ) from exc
         except AiCreativeRequestError:
             _log_ai_response_diagnostics(config, response_payload, attempt=attempt, outcome="format_error")
             if attempt == attempt_limit:
                 raise
     if items is None:
-        raise AiCreativeRequestError("AI返回结果无法解析")
+        raise AiCreativeRequestError("AI返回结果无法解析", field_path="$")
     latency_ms = max(0, round((time.perf_counter() - started_at) * 1000))
     input_tokens, output_tokens, total_tokens = _extract_token_usage(response_payload)
     usage_source = "exact"
@@ -1244,7 +1525,14 @@ def generate_creative_recommendations(
             if config.provider == "chatgpt-web" and (
                 not response_conversation_id or not response_assistant_message_id
             ):
-                raise AiCreativeRequestError("AI会话标识缺失，无法继续生成")
+                raise AiCreativeRequestError(
+                    "AI会话标识缺失，无法继续生成",
+                    field_path=(
+                        "conversation_id"
+                        if not response_conversation_id
+                        else "assistant_message_id"
+                    ),
+                )
             _log_ai_response_diagnostics(
                 config,
                 response_payload,
@@ -1260,7 +1548,10 @@ def generate_creative_recommendations(
                 outcome="response_json_error",
             )
             if attempt == 2:
-                raise AiCreativeRequestError("AI接口返回内容无法解析") from exc
+                raise AiCreativeRequestError(
+                    "AI接口返回内容无法解析",
+                    field_path="$",
+                ) from exc
         except AiCreativeRequestError:
             _log_ai_response_diagnostics(
                 config,
@@ -1271,7 +1562,7 @@ def generate_creative_recommendations(
             if attempt == 2:
                 raise
     if items is None:
-        raise AiCreativeRequestError("AI返回结果无法解析")
+        raise AiCreativeRequestError("AI返回结果无法解析", field_path="$")
     latency_ms = max(0, round((time.perf_counter() - started_at) * 1000))
     input_tokens, output_tokens, total_tokens = _extract_token_usage(response_payload)
     usage_source = "exact"

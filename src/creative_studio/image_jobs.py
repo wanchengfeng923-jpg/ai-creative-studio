@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import base64
-import mimetypes
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -25,6 +25,31 @@ class GatewayJob:
     error: str = ""
     conversation_id: str = ""
     parent_message_id: str = ""
+
+
+@dataclass(frozen=True)
+class ImageArtifact:
+    data: bytes
+    mime: str
+    extension: str
+
+
+def image_artifact(data: bytes, declared_mime: str = "") -> ImageArtifact:
+    """Validate image bytes and return their canonical MIME and extension."""
+
+    content = bytes(data or b"")
+    if content.startswith(b"\xff\xd8\xff"):
+        mime, extension = "image/jpeg", ".jpg"
+    elif content.startswith(b"\x89PNG\r\n\x1a\n"):
+        mime, extension = "image/png", ".png"
+    elif len(content) >= 12 and content.startswith(b"RIFF") and content[8:12] == b"WEBP":
+        mime, extension = "image/webp", ".webp"
+    else:
+        raise RuntimeError("图片字节格式不受支持")
+    declared = str(declared_mime or "").split(";", 1)[0].strip().lower()
+    if declared and declared != mime:
+        raise RuntimeError("图片 MIME 与内容不一致")
+    return ImageArtifact(data=content, mime=mime, extension=extension)
 
 
 class GptWebImageClient:
@@ -97,8 +122,9 @@ class GptWebImageClient:
                 "aspect_ratio": str(aspect_ratio or "16:9"),
             }
             if reference_image:
+                reference = image_artifact(reference_image)
                 payload["ref_assets"] = [
-                    "data:image/png;base64," + base64.b64encode(reference_image).decode("ascii")
+                    f"data:{reference.mime};base64," + base64.b64encode(reference.data).decode("ascii")
                 ]
             if conversation_id:
                 payload["conversation_id"] = str(conversation_id)
@@ -141,7 +167,7 @@ class GptWebImageClient:
                     self._submitted_jobs[request_id] = job
         return job
 
-    def download(self, image_url: str) -> tuple[bytes, str]:
+    def download(self, image_url: str) -> ImageArtifact:
         parsed = urlsplit(str(image_url or ""))
         gateway = urlsplit(self.base_url)
         if not parsed.scheme and not parsed.netloc:
@@ -163,10 +189,7 @@ class GptWebImageClient:
         data = bytes(response.content or b"")
         if not content_type.startswith("image/") or not data:
             raise RuntimeError("图片网关没有返回有效图片")
-        extension = ".jpg" if content_type == "image/jpeg" else (mimetypes.guess_extension(content_type) or "")
-        if not extension:
-            raise RuntimeError("图片格式不受支持")
-        return data, extension
+        return image_artifact(data, content_type)
 
     @staticmethod
     def _origin(parsed) -> tuple[str, str, int]:
@@ -260,12 +283,18 @@ class ImageJobRunner:
                 job = self.client.status(job.job_id)
             if job.status == "failed" or not job.image_url:
                 raise RuntimeError(job.error or "AI连续画面生成失败")
-            data, extension = self.client.download(job.image_url)
+            artifact = self.client.download(job.image_url)
             target_dir = self.images_dir / str(scheme_id)
             target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / f"frame-{frame_index}-attempt-{attempt}{extension}"
-            target.write_bytes(data)
-            if not self.repository.complete_display_frame(scheme_id, frame_index, attempt, str(target)):
+            target = target_dir / f"frame-{frame_index}-attempt-{attempt}{artifact.extension}"
+            target.write_bytes(artifact.data)
+            if not self.repository.complete_display_frame(
+                scheme_id,
+                frame_index,
+                attempt,
+                str(target),
+                artifact.mime,
+            ):
                 target.unlink(missing_ok=True)
             if job.conversation_id and job.parent_message_id:
                 self.repository.update_scheme_session(scheme_id, job.conversation_id, job.parent_message_id)
@@ -342,12 +371,17 @@ class ImageJobRunner:
                 raise RuntimeError(job.error or "AI参考图生成失败")
             if not job.image_url:
                 raise RuntimeError("图片任务完成但没有图片地址")
-            data, extension = self.client.download(job.image_url)
+            artifact = self.client.download(job.image_url)
             target_dir = self.images_dir / str(item["generation_id"]) / str(item_id)
             target_dir.mkdir(parents=True, exist_ok=True)
-            target = target_dir / f"attempt-{attempt}{extension}"
-            target.write_bytes(data)
-            if not self.repository.complete_visual_item(item_id, attempt, str(target)):
+            target = target_dir / f"attempt-{attempt}{artifact.extension}"
+            target.write_bytes(artifact.data)
+            if not self.repository.complete_visual_item(
+                item_id,
+                attempt,
+                str(target),
+                artifact.mime,
+            ):
                 target.unlink(missing_ok=True)
             if job.conversation_id and job.parent_message_id:
                 self.repository.update_scheme_session(item_id, job.conversation_id, job.parent_message_id)
@@ -357,7 +391,8 @@ class ImageJobRunner:
                 self.enqueue([item_id])
 
 
-def gateway_base_from_environment() -> str:
-    api_url = str(os.environ.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").rstrip("/")
+def gateway_base_from_environment(environment: Mapping[str, str] | None = None) -> str:
+    source = environment if environment is not None else os.environ
+    api_url = str(source.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").rstrip("/")
     suffix = "/chat/completions"
     return api_url[: -len(suffix)] if api_url.lower().endswith(suffix) else api_url

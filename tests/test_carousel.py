@@ -116,7 +116,7 @@ class CarouselTests(unittest.TestCase):
         )
 
     def test_normalize_visual_carousel_frames_rejects_gaps(self):
-        with self.assertRaises(CarouselValidationError):
+        with self.assertRaises(CarouselValidationError) as raised:
             normalize_visual_carousel_frames(
                 {
                     "count": 3,
@@ -127,6 +127,10 @@ class CarouselTests(unittest.TestCase):
                     ],
                 }
             )
+        self.assertEqual(
+            getattr(raised.exception, "field_path", ""),
+            "carousel.frames[1].index",
+        )
 
     def test_missing_carousel_choice_is_rejected_only_for_generation(self):
         with self.assertRaises(CarouselValidationError):

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from creative_studio.display_frame_models import DisplayScheme
 from creative_studio.generation_service import CreativeGenerationService
 from creative_studio.model_client import ModelResponse
+from creative_studio.public_projection import PublicResultMapper
 from creative_studio.repository import StudioRepository
 
 
@@ -158,9 +159,20 @@ class DisplayFrameContinuationTests(unittest.TestCase):
         self.assertEqual([call[1] for call in self.runner.calls], [2, 3])
         self.assertEqual(self.runner.calls[1][2], "frame-2-image")
         self.assertEqual(self.repo.get_display_scheme(self.scheme_id)["scheme_status"], "completed")
-        encoded = json.dumps(result, ensure_ascii=False)
+        encoded = json.dumps(
+            PublicResultMapper().display_scheme(result),
+            ensure_ascii=False,
+        )
         self.assertNotIn("image_generation_instruction", encoded)
         self.assertNotIn("image_path", encoded)
+
+    def test_select_scheme_never_returns_private_conversation_cursor(self) -> None:
+        selected = self.service.select_scheme(self.scheme_id)
+
+        encoded = json.dumps(selected, ensure_ascii=False)
+        self.assertEqual(selected["scheme_id"], self.scheme_id)
+        self.assertNotIn("conversation_id", encoded)
+        self.assertNotIn("parent_message_id", encoded)
 
 
 if __name__ == "__main__":

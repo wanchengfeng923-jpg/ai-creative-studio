@@ -390,7 +390,7 @@ failed -> blocked (达到策略上限)
 
 范围：只修确定的安全/数据边界，不改创意输出目标。
 
-允许修改：`docs/`、`AGENTS.md`、`项目代码地图.md`、`src/creative_studio/app.py`、`repository.py`、`prompting.py`、`image_jobs.py` 及对应测试。禁止新增 AI 业务字段或改变创意输出目标。
+允许修改：`docs/`、`AGENTS.md`、`progress.md`、`CHANGELOG.md`、`项目代码地图.md`、`.scratch/ai-phase-0/spec.md`，以及 `src/creative_studio/` 下与止血边界直接相关的 `app.py`、`repository.py`、`prompting.py`、`image_jobs.py`、`model_client.py`、`ai_creative.py`、`carousel.py`、`generation_models.py`、`generation_service.py`、`public_projection.py`、`projection_scrub.py` 和对应测试。禁止新增 AI 业务字段或改变创意输出目标。
 
 动作：
 

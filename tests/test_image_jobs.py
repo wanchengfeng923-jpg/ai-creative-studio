@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -40,6 +41,16 @@ class FakeResponse:
 
     def json(self) -> dict[str, object]:
         return self._payload
+
+
+class DownloadResponse:
+    def __init__(self, data: bytes, content_type: str) -> None:
+        self.content = data
+        self.headers = {"Content-Type": content_type}
+        self.status_code = 200
+
+    def raise_for_status(self) -> None:
+        return None
 
 
 class RecordingGateway:
@@ -83,11 +94,40 @@ class FakeImageClient:
     def status(self, job_id: str) -> GatewayJob:
         return GatewayJob(job_id=str(job_id), status="success", image_url=f"https://gateway/{job_id}.png")
 
-    def download(self, image_url: str) -> tuple[bytes, str]:
-        return b"image-bytes", ".png"
+    def download(self, image_url: str):
+        return SimpleNamespace(
+            data=b"\x89PNG\r\n\x1a\npng",
+            mime="image/png",
+            extension=".png",
+        )
 
 
 class ImageJobTests(unittest.TestCase):
+    def test_download_returns_bytes_mime_and_canonical_extension_from_magic_bytes(self) -> None:
+        cases = (
+            (b"\xff\xd8\xff\xe0jpeg", "image/jpeg", ".jpg"),
+            (b"\x89PNG\r\n\x1a\npng", "image/png", ".png"),
+            (b"RIFF\x08\x00\x00\x00WEBPwebp", "image/webp", ".webp"),
+        )
+        client = GptWebImageClient("http://gateway")
+        for data, mime, extension in cases:
+            with self.subTest(mime=mime), patch(
+                "creative_studio.image_jobs.requests.get",
+                return_value=DownloadResponse(data, mime),
+            ):
+                artifact = client.download("/image")
+            self.assertEqual(getattr(artifact, "data", None), data)
+            self.assertEqual(getattr(artifact, "mime", None), mime)
+            self.assertEqual(getattr(artifact, "extension", None), extension)
+
+    def test_download_rejects_header_and_magic_byte_mismatch(self) -> None:
+        client = GptWebImageClient("http://gateway")
+        response = DownloadResponse(b"\x89PNG\r\n\x1a\npng", "image/jpeg")
+
+        with patch("creative_studio.image_jobs.requests.get", return_value=response):
+            with self.assertRaisesRegex(RuntimeError, "MIME"):
+                client.download("/image")
+
     def test_duplicate_submit_key_reuses_one_gateway_job(self) -> None:
         gateway = RecordingGateway()
         client = GptWebImageClient("http://gateway")
@@ -146,6 +186,14 @@ class ImageJobTests(unittest.TestCase):
             third = repo.visual_item(item_ids[2])
 
             self.assertEqual(first["image_status"], "success")
+            self.assertEqual(first["image_mime"], "image/png")
+            self.assertEqual(Path(first["image_path"]).suffix, ".png")
+            with closing(repo._connect()) as connection:
+                frame_mime = connection.execute(
+                    "SELECT image_mime FROM display_frames WHERE scheme_id=? AND frame_index=1",
+                    (item_ids[0],),
+                ).fetchone()[0]
+            self.assertEqual(frame_mime, "image/png")
             self.assertEqual(first["image_attempt"], 2)
             self.assertEqual(second["image_status"], "success")
             self.assertEqual(second["image_attempt"], 1)

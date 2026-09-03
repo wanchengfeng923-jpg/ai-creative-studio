@@ -14,7 +14,7 @@ from http.cookies import SimpleCookie
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping, MutableMapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .ai_creative import (
@@ -38,10 +38,12 @@ from .generation_models import (
     GenerationInputError,
     GenerationNotFoundError,
     GenerationQueueTimeoutError,
+    error_details,
 )
 from .generation_service import CreativeGenerationService
 from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
-from .model_client import HttpModelClient
+from .model_client import HttpModelClient, ModelClient
+from .public_projection import PublicResultMapper
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 
@@ -56,38 +58,35 @@ UPLOADS_DIR = DATA_DIR / "uploads"
 
 
 class StudioApplication:
-    def __init__(self) -> None:
-        self.repository = StudioRepository(DATABASE_PATH)
-        self.auth = AuthService(self.repository, cookie_secure=os.environ.get("CREATIVE_STUDIO_COOKIE_SECURE", "0") == "1")
-        bootstrap_username = os.environ.get("CREATIVE_STUDIO_BOOTSTRAP_USERNAME")
-        bootstrap_password = os.environ.get("CREATIVE_STUDIO_BOOTSTRAP_PASSWORD")
-        if not self.repository.list_users() and bootstrap_username and bootstrap_password:
-            self.auth.init_admin(bootstrap_username, bootstrap_password)
-        self.image_runner = ImageJobRunner(
-            self.repository,
-            IMAGES_DIR,
-            GptWebImageClient(
-                gateway_base_from_environment(),
-                os.environ.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
-            ),
-        )
-        self._ensure_default_ai_environment()
-        model_client = self._load_model_client()
-        self.generation_service = CreativeGenerationService(
-            self.repository,
-            model_client=model_client,
-            image_runner=self.image_runner,
-        )
+    """Runtime dependency container owned by the production composition root."""
+
+    def __init__(
+        self,
+        repository: StudioRepository,
+        auth: AuthService,
+        image_runner: Any,
+        generation_service: CreativeGenerationService,
+        *,
+        public_mapper: PublicResultMapper,
+        uploads_dir: Path,
+    ) -> None:
+        self.repository = repository
+        self.auth = auth
+        self.image_runner = image_runner
+        self.generation_service = generation_service
+        self.public_mapper = public_mapper
+        self.uploads_dir = Path(uploads_dir).resolve()
 
     @staticmethod
-    def _load_model_client() -> HttpModelClient | None:
-        api_url = str(os.environ.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").strip()
-        api_key = str(os.environ.get("WEB_ERP_AI_API_KEY") or "local-chatgpt-gateway").strip()
-        model = str(os.environ.get("WEB_ERP_AI_MODEL") or "gpt-5-6-mini").strip()
+    def _load_model_client(environment: Mapping[str, str] | None = None) -> HttpModelClient | None:
+        source = environment if environment is not None else os.environ
+        api_url = str(source.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").strip()
+        api_key = str(source.get("WEB_ERP_AI_API_KEY") or "local-chatgpt-gateway").strip()
+        model = str(source.get("WEB_ERP_AI_MODEL") or "gpt-5-6-mini").strip()
         if not api_url or not api_key or not model:
             return None
         try:
-            timeout_seconds = float(os.environ.get("WEB_ERP_AI_TIMEOUT_SECONDS") or 30)
+            timeout_seconds = float(source.get("WEB_ERP_AI_TIMEOUT_SECONDS") or 30)
         except (TypeError, ValueError):
             timeout_seconds = 30.0
         return HttpModelClient(
@@ -97,8 +96,10 @@ class StudioApplication:
         )
 
     @staticmethod
-    def _ensure_default_ai_environment() -> None:
+    def _ensure_default_ai_environment(environment: MutableMapping[str, str] | None = None) -> None:
         """Allow direct ``python -m creative_studio.app`` startup to use the local gateway."""
+
+        target = environment if environment is not None else os.environ
 
         defaults = {
             "WEB_ERP_AI_API_URL": "http://127.0.0.1:8780/v1/chat/completions",
@@ -110,8 +111,8 @@ class StudioApplication:
             "WEB_ERP_AI_TIMEOUT_SECONDS": "300",
         }
         for key, value in defaults.items():
-            if not str(os.environ.get(key) or "").strip():
-                os.environ[key] = value
+            if not str(target.get(key) or "").strip():
+                target[key] = value
 
     @staticmethod
     def _fingerprint(project: dict[str, Any]) -> str:
@@ -139,27 +140,119 @@ class StudioApplication:
         if project is None:
             raise StudioDataError("项目不存在")
         kind = recommendation_kind_for_script_type(project["script_type"])
-        result = self.repository.generation_history(project_id, kind, self._fingerprint(project))
+        fingerprint = self._fingerprint(project)
+        result = self.public_mapper.history(
+            self.repository.generation_history(project_id, kind, fingerprint),
+            recommendation_kind=kind,
+        )
         result.update({
             "success": True,
             "recommendation_kind": kind,
-            "input_fingerprint": self._fingerprint(project),
-            "adoption": project.get("adoption"),
+            "input_fingerprint": fingerprint,
+            "adoption": self.public_mapper.adoption(project.get("adoption")),
         })
         return result
 
     def generate(self, project_id: int) -> dict[str, Any]:
         outcome = self.generation_service.generate(CreativeGenerationRequest(project_id=project_id))
-        return outcome.history
+        result = self.public_mapper.history(
+            outcome.history,
+            recommendation_kind=outcome.snapshot.kind,
+        )
+        result.update({
+            "success": True,
+            "recommendation_kind": outcome.snapshot.kind,
+            "input_fingerprint": outcome.snapshot.fingerprint,
+        })
+        return result
 
     def select_visual_scheme(self, item_id: int) -> dict[str, Any]:
-        return self.generation_service.select_scheme(int(item_id))
+        mapper = getattr(self, "public_mapper", None) or PublicResultMapper()
+        return mapper.display_scheme(self.generation_service.select_scheme(int(item_id)))
 
     def continue_visual_scheme(self, item_id: int) -> dict[str, Any]:
-        return self.generation_service.continue_scheme(int(item_id))
+        return self.public_mapper.display_scheme(
+            self.generation_service.continue_scheme(int(item_id))
+        )
+
+    def adopt_visual(self, project_id: int, item_id: int) -> dict[str, Any]:
+        reference_id, source = self.repository.visual_adoption_source(project_id, item_id)
+        snapshot = self.public_mapper.result_item(source, recommendation_kind="visual")
+        self.repository.save_adoption(project_id, "visual", reference_id, snapshot)
+        return snapshot
+
+    def adopt_narrative(
+        self,
+        project_id: int,
+        generation_id: int,
+        item_index: int,
+    ) -> dict[str, Any]:
+        reference_id, source = self.repository.narrative_adoption_source(
+            project_id,
+            generation_id,
+            item_index,
+        )
+        snapshot = self.public_mapper.result_item(source, recommendation_kind="narrative")
+        self.repository.save_adoption(project_id, "narrative", reference_id, snapshot)
+        return snapshot
 
 
-APP = StudioApplication()
+_DEFAULT_MODEL_CLIENT = object()
+
+
+def create_application(
+    *,
+    database_path: Path = DATABASE_PATH,
+    images_dir: Path = IMAGES_DIR,
+    uploads_dir: Path = UPLOADS_DIR,
+    model_client: ModelClient | None | object = _DEFAULT_MODEL_CLIENT,
+    image_runner: Any | None = None,
+    image_client: GptWebImageClient | None = None,
+    clock: Callable[[], str] | None = None,
+    environment: MutableMapping[str, str] | None = None,
+) -> StudioApplication:
+    """Build the application graph, allowing deterministic adapters in tests."""
+
+    source = environment if environment is not None else os.environ
+    StudioApplication._ensure_default_ai_environment(source)
+    public_mapper = PublicResultMapper()
+    repository = StudioRepository(
+        database_path,
+        **({"clock": clock} if clock is not None else {}),
+    )
+    auth = AuthService(
+        repository,
+        cookie_secure=str(source.get("CREATIVE_STUDIO_COOKIE_SECURE") or "0") == "1",
+    )
+    bootstrap_username = source.get("CREATIVE_STUDIO_BOOTSTRAP_USERNAME")
+    bootstrap_password = source.get("CREATIVE_STUDIO_BOOTSTRAP_PASSWORD")
+    if not repository.list_users() and bootstrap_username and bootstrap_password:
+        auth.init_admin(bootstrap_username, bootstrap_password)
+    if image_runner is None:
+        client = image_client or GptWebImageClient(
+            gateway_base_from_environment(source),
+            source.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
+        )
+        image_runner = ImageJobRunner(repository, images_dir, client)
+    resolved_model_client = (
+        StudioApplication._load_model_client(source)
+        if model_client is _DEFAULT_MODEL_CLIENT
+        else model_client
+    )
+    generation_service = CreativeGenerationService(
+        repository,
+        model_client=resolved_model_client,
+        image_runner=image_runner,
+        environment=source,
+    )
+    return StudioApplication(
+        repository,
+        auth,
+        image_runner,
+        generation_service,
+        public_mapper=public_mapper,
+        uploads_dir=uploads_dir,
+    )
 
 
 def load_tag_options() -> dict[str, Any]:
@@ -176,6 +269,13 @@ def load_tag_options() -> dict[str, Any]:
 
 class StudioHandler(BaseHTTPRequestHandler):
     server_version = "CreativeStudio/0.1"
+
+    @property
+    def application(self) -> StudioApplication:
+        application = getattr(self.server, "application", None)
+        if not isinstance(application, StudioApplication):
+            raise RuntimeError("HTTP server is missing its StudioApplication")
+        return application
 
     def log_message(self, format_text: str, *args: Any) -> None:
         sys.stdout.write("%s - %s\n" % (self.log_date_time_string(), format_text % args))
@@ -197,10 +297,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         return morsel.value if morsel else None
 
     def _context(self):
-        return APP.auth.authenticate_session(self._session_cookie())
+        return self.application.auth.authenticate_session(self._session_cookie())
 
     def _require_auth(self, csrf: bool = False, allow_password_change: bool = False):
-        context = APP.auth.authenticate_session(self._session_cookie(), self._csrf_cookie() if csrf else None)
+        context = self.application.auth.authenticate_session(
+            self._session_cookie(), self._csrf_cookie() if csrf else None
+        )
         if context is None:
             self._json({"success": False, "error": "需要登录"}, HTTPStatus.UNAUTHORIZED)
             raise _ResponseHandled()
@@ -217,7 +319,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         return context
 
     def _require_project_access(self, project_id: int, context) -> dict[str, Any]:
-        project = APP.repository.get_project(project_id)
+        project = self.application.repository.get_project(project_id)
         if project is None:
             self._json({"success": False, "error": "项目不存在"}, HTTPStatus.NOT_FOUND)
             raise _ResponseHandled()
@@ -227,7 +329,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         return project
 
     def _set_auth_cookies(self, session_token: str, csrf_token: str) -> None:
-        secure = "; Secure" if APP.auth.cookie_secure else ""
+        secure = "; Secure" if self.application.auth.cookie_secure else ""
         self._pending_cookies = [f"studio_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"studio_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
 
     def _clear_auth_cookies(self) -> None:
@@ -275,7 +377,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/admin/users":
             self._require_admin()
-            self._json({"success": True, "users": APP.repository.list_users()})
+            self._json({"success": True, "users": self.application.repository.list_users()})
             return
         if not path.startswith("/api/"):
             self._static(path)
@@ -287,70 +389,74 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/projects":
             context = self._context()
             keyword = parse_qs(parsed.query).get("search", [""])[0]
-            projects = APP.repository.list_projects(keyword)
+            projects = self.application.repository.list_projects(keyword)
             if context.user.get("role") != "admin":
                 projects = [p for p in projects if p.get("owner_user_id") == context.user.get("id")]
-            self._json({"success": True, "projects": projects})
+            self._json({
+                "success": True,
+                "projects": [self.application.public_mapper.project_summary(project) for project in projects],
+            })
             return
         project_match = re.fullmatch(r"/api/projects/(\d+)", path)
         if project_match:
             context = self._context()
             self._require_project_access(int(project_match.group(1)), context)
-            project = APP.repository.get_project(int(project_match.group(1)))
+            project = self.application.repository.get_project(int(project_match.group(1)))
             if project is None:
                 self._json({"success": False, "error": "项目不存在"}, HTTPStatus.NOT_FOUND)
             else:
-                self._json({"success": True, "project": project})
+                self._json({
+                    "success": True,
+                    "project": self.application.public_mapper.project(project),
+                })
             return
         history_match = re.fullmatch(r"/api/projects/(\d+)/history", path)
         if history_match:
             context = self._context()
             self._require_project_access(int(history_match.group(1)), context)
-            self._json(APP.history(int(history_match.group(1))))
+            self._json(self.application.history(int(history_match.group(1))))
             return
         frame_status_match = re.fullmatch(r"/api/visual-items/(\d+)/frames/status", path)
         if frame_status_match:
             scheme_id = int(frame_status_match.group(1))
-            owner = APP.repository.get_visual_item_owner_id(scheme_id)
+            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
             context = self._context()
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            scheme = APP.repository.public_display_scheme(scheme_id)
+            scheme = self.application.repository.get_display_scheme(scheme_id)
             if scheme is None:
                 self._json({"success": False, "error": "展示方案不存在"}, HTTPStatus.NOT_FOUND)
             else:
-                self._json({"success": True, "scheme": scheme})
+                self._json({
+                    "success": True,
+                    "scheme": self.application.public_mapper.display_scheme(scheme),
+                })
             return
         status_match = re.fullmatch(r"/api/visual-items/(\d+)/status", path)
         if status_match:
             context = self._context()
-            owner = APP.repository.get_visual_item_owner_id(int(status_match.group(1)))
+            owner = self.application.repository.get_visual_item_owner_id(int(status_match.group(1)))
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            item = APP.repository.visual_item(int(status_match.group(1)))
+            item = self.application.repository.visual_item(int(status_match.group(1)))
             if item is None:
                 self._json({"success": False, "error": "图片任务不存在"}, HTTPStatus.NOT_FOUND)
             else:
                 self._json({
                     "success": True,
-                    "item": {
-                        "id": int(item["id"]),
-                        "image_status": item["image_status"],
-                        "image_url": f"/api/visual-items/{int(item['id'])}/image" if item["image_status"] == "success" else "",
-                        "image_error": item["image_error"],
-                    },
+                    "item": self.application.public_mapper.visual_status(item),
                 })
             return
         image_match = re.fullmatch(r"/api/visual-items/(\d+)/image", path)
         if image_match:
             context = self._context()
-            owner = APP.repository.get_visual_item_owner_id(int(image_match.group(1)))
+            owner = self.application.repository.get_visual_item_owner_id(int(image_match.group(1)))
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            image_path = APP.repository.image_path_for_item(int(image_match.group(1)))
+            image_path = self.application.repository.image_path_for_item(int(image_match.group(1)))
             if image_path is None or not image_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND)
             else:
@@ -360,12 +466,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         if frame_image_match:
             scheme_id = int(frame_image_match.group(1))
             frame_index = int(frame_image_match.group(2))
-            owner = APP.repository.get_visual_item_owner_id(scheme_id)
+            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
             context = self._context()
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            image_path = APP.repository.image_path_for_frame(scheme_id, frame_index)
+            image_path = self.application.repository.image_path_for_frame(scheme_id, frame_index)
             if image_path is None or not image_path.is_file():
                 self.send_error(HTTPStatus.NOT_FOUND)
             else:
@@ -377,27 +483,27 @@ class StudioHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/api/auth/login":
             data = self._read_json()
-            result = APP.auth.login(str(data.get("username") or ""), str(data.get("password") or ""), self.client_address[0], self.headers.get("User-Agent", ""))
+            result = self.application.auth.login(str(data.get("username") or ""), str(data.get("password") or ""), self.client_address[0], self.headers.get("User-Agent", ""))
             self._set_auth_cookies(result.session_token, result.csrf_token)
             self._json({"success": True, "user": result.user, "csrf_token": result.csrf_token})
             return
         if path == "/api/auth/logout":
             context = self._require_auth(csrf=True, allow_password_change=True)
-            APP.auth.logout(self._session_cookie(), int(context.user["id"]))
+            self.application.auth.logout(self._session_cookie(), int(context.user["id"]))
             self._clear_auth_cookies()
             self._json({"success": True})
             return
         if path == "/api/auth/password":
             context = self._require_auth(csrf=True, allow_password_change=True)
             data = self._read_json()
-            user = APP.auth.change_password(int(context.user["id"]), str(data.get("current_password") or ""), str(data.get("new_password") or ""))
+            user = self.application.auth.change_password(int(context.user["id"]), str(data.get("current_password") or ""), str(data.get("new_password") or ""))
             self._clear_auth_cookies()
             self._json({"success": True, "user": user})
             return
         if path == "/api/admin/users":
             context = self._require_admin(csrf=True)
             data = self._read_json()
-            user = APP.auth.create_user(int(context.user["id"]), str(data.get("username") or ""), str(data.get("password") or ""))
+            user = self.application.auth.create_user(int(context.user["id"]), str(data.get("username") or ""), str(data.get("password") or ""))
             self._json({"success": True, "user": user}, HTTPStatus.CREATED)
             return
         user_match = re.fullmatch(r"/api/admin/users/(\d+)/(disable|enable|reset-password)", path)
@@ -405,46 +511,49 @@ class StudioHandler(BaseHTTPRequestHandler):
             context = self._require_admin(csrf=True)
             target_id, action = int(user_match.group(1)), user_match.group(2)
             if action == "reset-password":
-                user, temporary_password = APP.auth.reset_user_password(int(context.user["id"]), target_id)
+                user, temporary_password = self.application.auth.reset_user_password(int(context.user["id"]), target_id)
                 self._json({"success": True, "user": user, "temporary_password": temporary_password})
             else:
-                user = APP.auth.set_user_active(int(context.user["id"]), target_id, action == "enable")
+                user = self.application.auth.set_user_active(int(context.user["id"]), target_id, action == "enable")
                 self._json({"success": True, "user": user})
             return
         edit_match = re.fullmatch(r"/api/admin/users/(\d+)", path)
         if edit_match:
             context = self._require_admin(csrf=True)
             data = self._read_json()
-            user = APP.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
+            user = self.application.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
             self._json({"success": True, "user": user})
             return
         delete_match = re.fullmatch(r"/api/admin/users/(\d+)/delete", path)
         if delete_match:
             context = self._require_admin(csrf=True)
-            APP.auth.delete_user(int(context.user["id"]), int(delete_match.group(1)))
+            self.application.auth.delete_user(int(context.user["id"]), int(delete_match.group(1)))
             self._json({"success": True})
             return
         self._require_auth(csrf=True)
         if path == "/api/projects":
             data = self._read_json()
             context = self._context()
-            project = APP.repository.create_project(data.get("name", "未命名创意"), data.get("script_type", "展示类"), int(context.user["id"]))
-            self._json({"success": True, "project": project}, HTTPStatus.CREATED)
+            project = self.application.repository.create_project(data.get("name", "未命名创意"), data.get("script_type", "展示类"), int(context.user["id"]))
+            self._json({
+                "success": True,
+                "project": self.application.public_mapper.project(project),
+            }, HTTPStatus.CREATED)
             return
         generate_match = re.fullmatch(r"/api/projects/(\d+)/generate", path)
         if generate_match:
             self._require_project_access(int(generate_match.group(1)), self._context())
-            self._json(APP.generate(int(generate_match.group(1))))
+            self._json(self.application.generate(int(generate_match.group(1))))
             return
         scheme_match = re.fullmatch(r"/api/visual-items/(\d+)/(select|continue)", path)
         if scheme_match:
             item_id, action = int(scheme_match.group(1)), scheme_match.group(2)
-            owner = APP.repository.get_visual_item_owner_id(item_id)
+            owner = self.application.repository.get_visual_item_owner_id(item_id)
             context = self._context()
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            result = APP.select_visual_scheme(item_id) if action == "select" else APP.continue_visual_scheme(item_id)
+            result = self.application.select_visual_scheme(item_id) if action == "select" else self.application.continue_visual_scheme(item_id)
             self._json({"success": True, **result})
             return
         adopt_match = re.fullmatch(r"/api/projects/(\d+)/adopt", path)
@@ -453,24 +562,27 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._require_project_access(project_id, self._context())
             data = self._read_json()
             if data.get("recommendation_kind") == "narrative":
-                snapshot = APP.repository.adopt_narrative(
+                snapshot = self.application.adopt_narrative(
                     project_id, int(data.get("generation_id") or 0), int(data.get("item_index") or 0)
                 )
             else:
-                snapshot = APP.repository.adopt_visual(project_id, int(data.get("item_id") or 0))
-            self._json({"success": True, "snapshot": snapshot})
+                snapshot = self.application.adopt_visual(project_id, int(data.get("item_id") or 0))
+            self._json({
+                "success": True,
+                "snapshot": snapshot,
+            })
             return
         retry_match = re.fullmatch(r"/api/visual-items/(\d+)/retry", path)
         if retry_match:
             item_id = int(retry_match.group(1))
-            owner = APP.repository.get_visual_item_owner_id(item_id)
+            owner = self.application.repository.get_visual_item_owner_id(item_id)
             context = self._context()
             if context.user.get("role") != "admin" and owner != context.user.get("id"):
                 self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
                 return
-            if not APP.repository.retry_visual_item(item_id):
+            if not self.application.repository.retry_visual_item(item_id):
                 raise StudioDataError("只有失败的图片可以重新生成")
-            APP.image_runner.retry(item_id)
+            self.application.image_runner.retry(item_id)
             self._json({"success": True})
             return
         upload_match = re.fullmatch(r"/api/projects/(\d+)/files", path)
@@ -486,7 +598,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         if edit_match:
             context = self._require_admin(csrf=True)
             data = self._read_json()
-            user = APP.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
+            user = self.application.auth.update_user_username(int(context.user["id"]), int(edit_match.group(1)), str(data.get("username") or ""))
             self._json({"success": True, "user": user})
             return
         match = re.fullmatch(r"/api/projects/(\d+)", urlsplit(self.path).path)
@@ -494,8 +606,11 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
             return
         self._require_project_access(int(match.group(1)), context)
-        project = APP.repository.update_project(int(match.group(1)), self._read_json())
-        self._json({"success": True, "project": project})
+        project = self.application.repository.update_project(int(match.group(1)), self._read_json())
+        self._json({
+            "success": True,
+            "project": self.application.public_mapper.project(project),
+        })
 
     def _delete(self) -> None:
         context = self._require_auth(csrf=True)
@@ -504,7 +619,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
             return
         self._require_project_access(int(match.group(1)), context)
-        deleted = APP.repository.delete_project(int(match.group(1)))
+        deleted = self.application.repository.delete_project(int(match.group(1)))
         self._json({"success": deleted})
 
     def _upload_file(self, project_id: int) -> None:
@@ -516,13 +631,14 @@ class StudioHandler(BaseHTTPRequestHandler):
             raise StudioDataError("参考文件名不能为空")
         suffix = Path(original_name).suffix[:16]
         stored_name = f"{uuid.uuid4().hex}{suffix}"
-        target_dir = (UPLOADS_DIR / str(project_id)).resolve()
-        if UPLOADS_DIR.resolve() not in target_dir.parents:
+        uploads_dir = self.application.uploads_dir
+        target_dir = (uploads_dir / str(project_id)).resolve()
+        if uploads_dir not in target_dir.parents:
             raise StudioDataError("参考文件目录无效")
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / stored_name
         target.write_bytes(self.rfile.read(size))
-        record = APP.repository.add_project_file(project_id, Path(original_name).name, stored_name, size)
+        record = self.application.repository.add_project_file(project_id, Path(original_name).name, stored_name, size)
         self._json({"success": True, "file": record}, HTTPStatus.CREATED)
 
     def _read_json(self) -> dict[str, Any]:
@@ -582,31 +698,40 @@ class StudioHandler(BaseHTTPRequestHandler):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
             return
         if isinstance(exc, GenerationInputError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.UNPROCESSABLE_ENTITY)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.UNPROCESSABLE_ENTITY)
             return
         if isinstance(exc, GenerationNotFoundError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.NOT_FOUND)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.NOT_FOUND)
             return
         if isinstance(exc, GenerationConflictError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.CONFLICT)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.CONFLICT)
             return
         if isinstance(exc, GenerationQueueTimeoutError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if isinstance(exc, StudioDataError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
         if isinstance(exc, AiCreativeConfigurationError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
             return
         if isinstance(exc, AiCreativeQueueTimeoutError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.SERVICE_UNAVAILABLE)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.SERVICE_UNAVAILABLE)
             return
         if isinstance(exc, AiCreativeRequestError):
-            self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_GATEWAY)
+            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.BAD_GATEWAY)
             return
         traceback.print_exc()
         self._json({"success": False, "error": "服务处理失败，请查看启动窗口日志"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    @staticmethod
+    def _generation_error_payload(exc: Exception) -> dict[str, Any]:
+        details = error_details(exc)
+        return {
+            "success": False,
+            "error": str(exc),
+            **details.public_fields(),
+        }
 
 
 class _ResponseHandled(Exception):
@@ -616,15 +741,17 @@ class _ResponseHandled(Exception):
 def run() -> None:
     host = str(os.environ.get("CREATIVE_STUDIO_HOST") or "127.0.0.1")
     port = int(os.environ.get("CREATIVE_STUDIO_PORT") or 8775)
+    application = create_application()
     server = ThreadingHTTPServer((host, port), StudioHandler)
-    APP.image_runner.start()
+    server.application = application  # type: ignore[attr-defined]
+    application.image_runner.start()
     print(f"AI创意工作台：http://{host}:{port}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        APP.image_runner.stop()
+        application.image_runner.stop()
         server.server_close()
 
 

@@ -46,7 +46,17 @@ class TagOptionsTests(unittest.TestCase):
                 "visual_carousel": ["是"],
                 "visual_carousel_count": ["3屏"],
             },
-            "{{creative_tags}}\n{{carousel_context}}",
+            "\n".join(
+                (
+                    "{{task_type}}",
+                    "{{task_description}}",
+                    "{{creative_tags}}",
+                    "{{aspect_ratio}}",
+                    "{{product_evidence_summary}}",
+                    "{{reference_file_names}}",
+                    "{{carousel_context}}",
+                )
+            ),
             carousel_config={
                 "enabled": "是",
                 "count_mode": "fixed",

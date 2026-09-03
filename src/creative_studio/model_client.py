@@ -9,6 +9,18 @@ from typing import Any, Callable, Mapping, Protocol, runtime_checkable
 import requests
 
 
+class ModelResponseFormatError(ValueError):
+    """The provider response does not match the chat completion envelope."""
+
+    error_code = "model_output_invalid"
+    phase = "validation"
+    retryable = False
+
+    def __init__(self, message: str, *, field_path: str) -> None:
+        super().__init__(message)
+        self.field_path = field_path
+
+
 @dataclass(frozen=True)
 class ModelRequest:
     model: str
@@ -61,15 +73,29 @@ def _extract_usage(payload: Mapping[str, Any]) -> tuple[int | None, int | None, 
 def _first_message_content(payload: Mapping[str, Any]) -> str:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        return ""
+        raise ModelResponseFormatError(
+            "AI返回结果缺少choices",
+            field_path="choices",
+        )
     first = choices[0]
     if not isinstance(first, Mapping):
-        return ""
+        raise ModelResponseFormatError(
+            "AI返回结果缺少正文",
+            field_path="choices[0].message.content",
+        )
     message = first.get("message")
     if not isinstance(message, Mapping):
-        return ""
+        raise ModelResponseFormatError(
+            "AI返回结果缺少正文",
+            field_path="choices[0].message.content",
+        )
     content = message.get("content")
-    return content if isinstance(content, str) else str(content or "")
+    if not isinstance(content, str) or not content.strip():
+        raise ModelResponseFormatError(
+            "AI返回结果缺少正文",
+            field_path="choices[0].message.content",
+        )
+    return content
 
 
 @dataclass
@@ -99,9 +125,18 @@ class HttpModelClient:
             timeout=self.timeout_seconds,
         )
         response.raise_for_status()
-        response_payload = response.json()
+        try:
+            response_payload = response.json()
+        except (TypeError, ValueError) as exc:
+            raise ModelResponseFormatError(
+                "AI返回结果无法解析",
+                field_path="$",
+            ) from exc
         if not isinstance(response_payload, Mapping):
-            response_payload = {}
+            raise ModelResponseFormatError(
+                "AI返回结果必须是对象",
+                field_path="$",
+            )
         input_tokens, output_tokens, total_tokens = _extract_usage(response_payload)
         return ModelResponse(
             content=_first_message_content(response_payload),
@@ -119,4 +154,5 @@ __all__ = [
     "ModelClient",
     "ModelRequest",
     "ModelResponse",
+    "ModelResponseFormatError",
 ]

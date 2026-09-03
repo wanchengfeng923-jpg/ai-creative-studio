@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import os
 import json
 from dataclasses import is_dataclass
@@ -23,15 +24,51 @@ from creative_studio.generation_models import (
     GenerationOutcome,
 )
 from creative_studio.ai_creative import (
+    AiCreativeConfig,
+    AiCreativeRequestError,
     AiCreativeQueueTimeoutError,
     generate_creative_recommendations,
+    generate_visual_creative_recommendations,
     load_ai_creative_config,
     load_ai_creative_game_info,
+    validate_creative_recommendations,
+    validate_visual_creative_recommendations,
 )
-from creative_studio.generation_service import CreativeGenerationService
-from creative_studio.model_client import ModelResponse
+from creative_studio.generation_service import (
+    CreativeGenerationService,
+    LegacyCreativeGenerationAdapter,
+)
+from creative_studio.model_client import HttpModelClient, ModelResponse
 from creative_studio.repository import StudioRepository
 from creative_studio.app import StudioApplication
+
+
+NARRATIVE_PROMPT_TEMPLATE = "{{task_type}}\n{{task_description}}\n{{creative_tags}}"
+
+
+def valid_narrative_payload() -> dict[str, object]:
+    story = {
+        "story": "故事",
+        "hooks": [
+            {"text": "钩子1", "scenes": ["画面1", "画面2", "画面3"]},
+            {"text": "钩子2", "scenes": ["画面4", "画面5", "画面6"]},
+        ],
+    }
+    return {"items": [copy.deepcopy(story) for _ in range(5)]}
+
+
+class LegacyResponse:
+    def __init__(self, payload: object = None, *, json_error: Exception | None = None) -> None:
+        self.payload = payload
+        self.json_error = json_error
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> object:
+        if self.json_error is not None:
+            raise self.json_error
+        return copy.deepcopy(self.payload)
 
 
 class FakeGenerationAdapter:
@@ -181,6 +218,15 @@ class GenerationServiceTests(unittest.TestCase):
             self.assertTrue(is_dataclass(model))
             self.assertTrue(model.__dataclass_params__.frozen)
 
+    def test_legacy_adapter_has_explicit_removal_metadata(self) -> None:
+        self.assertEqual(LegacyCreativeGenerationAdapter.deprecated_since, "phase-0")
+        self.assertEqual(
+            LegacyCreativeGenerationAdapter.replacement,
+            "CreativeGenerationService with ModelClient",
+        )
+        self.assertTrue(LegacyCreativeGenerationAdapter.new_callers_forbidden)
+        self.assertIn("zero production callers", LegacyCreativeGenerationAdapter.removal_condition)
+
     def test_generate_narrative_calls_model_once_and_creates_no_image_jobs(self) -> None:
         result = self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
         self.assertEqual(len(self.service.adapter.calls), 1)
@@ -197,13 +243,268 @@ class GenerationServiceTests(unittest.TestCase):
             "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
             "WEB_ERP_AI_API_KEY": "secret",
             "WEB_ERP_AI_MODEL": "gpt-test",
-            "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+            "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
             "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
         }, clear=False):
             service = CreativeGenerationService(repository=self.repo, model_client=client, image_runner=FakeImageRunner())
             result = service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
         self.assertEqual(len(client.requests), 2)
         self.assertEqual(result.snapshot.kind, "narrative")
+
+    def test_json_text_parse_failures_use_root_field_path(self) -> None:
+        for value in ("", "not-json", "[]"):
+            with self.subTest(value=value):
+                with self.assertRaises(AiCreativeRequestError) as raised:
+                    validate_creative_recommendations(value)
+
+                self.assertEqual(raised.exception.field_path, "$")
+
+    def test_narrative_validator_assigns_exact_path_to_each_rejection(self) -> None:
+        invalid_item = valid_narrative_payload()
+        invalid_item["items"][0] = None
+        invalid_story = valid_narrative_payload()
+        invalid_story["items"][0]["story"] = ""
+        invalid_hooks = valid_narrative_payload()
+        invalid_hooks["items"][0]["hooks"] = []
+        invalid_hook = valid_narrative_payload()
+        invalid_hook["items"][0]["hooks"][0] = None
+        invalid_hook_text = valid_narrative_payload()
+        invalid_hook_text["items"][0]["hooks"][0]["text"] = "\n"
+        invalid_scenes = valid_narrative_payload()
+        invalid_scenes["items"][0]["hooks"][0]["scenes"] = []
+        invalid_scene = valid_narrative_payload()
+        invalid_scene["items"][0]["hooks"][0]["scenes"][1] = "x" * 81
+        cases = (
+            ({"items": []}, "items"),
+            (invalid_item, "items[0]"),
+            (invalid_story, "items[0].story"),
+            (invalid_hooks, "items[0].hooks"),
+            (invalid_hook, "items[0].hooks[0]"),
+            (invalid_hook_text, "items[0].hooks[0].text"),
+            (invalid_scenes, "items[0].hooks[0].scenes"),
+            (invalid_scene, "items[0].hooks[0].scenes[1]"),
+        )
+
+        for value, expected_path in cases:
+            with self.subTest(expected_path=expected_path):
+                with self.assertRaises(AiCreativeRequestError) as raised:
+                    validate_creative_recommendations(value)
+
+                self.assertEqual(raised.exception.field_path, expected_path)
+
+    def test_visual_choices_wrapper_failures_use_exact_field_paths(self) -> None:
+        cases = (
+            ({"choices": []}, "choices"),
+            ({"choices": [{}]}, "choices[0].message.content"),
+        )
+
+        for value, expected_path in cases:
+            with self.subTest(expected_path=expected_path):
+                with self.assertRaises(AiCreativeRequestError) as raised:
+                    validate_visual_creative_recommendations(value)
+
+                self.assertEqual(raised.exception.field_path, expected_path)
+
+    def test_malformed_model_json_persists_root_field_path(self) -> None:
+        client = SequenceModelClient(
+            [ModelResponse(content="not-json"), ModelResponse(content="not-json")]
+        )
+        service = CreativeGenerationService(
+            repository=self.repo,
+            model_client=client,
+            image_runner=FakeImageRunner(),
+            environment={
+                "WEB_ERP_AI_API_URL": "https://example.invalid/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "fake-test-key",
+                "WEB_ERP_AI_MODEL": "fake-test-model",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
+                "WEB_ERP_AI_GAME_INFO_PATH": (
+                    "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json"
+                ),
+            },
+        )
+
+        with self.assertRaises(AiCreativeRequestError) as raised:
+            service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+
+        self.assertEqual(raised.exception.error_code, "model_output_invalid")
+        self.assertEqual(raised.exception.field_path, "$")
+        snapshot = service._build_snapshot(self.repo.get_project(self.narrative_project["id"]))
+        history = self.repo.generation_history(
+            self.narrative_project["id"],
+            "narrative",
+            snapshot.fingerprint,
+        )
+        self.assertEqual(history["failed_generations"][0]["field_path"], "$")
+
+    def test_http_model_client_choices_failure_persists_wrapper_field_path(self) -> None:
+        client = HttpModelClient(
+            api_url="https://example.invalid/v1/chat/completions",
+            api_key="fake-test-key",
+            transport=lambda *args, **kwargs: LegacyResponse({"choices": []}),
+        )
+        service = CreativeGenerationService(
+            repository=self.repo,
+            model_client=client,
+            image_runner=FakeImageRunner(),
+            environment={
+                "WEB_ERP_AI_API_URL": "https://example.invalid/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "fake-test-key",
+                "WEB_ERP_AI_MODEL": "fake-test-model",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
+                "WEB_ERP_AI_GAME_INFO_PATH": (
+                    "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json"
+                ),
+            },
+        )
+
+        with self.assertRaises(AiCreativeRequestError) as raised:
+            service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+
+        self.assertEqual(raised.exception.error_code, "model_output_invalid")
+        self.assertEqual(raised.exception.field_path, "choices")
+        snapshot = service._build_snapshot(self.repo.get_project(self.narrative_project["id"]))
+        history = self.repo.generation_history(
+            self.narrative_project["id"],
+            "narrative",
+            snapshot.fingerprint,
+        )
+        self.assertEqual(history["failed_generations"][0]["field_path"], "choices")
+
+    def test_model_validation_failure_preserves_field_path_and_error_contract(self) -> None:
+        valid_story = {
+            "story": "故事",
+            "hooks": [
+                {"text": "钩子1", "scenes": ["画面1", "画面2", "画面3"]},
+                {"text": "钩子2", "scenes": ["画面4", "画面5", "画面6"]},
+            ],
+        }
+        payload = {"items": [dict(valid_story) for _ in range(5)]}
+        payload["items"][0]["story"] = ""
+        client = SequenceModelClient(
+            [ModelResponse(content=json.dumps(payload, ensure_ascii=False)) for _ in range(2)]
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
+                "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
+            },
+            clear=False,
+        ):
+            service = CreativeGenerationService(
+                repository=self.repo,
+                model_client=client,
+                image_runner=FakeImageRunner(),
+            )
+            with self.assertRaises(AiCreativeRequestError) as raised:
+                service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+
+        error = raised.exception
+        self.assertEqual(len(client.requests), 2)
+        self.assertEqual(getattr(error, "error_code", ""), "model_output_invalid")
+        self.assertEqual(getattr(error, "phase", ""), "validation")
+        self.assertEqual(getattr(error, "field_path", ""), "items[0].story")
+        self.assertFalse(getattr(error, "retryable", True))
+        self.assertIn("items[0].story", str(error))
+        snapshot = service._build_snapshot(self.repo.get_project(self.narrative_project["id"]))
+        history = self.repo.generation_history(
+            self.narrative_project["id"],
+            "narrative",
+            snapshot.fingerprint,
+        )
+        self.assertEqual(history["failed_generations"][0]["field_path"], "items[0].story")
+        self.assertRegex(history["failed_generations"][0]["trace_id"], r"^[0-9a-f]{32}$")
+
+    def test_static_visual_validation_failure_preserves_exact_field_path(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {"task_description": "展示说明"},
+        )
+        items = copy.deepcopy(self.service.adapter.results_by_kind["visual"].items)
+        items[0]["title"] = ""
+        response = ModelResponse(content=json.dumps({"items": items}, ensure_ascii=False))
+        client = SequenceModelClient([response, response])
+        service = CreativeGenerationService(
+            repository=self.repo,
+            model_client=client,
+            image_runner=FakeImageRunner(),
+            environment={
+                "WEB_ERP_AI_API_URL": "https://example.invalid/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "fake-test-key",
+                "WEB_ERP_AI_MODEL": "fake-test-model",
+            },
+        )
+
+        with self.assertRaises(AiCreativeRequestError) as raised:
+            service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertEqual(raised.exception.error_code, "model_output_invalid")
+        self.assertEqual(raised.exception.field_path, "items[0].title")
+        snapshot = service._build_snapshot(self.repo.get_project(self.visual_project["id"]))
+        history = self.repo.generation_history(
+            self.visual_project["id"],
+            "visual",
+            snapshot.fingerprint,
+        )
+        self.assertEqual(history["failed_generations"][0]["field_path"], "items[0].title")
+
+    def test_carousel_validation_failure_preserves_deep_field_path(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "task_description": "展示说明",
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": ["3屏"],
+                },
+            },
+        )
+
+        def scheme(index: int) -> dict[str, object]:
+            return {
+                "title": f"方案{index}",
+                "creative_summary": f"说明{index}",
+                "creative_sources": [f"来源{index}"],
+                "frame_count": 3,
+                "visual_continuity_rules": ["保持主体一致"],
+                "frame_plan": [
+                    {"index": frame, "description": f"画面{frame}"}
+                    for frame in range(1, 4)
+                ],
+                "first_frame": {
+                    "index": 1,
+                    "content": "首帧",
+                    "image_generation_instruction": "图片指令",
+                },
+            }
+
+        items = [scheme(index) for index in range(1, 4)]
+        items[0]["frame_plan"][1]["description"] = ""
+        response = ModelResponse(content=json.dumps({"items": items}, ensure_ascii=False))
+        client = SequenceModelClient([response, response])
+        service = CreativeGenerationService(
+            repository=self.repo,
+            model_client=client,
+            image_runner=FakeImageRunner(),
+            environment={
+                "WEB_ERP_AI_API_URL": "https://example.invalid/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "fake-test-key",
+                "WEB_ERP_AI_MODEL": "fake-test-model",
+            },
+        )
+
+        with self.assertRaises(AiCreativeRequestError) as raised:
+            service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertEqual(raised.exception.error_code, "model_output_invalid")
+        self.assertEqual(
+            raised.exception.field_path,
+            "items[0].frame_plan[1].description",
+        )
 
     def test_generate_blank_task_description_raises_input_error(self) -> None:
         self.repo.update_project(self.narrative_project["id"], {"task_description": "   "})
@@ -231,6 +532,72 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertEqual(result.snapshot.schema_version, "visual.v1")
         self.assertEqual(self.service.image_runner.enqueued, [[1, 2, 3]])
         self.assertEqual(self.service.image_runner.waited_for, [])
+
+    def test_enabled_carousel_without_count_is_rejected_before_adapter_call(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "task_description": "展示说明",
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": [""],
+                },
+            },
+        )
+
+        with self.assertRaises(GenerationInputError) as raised:
+            self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertIn("轮播数量", str(raised.exception))
+        self.assertEqual(getattr(raised.exception, "error_code", ""), "carousel_count_required")
+        self.assertEqual(
+            getattr(raised.exception, "field_path", ""),
+            "creative_tags.visual_carousel_count",
+        )
+        self.assertEqual(self.service.adapter.calls, [])
+        with closing(self.repo._connect()) as connection:
+            count = connection.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_enabled_carousel_with_invalid_count_is_rejected_before_model_call(self) -> None:
+        self.repo.update_project(
+            self.visual_project["id"],
+            {
+                "task_description": "展示说明",
+                "creative_tags": {
+                    "visual_carousel": ["是"],
+                    "visual_carousel_count": ["6屏"],
+                },
+            },
+        )
+        client = FakeModelClient(ModelResponse(content="{}"))
+        service = CreativeGenerationService(
+            repository=self.repo,
+            model_client=client,
+            image_runner=FakeImageRunner(),
+        )
+
+        with patch.dict(
+            os.environ,
+            {
+                "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
+                "WEB_ERP_AI_API_KEY": "secret",
+                "WEB_ERP_AI_MODEL": "gpt-test",
+            },
+            clear=False,
+        ):
+            with self.assertRaises(GenerationInputError) as raised:
+                service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+
+        self.assertEqual(client.requests, [])
+        self.assertEqual(getattr(raised.exception, "error_code", ""), "carousel_count_invalid")
+        self.assertEqual(
+            getattr(raised.exception, "field_path", ""),
+            "creative_tags.visual_carousel_count",
+        )
+        with closing(self.repo._connect()) as connection:
+            count = connection.execute("SELECT COUNT(*) FROM generations").fetchone()[0]
+        self.assertEqual(count, 0)
 
     def test_generate_visual_calls_model_once(self) -> None:
         self.repo.update_project(
@@ -406,7 +773,7 @@ class GenerationServiceTests(unittest.TestCase):
                 "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
                 "WEB_ERP_AI_API_KEY": "secret",
                 "WEB_ERP_AI_MODEL": "gpt-test",
-                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
                 "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
             },
             clear=False,
@@ -431,6 +798,13 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertEqual(row["conversation_id"], "conversation")
         self.assertEqual(row["assistant_message_id"], "message")
+        self.assertEqual(result.history["batches"][0]["usage"]["usage_source"], "estimated")
+
+    def test_default_game_info_path_points_to_existing_v2_file(self) -> None:
+        game_info = load_ai_creative_game_info({})
+
+        self.assertEqual(game_info.version, "v2")
+        self.assertIn("《剑侠传奇》", game_info.content)
 
     def test_generate_model_timeout_raises_queue_timeout_error(self) -> None:
         class TimeoutModelClient:
@@ -443,7 +817,7 @@ class GenerationServiceTests(unittest.TestCase):
                 "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
                 "WEB_ERP_AI_API_KEY": "secret",
                 "WEB_ERP_AI_MODEL": "gpt-test",
-                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
                 "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
             },
             clear=False,
@@ -467,7 +841,7 @@ class GenerationServiceTests(unittest.TestCase):
                 "WEB_ERP_AI_API_URL": "https://example.com/v1/chat/completions",
                 "WEB_ERP_AI_API_KEY": "secret",
                 "WEB_ERP_AI_MODEL": "gpt-test",
-                "WEB_ERP_AI_PROMPT_TEMPLATE": "任务：{{task_description}}",
+                "WEB_ERP_AI_PROMPT_TEMPLATE": NARRATIVE_PROMPT_TEMPLATE,
                 "WEB_ERP_AI_GAME_INFO_PATH": "D:\\code\\ai_creative_studio\\config\\ai_creative_game_info_v2.json",
             },
             clear=False,
@@ -484,6 +858,145 @@ class GenerationServiceTests(unittest.TestCase):
                     script_type="叙事类",
                     transport=timeout_transport,
                 )
+
+    def test_legacy_generation_json_failures_use_root_field_path(self) -> None:
+        narrative_config = AiCreativeConfig(
+            provider="chatgpt-web",
+            api_url="https://example.invalid/v1/chat/completions",
+            api_key="fake-test-key",
+            model="fake-test-model",
+            timeout_seconds=1,
+            prompt_version="test",
+            prompt_template=NARRATIVE_PROMPT_TEMPLATE,
+        )
+        visual_config = AiCreativeConfig(
+            provider="chatgpt-web",
+            api_url="https://example.invalid/v1/chat/completions",
+            api_key="fake-test-key",
+            model="fake-test-model",
+            timeout_seconds=1,
+            prompt_version="test",
+            prompt_template="\n".join(
+                (
+                    "{{task_type}}",
+                    "{{task_description}}",
+                    "{{creative_tags}}",
+                    "{{aspect_ratio}}",
+                    "{{product_evidence_summary}}",
+                    "{{reference_file_names}}",
+                    "{{carousel_context}}",
+                )
+            ),
+        )
+
+        def malformed_transport(*args, **kwargs):
+            return LegacyResponse(json_error=ValueError("malformed"))
+
+        calls = (
+            lambda: generate_creative_recommendations(
+                {},
+                config=narrative_config,
+                task_description="叙事说明",
+                script_type="叙事类",
+                transport=malformed_transport,
+            ),
+            lambda: generate_visual_creative_recommendations(
+                {},
+                config=visual_config,
+                task_description="展示说明",
+                carousel_config={
+                    "enabled": "否",
+                    "count_mode": "none",
+                    "count": 1,
+                    "rounds": [],
+                },
+                transport=malformed_transport,
+            ),
+        )
+
+        for call in calls:
+            with self.subTest(call=call):
+                with self.assertRaises(AiCreativeRequestError) as raised:
+                    call()
+
+                self.assertEqual(raised.exception.field_path, "$")
+
+    def test_legacy_generation_cursor_failures_use_exact_field_paths(self) -> None:
+        narrative_payload = valid_narrative_payload()
+        narrative_payload["assistant_message_id"] = "assistant"
+        visual_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "items": copy.deepcopy(
+                                    self.service.adapter.results_by_kind["visual"].items
+                                )
+                            },
+                            ensure_ascii=False,
+                        )
+                    }
+                }
+            ],
+            "conversation_id": "conversation",
+        }
+        narrative_config = AiCreativeConfig(
+            provider="chatgpt-web",
+            api_url="https://example.invalid/v1/chat/completions",
+            api_key="fake-test-key",
+            model="fake-test-model",
+            timeout_seconds=1,
+            prompt_version="test",
+            prompt_template=NARRATIVE_PROMPT_TEMPLATE,
+        )
+        visual_config = AiCreativeConfig(
+            provider="chatgpt-web",
+            api_url="https://example.invalid/v1/chat/completions",
+            api_key="fake-test-key",
+            model="fake-test-model",
+            timeout_seconds=1,
+            prompt_version="test",
+            prompt_template="\n".join(
+                (
+                    "{{task_type}}",
+                    "{{task_description}}",
+                    "{{creative_tags}}",
+                    "{{aspect_ratio}}",
+                    "{{product_evidence_summary}}",
+                    "{{reference_file_names}}",
+                    "{{carousel_context}}",
+                )
+            ),
+        )
+        cases = (
+            (
+                lambda: generate_creative_recommendations(
+                    {},
+                    config=narrative_config,
+                    task_description="叙事说明",
+                    script_type="叙事类",
+                    transport=lambda *args, **kwargs: LegacyResponse(narrative_payload),
+                ),
+                "conversation_id",
+            ),
+            (
+                lambda: generate_visual_creative_recommendations(
+                    {},
+                    config=visual_config,
+                    task_description="展示说明",
+                    transport=lambda *args, **kwargs: LegacyResponse(visual_payload),
+                ),
+                "assistant_message_id",
+            ),
+        )
+
+        for call, expected_path in cases:
+            with self.subTest(expected_path=expected_path):
+                with self.assertRaises(AiCreativeRequestError) as raised:
+                    call()
+
+                self.assertEqual(raised.exception.field_path, expected_path)
 
     def test_inactive_tags_do_not_change_fingerprint_or_batch_identity(self) -> None:
         self.repo.update_project(
@@ -544,11 +1057,12 @@ class GenerationServiceTests(unittest.TestCase):
         self.assertEqual(service.adapter.calls, 1)
         with closing(self.repo._connect()) as connection:
             row = connection.execute(
-                "SELECT status, error FROM generations ORDER BY id DESC LIMIT 1",
+                "SELECT status, error, error_detail FROM generations ORDER BY id DESC LIMIT 1",
             ).fetchone()
         self.assertIsNotNone(row)
         self.assertEqual(row["status"], "failed")
-        self.assertEqual(row["error"], "boom")
+        self.assertEqual(row["error"], "生成失败，请重试")
+        self.assertIn("RuntimeError: boom", row["error_detail"])
 
 
 if __name__ == "__main__":

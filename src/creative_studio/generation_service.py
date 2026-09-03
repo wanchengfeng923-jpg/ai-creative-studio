@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import replace
@@ -40,8 +41,9 @@ from .generation_models import (
     GenerationNotFoundError,
     GenerationQueueTimeoutError,
     GenerationOutcome,
+    error_details,
 )
-from .model_client import ModelClient, ModelRequest
+from .model_client import ModelClient, ModelRequest, ModelResponseFormatError
 from .prompting import CompiledPrompt
 from .repository import StudioRepository
 
@@ -93,6 +95,11 @@ def _fingerprint(snapshot: CreativeInputSnapshot) -> str:
 class LegacyCreativeGenerationAdapter:
     """用现有 AI 函数实现的一次性生成适配器。"""
 
+    deprecated_since = "phase-0"
+    replacement = "CreativeGenerationService with ModelClient"
+    new_callers_forbidden = True
+    removal_condition = "Remove after the three replacement modules have zero production callers."
+
     def generate(
         self,
         snapshot: CreativeInputSnapshot,
@@ -136,12 +143,14 @@ class CreativeGenerationService:
         model_client: ModelClient | None = None,
         image_runner: Any | None = None,
         pending_timeout_seconds: int = 15 * 60,
+        environment: Mapping[str, str] | None = None,
     ) -> None:
         self.repository = repository
         self.adapter = adapter or LegacyCreativeGenerationAdapter()
         self.model_client = model_client
         self.image_runner = image_runner
         self.pending_timeout_seconds = max(1, int(pending_timeout_seconds))
+        self.environment = environment if environment is not None else os.environ
         self._recover_pending_generations()
 
     def generate(self, request: CreativeGenerationRequest) -> GenerationOutcome:
@@ -200,7 +209,26 @@ class CreativeGenerationService:
                 item_ids=item_ids,
             )
         except Exception as exc:
-            self.repository.fail_generation(context.reservation_id, str(exc))
+            try:
+                setattr(exc, "trace_id", context.request_id)
+            except Exception:
+                pass
+            details = error_details(exc, trace_id=context.request_id)
+            public_error = (
+                str(exc)
+                if details.error_code != "generation_failed"
+                else "生成失败，请重试"
+            )
+            self.repository.fail_generation(
+                context.reservation_id,
+                public_error,
+                error_code=details.error_code,
+                phase=details.phase,
+                field_path=details.field_path,
+                retryable=details.retryable,
+                trace_id=details.trace_id,
+                detail=f"{exc.__class__.__module__}.{exc.__class__.__name__}: {exc}",
+            )
             raise
 
     def select_scheme(self, scheme_id: int) -> dict[str, Any]:
@@ -209,10 +237,8 @@ class CreativeGenerationService:
         scheme = self.repository.get_display_scheme(int(scheme_id))
         if scheme is None:
             raise GenerationNotFoundError("展示方案不存在")
-        conversation_id = str(scheme.get("conversation_id") or "").strip()
-        parent_message_id = str(scheme.get("parent_message_id") or "").strip()
         self._enqueue_first_frame_if_needed(scheme)
-        return {"scheme_id": int(scheme_id), "conversation_id": conversation_id}
+        return {"scheme_id": int(scheme_id)}
 
     @staticmethod
     def _validate_first_frame_payload(payload: Any) -> Mapping[str, Any]:
@@ -273,7 +299,7 @@ class CreativeGenerationService:
                 pending = next((frame for frame in frames if str(frame.get("image_status")) != "success"), None)
                 if pending is None:
                     self.repository.release_scheme_continuation(scheme_id, token, "completed")
-                    return self.repository.public_display_scheme(scheme_id) or {
+                    return self.repository.get_display_scheme(scheme_id) or {
                         "scheme_id": scheme_id,
                         "scheme_status": "completed",
                         "frames": [],
@@ -374,7 +400,10 @@ class CreativeGenerationService:
         context: GenerationContext,
     ) -> AiCreativeGenerationResult:
         if snapshot.kind == "visual":
-            config = load_ai_visual_creative_config(carousel=snapshot.carousel_enabled)
+            config = load_ai_visual_creative_config(
+                self.environment,
+                carousel=snapshot.carousel_enabled,
+            )
             prompt = build_visual_creative_prompt(
                 {key: list(values) for key, values in snapshot.creative_tags.items()},
                 config.prompt_template,
@@ -407,7 +436,7 @@ class CreativeGenerationService:
                 input_tokens=response.input_tokens,
                 output_tokens=response.output_tokens,
                 total_tokens=response.total_tokens,
-                usage_source="exact",
+                usage_source="estimated",
                 cost_amount=None,
                 cost_currency="",
                 latency_ms=response.latency_ms,
@@ -415,11 +444,11 @@ class CreativeGenerationService:
                 assistant_message_id=response.assistant_message_id,
             )
 
-        config = load_ai_creative_config()
+        config = load_ai_creative_config(self.environment)
         prompt = build_creative_prompt(
             {key: list(values) for key, values in snapshot.creative_tags.items()},
             config.prompt_template,
-            game_info=load_ai_creative_game_info().content,
+            game_info=load_ai_creative_game_info(self.environment).content,
             task_type=snapshot.task_type,
             task_description=snapshot.task_description,
             script_type=snapshot.script_type,
@@ -438,7 +467,7 @@ class CreativeGenerationService:
             input_tokens=response.input_tokens,
             output_tokens=response.output_tokens,
             total_tokens=response.total_tokens,
-            usage_source="exact",
+            usage_source="estimated",
             cost_amount=None,
             cost_currency="",
             latency_ms=response.latency_ms,
@@ -452,6 +481,9 @@ class CreativeGenerationService:
         for attempt in range(2):
             try:
                 response = self.model_client.generate(request)
+            except ModelResponseFormatError as exc:
+                last_error = exc
+                continue
             except requests.Timeout as exc:
                 raise GenerationQueueTimeoutError("AI排队超时") from exc
             except Exception as exc:
@@ -463,7 +495,15 @@ class CreativeGenerationService:
                 last_error = exc
                 if attempt == 0:
                     continue
-        raise AiCreativeRequestError("AI返回结果无法解析") from last_error
+        reason = " ".join(str(last_error or "格式无效").split())[:300]
+        field_path = str(getattr(last_error, "field_path", "") or "$")
+        raise AiCreativeRequestError(
+            f"AI返回结果格式无效：{reason}",
+            error_code="model_output_invalid",
+            phase="validation",
+            field_path=field_path,
+            retryable=False,
+        ) from last_error
 
     def _build_snapshot(self, project: Mapping[str, Any]) -> CreativeInputSnapshot:
         script_type = str(project.get("script_type") or "").strip()
@@ -481,6 +521,29 @@ class CreativeGenerationService:
             except CarouselValidationError as exc:
                 raise GenerationInputError(str(exc)) from exc
             carousel_enabled = bool(str(carousel_config.get("enabled") or "").strip() == "是")
+            if carousel_enabled:
+                count_mode = str(carousel_config.get("count_mode") or "").strip()
+                count = carousel_config.get("count")
+                if count_mode == "fixed":
+                    if isinstance(count, bool) or not isinstance(count, int) or not 2 <= count <= 5:
+                        raise GenerationInputError(
+                            "轮播数量必须是2至5屏",
+                            error_code="carousel_count_invalid",
+                            field_path="creative_tags.visual_carousel_count",
+                        )
+                elif count_mode != "ai":
+                    provided_count = bool(normalized_tags.get("visual_carousel_count"))
+                    raise GenerationInputError(
+                        "启用轮播时必须选择轮播数量"
+                        if not provided_count
+                        else "轮播数量必须是2至5屏或由AI决定",
+                        error_code=(
+                            "carousel_count_invalid"
+                            if provided_count
+                            else "carousel_count_required"
+                        ),
+                        field_path="creative_tags.visual_carousel_count",
+                    )
         reference_file_names = tuple(self.repository.reference_file_names(int(project["id"])))
         snapshot = CreativeInputSnapshot(
             project_id=int(project["id"]),

@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from creative_studio.display_frame_models import DisplayScheme
+from creative_studio.public_projection import PublicResultMapper
 from creative_studio.repository import StudioRepository
 
 
@@ -39,7 +40,8 @@ class DisplayFrameRepositoryTests(unittest.TestCase):
         restored = self.repo.get_display_scheme(scheme_id)
         self.assertIsNotNone(restored)
         self.assertEqual(restored["frames"][0]["planned_content"], "首画面")
-        self.assertNotIn("image_generation_instruction", json.dumps(self.repo.public_display_history(self.project_id, "fp")))
+        public = PublicResultMapper().display_scheme(restored)
+        self.assertNotIn("image_generation_instruction", json.dumps(public))
 
     def test_scheme_continuation_lease_rejects_duplicate_owner(self) -> None:
         scheme_id = self.repo.save_display_schemes(self.generation_id, [self.scheme])[0]
