@@ -1,5 +1,19 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-03 Phase 3 交接文档深度复核
+
+### 已完成
+
+- 重新核对 Phase 3 直接相关的架构设计、展示画面流程、提示词工程研究、Phase 2 交接、总纲、公开投影 ADR、静态提示词、registry、静态生产 caller、validator、repository、图片任务和公开 DTO。
+- 深度完善 [`docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-3-handoff.md`](docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-3-handoff.md)：以当前 HEAD 为事实基线，写清静态 v2.3 production 与 static-v1 candidate 的差异、旧字段伪造路径、持久化副本、图片入队 seam、StaticVisualResult.v1/StaticVisualPublicDTO.v1 目标、私有图片指令边界、deterministic harness、质量评估、失败/重试/回滚和 Phase 4 启动条件。
+- 明确 Phase 3 不修改轮播 prompt、继续生成、逐帧状态机、真实运行数据、网关凭据或真实外部调用；`launcher.py` 接手前已有修改继续保留。
+- 本次内容通过独立 docs-only 提交保存；提交后仍需保持 `launcher.py` 为未暂存用户修改。
+
+### 验证
+
+- 已交叉核对当前 registry、代码 caller、持久化字段和测试事实；文档不含未决占位语句。
+- 本次仅修改交接文档和本进度记录，未修改业务代码、数据库、图片、上传文件或 `chat2api/.env`，未调用真实 AI、图片网关或浏览器。
+
 ## 2026-09-03 Phase 3 交接文档
 
 - Phase 2 实现提交：`1c681cc2b82fcaaee9416111ccd15b96bdf4efe9`。
