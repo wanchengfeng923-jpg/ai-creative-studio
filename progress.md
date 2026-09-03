@@ -1,6 +1,6 @@
 # 当前项目进度（2026-09-01）
 
-# 2026-09-03 AI 重构 Phase 1 实现（进行中）
+# 2026-09-03 AI 重构 Phase 1 实现（已完成）
 
 ### 已完成
 
@@ -9,10 +9,11 @@
 - `create_application()` 启动时加载 registry；生成完成记录以加法迁移保存 prompt id/version/hash、schema 版本、model/provider；新增 deterministic text/image fake。
 - registry/port 定向测试和全量确定性测试共 181 项通过。
 
-### 边界与未完成
+### 边界
 
 - 未切换用户可见输出，未调用真实 AI、图片网关或浏览器；未写入真实数据库、图片、上传文件或 `chat2api/.env`。
-- 工作树原有标签目录同步和启动器局域网配置修改均保留；尚未完成独立双轴 review、Phase 1 提交及 Phase 2 交接文档。
+- 工作树接手时已有标签目录同步和启动器局域网配置修改，均已随实现提交保留；未调用真实 AI、图片网关或浏览器。
+- Phase 1 实现提交为 `1704bea`；Phase 2 交接文档随后以 docs-only 提交生成。
 
 # 2026-09-03 叙事标签选择上限调整
 

@@ -1,7 +1,7 @@
 # AI 重构 Phase 1 变更卡
 
 - 日期：2026-09-03
-- 状态：进行中
+- 状态：已完成，Phase 1 门禁通过
 - 基线：`docs/ai-rebuild-master-plan.md` Phase 1；Phase 0 `e7412bb8fc9eb43e0cb89df58048ac6363c52239`
 
 ## 目标
@@ -39,3 +39,10 @@
 
 - `LegacyCreativeGenerationAdapter`：`deprecated_since=phase-0`，仅现有无 model client caller；三个新 Module production caller 为零后 Phase 5 删除。
 - 首帧/后续 loader 与环境 prompt selector：`deprecated_since=phase-1`，仅兼容读取/审计，禁止新 production caller；Phase 2/3/4 切换后分别删除。
+
+## 完成证据
+
+- `PYTHONPATH=src python -m unittest discover -s tests -q`：181 项通过。
+- `node --check static\\app.js`、`python -m compileall -q src chat2api`、`git diff --check`：通过。
+- 未调用真实 AI、图片网关或浏览器；未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+- Phase 1 实现提交：`1704bea`；当前分支为 `codex/tag-accordion-prototype`。
