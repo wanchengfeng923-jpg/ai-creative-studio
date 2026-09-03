@@ -5,6 +5,7 @@
 ### 已完成
 
 - Task 4 已提交为 `7e74b70`：`static-v1` 成为唯一静态 production，`visual-v2.3` 进入 retired inventory；静态 canonical renderer、10 个脱敏评估 case 和 registry contract 测试已纳入提交。
+- Phase 4 handoff docs-only 提交为 `8bb7d54`。
 - 修正显式 `model_client=None` 的 legacy adapter 边界：旧视觉结果继续走 `complete_visual_generation()`，不会因 registry 已加载而误写入静态 canonical persistence；新增回归测试覆盖该条件。
 - Phase 3 handoff 已标记为实施前历史契约；新增 [`docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md`](docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md)，记录 static-v1 registry、Module、DTO、repository、图片 request、旧 alias caller、状态恢复、隐私边界、回滚和 Phase 4 范围。
 
