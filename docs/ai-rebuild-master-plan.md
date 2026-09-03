@@ -409,7 +409,7 @@ failed -> blocked (达到策略上限)
 
 范围：先不替换 UI，建立唯一事实和生产契约测试。
 
-开始条件：Phase 0 全部通过。允许修改：`config/`、新增 contract/registry/port 模块、`generation_models.py`、对应测试；不切换用户可见生产输出。
+开始条件：Phase 0 全部通过。允许修改：`config/`、`.scratch/ai-phase-1/spec.md`、新增 contract/registry/port 模块，以及接入 registry、port、生成元数据和 production contract harness 所必需的 `app.py`、`generation_service.py`、`generation_models.py`、`repository.py`、`model_client.py`、`image_jobs.py`、`ai_creative.py`、`prompting.py` 和对应测试；阶段收尾可同步 `docs/`、`progress.md` 与 `项目代码地图.md`。不修改正式 UI，不切换用户可见生产输出。
 
 动作：
 
@@ -426,7 +426,7 @@ failed -> blocked (达到策略上限)
 
 ### Phase 2：重构叙事类
 
-开始条件：Phase 1 的叙事 contract harness 通过。允许修改：叙事 prompt/contract/module、生成服务的叙事分支、叙事 UI renderer 和对应测试。禁止修改视觉生产分支。
+开始条件：Phase 1 全部完成门禁通过，Phase 1 实现已提交且工作树状态已检查；叙事 contract harness 通过是其中的必要子条件。允许修改：叙事 prompt/contract/module、生成服务的叙事分支、叙事 UI renderer 和对应测试。禁止修改视觉生产分支。
 
 范围：叙事输入、输出和第二批先收口，保持 UI 基本形状。
 

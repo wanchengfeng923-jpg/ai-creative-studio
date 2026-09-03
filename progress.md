@@ -1,5 +1,18 @@
 # 当前项目进度（2026-09-01）
 
+# 2026-09-03 AI 重构 Phase 1 交接准备
+
+### 已完成
+
+- 新增 `docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-1-handoff.md`，记录 Phase 0 检查点、Phase 1 精确范围、执行顺序、完成门禁和验证/提交要求。
+- 交接要求下一会话完整完成并提交 Phase 1 后，生成一份无占位符、包含真实提交和验证证据的 Phase 2 新会话交接文档；Phase 1 未通过时不得宣称可以进入 Phase 2。
+- 修正总纲 Phase 1 允许文件，使范围覆盖 registry、port、生成元数据和 production contract harness 的必要接线文件；同时将 Phase 2 开始条件收紧为 Phase 1 全部门禁、实现提交和工作树检查均完成，继续排除提前切换用户可见输出。
+
+### 当前状态
+
+- Phase 1 尚未开始；当前仅准备交接文档，没有实现 PromptRegistry、ContractRegistry、model port 或 contract harness。
+- 本次不修改业务代码、UI、数据库、图片、上传文件或 `chat2api/.env`，不调用真实 AI、图片网关或浏览器。
+
 # 2026-09-03 AI 重构 Phase 0 安全止血与事实收口
 
 ### 已完成
