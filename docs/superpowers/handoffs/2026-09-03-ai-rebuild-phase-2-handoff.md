@@ -5,9 +5,9 @@
 - 项目：`D:\code\ai_creative_studio`
 - 分支：`codex/tag-accordion-prototype`
 - Phase 0：`e7412bb8fc9eb43e0cb89df58048ac6363c52239`
-- Phase 1：`1704bea`
-- 本文件提交后，以 `git log -1 --format=%H` 获取 docs-only 提交 hash。
-- 祖先检查：`git merge-base --is-ancestor e7412bb8fc9eb43e0cb89df58048ac6363c52239 HEAD` 与 `git merge-base --is-ancestor 1704bea HEAD` 均须退出 0。
+- Phase 1：`1704bea`（registry/ports）及 `6dd91ef02a6dbdadccfa593b8c87f8d7570da48e`（fingerprint 补充）
+- 本文件的 docs-only 提交 hash：`550d91608c98d7db60223974db9dfab3a13b505f`；后续更新本文件时以最新 docs-only 提交为准。
+- 祖先检查：`git merge-base --is-ancestor e7412bb8fc9eb43e0cb89df58048ac6363c52239 HEAD`、`git merge-base --is-ancestor 1704bea HEAD` 与 `git merge-base --is-ancestor 6dd91ef02a6dbdadccfa593b8c87f8d7570da48e HEAD` 均须退出 0。
 
 ## Phase 1 事实
 
