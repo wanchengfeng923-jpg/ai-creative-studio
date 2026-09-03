@@ -133,6 +133,8 @@ class PublicResultMapper:
 
         if recommendation_kind == "narrative":
             return self.narrative_item(value)
+        if "static_frame" in _mapping(value):
+            return self.static_visual_item(value)
         return self.visual_item(value)
 
     def narrative_item(self, value: Any) -> dict[str, Any]:
@@ -246,6 +248,93 @@ class PublicResultMapper:
             public["image_error"] = _safe_image_error(source.get("image_error"))
         if "frames" in source:
             public["frames"] = [self.display_frame(frame) for frame in _list(source.get("frames"))]
+        return public
+
+    def static_visual_item(self, value: Any) -> dict[str, Any]:
+        """Build StaticVisualPublicDTO.v1 from canonical static content."""
+
+        source = _mapping(value)
+        public: dict[str, Any] = {}
+        for key in (
+            "concept_id",
+            "title",
+            "creative_summary",
+            "audience_tension",
+            "product_value",
+            "visual_mechanism",
+        ):
+            if key in source:
+                public[key] = _text(source.get(key))
+        if "creative_sources" in source:
+            public["creative_sources"] = _text_list(source.get("creative_sources"))
+        evidence = _mapping(source.get("evidence_ledger"))
+        if evidence:
+            public["evidence_ledger"] = {
+                key: _text_list(evidence.get(key))
+                for key in ("confirmed", "inferred", "to_confirm")
+                if key in evidence
+            }
+        frame = _mapping(source.get("static_frame"))
+        if frame:
+            copy_value = _mapping(frame.get("copy"))
+            public["static_frame"] = {
+                "visual_event": _text(frame.get("visual_event")),
+                "hero_subject": _text(frame.get("hero_subject")),
+                "composition": _text(frame.get("composition")),
+                "attention_order": _text_list(frame.get("attention_order")),
+                "medium_and_art_direction": _text(frame.get("medium_and_art_direction")),
+                "copy": {
+                    "headline": _text(copy_value.get("headline")),
+                    "supporting_line": _text(copy_value.get("supporting_line")),
+                    "brand_line": _text(copy_value.get("brand_line")),
+                    "cta": copy_value.get("cta")
+                    if isinstance(copy_value.get("cta"), str) or copy_value.get("cta") is None
+                    else None,
+                },
+                "product_proof": _text_list(frame.get("product_proof")),
+                "legibility_notes": _text(frame.get("legibility_notes")),
+            }
+        if "asset_plan" in source:
+            public["asset_plan"] = [
+                {
+                    "asset": _text(asset.get("asset")),
+                    "status": _text(asset.get("status")),
+                    "fallback": _text(asset.get("fallback")),
+                }
+                for asset in (_mapping(raw) for raw in _list(source.get("asset_plan")))
+            ]
+        if "production_risks" in source:
+            public["production_risks"] = [
+                {
+                    "risk": _text(risk.get("risk")),
+                    "mitigation": _text(risk.get("mitigation")),
+                }
+                for risk in (_mapping(raw) for raw in _list(source.get("production_risks")))
+            ]
+        review = _mapping(source.get("review"))
+        if review:
+            public["review"] = {
+                key: _text(review.get(key))
+                for key in ("stop_reason", "why_make_next", "first_validation")
+                if key in review
+            }
+        for key in ("id", "item_index", "scheme_id", "generation_id"):
+            if key in source:
+                number = _optional_int(source.get(key))
+                if number is not None:
+                    public[key] = number
+        for key in ("aspect_ratio", "image_status"):
+            if key in source:
+                public[key] = _text(source.get(key))
+        if "image_status" in public:
+            item_id = public.get("id")
+            public["image_url"] = (
+                f"/api/visual-items/{item_id}/image"
+                if public["image_status"] == "success" and item_id is not None
+                else ""
+            )
+        if "image_error" in source:
+            public["image_error"] = _safe_image_error(source.get("image_error"))
         return public
 
     def display_frame(self, value: Any) -> dict[str, Any]:

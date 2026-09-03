@@ -1189,6 +1189,112 @@ class StudioRepository:
     def complete_visual_generation(self, generation_id: int, result: Any, aspect_ratio: str) -> list[int]:
         return self._complete_generation(generation_id, result, visual_items=(result.items, aspect_ratio))
 
+    def complete_static_generation(
+        self,
+        generation_id: int,
+        result: Any,
+        aspect_ratio: str,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> list[int]:
+        """以 StaticVisualResult.v1 完成生成，并创建三个首图任务。"""
+
+        if isinstance(result, Mapping):
+            raw_items = result.get("items")
+        else:
+            raw_items = getattr(result, "items", None)
+        if not isinstance(raw_items, (list, tuple)) or len(raw_items) != 3:
+            raise StudioDataError("静态生成结果必须包含三个方案")
+        metadata = metadata or {}
+
+        def value(name: str, default: Any = "") -> Any:
+            if name in metadata:
+                return metadata[name]
+            return getattr(result, name, default)
+
+        usage = {
+            "input_tokens": value("input_tokens", None),
+            "output_tokens": value("output_tokens", None),
+            "total_tokens": value("total_tokens", None),
+            "usage_source": value("usage_source", "unavailable"),
+            "latency_ms": value("latency_ms", 0),
+        }
+        timestamp = self._clock()
+        item_ids: list[int] = []
+        aliases = {"subtitle", "creative_description", "core_subject", "layout", "visual_style"}
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    """
+                    UPDATE generations
+                    SET status='success', items_json=?, usage_json=?, conversation_id=?,
+                        assistant_message_id=?, prompt_id=?, prompt_version=?, prompt_hash=?,
+                        input_schema_version=?, output_schema_version=?, model=?, provider=?,
+                        error='', updated_at=?
+                    WHERE id=? AND status='pending'
+                    """,
+                    (
+                        "[]",
+                        _json(usage),
+                        str(value("conversation_id", "") or ""),
+                        str(value("assistant_message_id", "") or ""),
+                        str(value("prompt_id", "") or ""),
+                        str(value("prompt_version", "") or ""),
+                        str(value("prompt_hash", "") or ""),
+                        str(value("input_schema_version", "") or ""),
+                        str(value("output_schema_version", "") or ""),
+                        str(value("model", "") or ""),
+                        str(value("provider", "") or ""),
+                        timestamp,
+                        int(generation_id),
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise StudioDataError("生成记录状态已经变化")
+                persisted_items: list[dict[str, Any]] = []
+                for raw in raw_items:
+                    if not isinstance(raw, Mapping):
+                        raise StudioDataError("静态方案必须是对象")
+                    content = dict(raw)
+                    if aliases.intersection(content):
+                        raise StudioDataError("静态方案不得写入旧字段别名")
+                    image_prompt = str(content.pop("image_generation_instruction", "") or "").strip()
+                    if not image_prompt:
+                        raise StudioDataError("静态方案缺少图片生成指令")
+                    persisted_items.append(content)
+                    child = connection.execute(
+                        """
+                        INSERT INTO visual_items(
+                            generation_id,item_index,content_json,image_prompt,aspect_ratio,
+                            image_status,scheme_status,created_at,updated_at
+                        ) VALUES(?,?,?,?,?,'queued','ready',?,?)
+                        """,
+                        (
+                            int(generation_id),
+                            len(item_ids) + 1,
+                            _json(content),
+                            image_prompt,
+                            str(aspect_ratio or "16:9"),
+                            timestamp,
+                            timestamp,
+                        ),
+                    )
+                    item_ids.append(int(child.lastrowid))
+                connection.execute(
+                    "UPDATE generations SET items_json=? WHERE id=?",
+                    (_json(persisted_items), int(generation_id)),
+                )
+                connection.execute(
+                    "UPDATE projects SET updated_at=? WHERE id=(SELECT project_id FROM generations WHERE id=?)",
+                    (timestamp, int(generation_id)),
+                )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        return item_ids
+
     def save_display_schemes(self, generation_id: int, schemes: Iterable[Any]) -> list[int]:
         """保存展示方案及其锁定画面路线，返回兼容的方案 ID。"""
 
