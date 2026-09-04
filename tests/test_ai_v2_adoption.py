@@ -54,3 +54,8 @@ class AiV2AdoptionTests(unittest.TestCase):
         status, payload = self.api.dispatch("POST", "/api/v2/projects/1/adopt", {"scheme_id": 999})
         self.assertEqual(status, 404)
         self.assertEqual(payload["error_code"], "scheme_not_found")
+
+    def test_adoption_requires_scheme_id(self) -> None:
+        status, payload = self.api.dispatch("POST", "/api/v2/projects/1/adopt", {})
+        self.assertEqual(status, 422)
+        self.assertEqual(payload["error_code"], "invalid_scheme_id")

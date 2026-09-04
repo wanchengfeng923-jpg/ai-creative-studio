@@ -34,7 +34,10 @@ class AiV2HttpApi:
                     return (200 if view.status == "success" else 202), self._view(view)
                 match = re.fullmatch(r"/api/v2/projects/(\d+)/adopt", path)
                 if match:
-                    return 200, self.application.adopt(int(match.group(1)), int((body or {}).get("scheme_id")))
+                    raw_scheme_id = (body or {}).get("scheme_id")
+                    if isinstance(raw_scheme_id, bool) or not isinstance(raw_scheme_id, (int, str)) or not str(raw_scheme_id).isdigit():
+                        raise AiV2ApplicationError("invalid_scheme_id", "scheme_id is required", phase="input", field_path="$.scheme_id")
+                    return 200, self.application.adopt(int(match.group(1)), int(raw_scheme_id))
             if method == "GET":
                 match = re.fullmatch(r"/api/v2/projects/(\d+)/history", path)
                 if match:
