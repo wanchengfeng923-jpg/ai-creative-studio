@@ -86,6 +86,11 @@ button { cursor: pointer; }
 .search-box input { min-width: 0; width: 100%; border: 0; outline: 0; color: white; background: transparent; }
 .search-box input::placeholder { color: rgba(255,255,255,.4); }
 .project-list { flex: 1; overflow: auto; margin: 0 -7px; padding: 3px 7px; }
+.project-item-row { position: relative; display: flex; align-items: stretch; margin: 3px 0; }
+.project-item-row .project-item { min-width: 0; margin: 0; padding-right: 38px; }
+.project-delete-button { position: absolute; top: 50%; right: 7px; width: 25px; height: 25px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 6px; color: rgba(255,255,255,.45); background: transparent; opacity: 1; transform: translateY(-50%); transition: color .15s ease, background .15s ease; }
+.project-delete-button:hover, .project-delete-button:focus-visible { color: #ffb4a9; background: rgba(255,255,255,.1); outline: 0; }
+.project-delete-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.4; }
 .project-item { width: 100%; margin: 3px 0; padding: 12px; border: 0; border-radius: 9px; color: rgba(255,255,255,.68); text-align: left; background: transparent; }
 .project-item:hover, .project-item.active { color: white; background: rgba(255,255,255,.1); }
 .project-item strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; }
@@ -435,7 +440,6 @@ body { min-width:320px; }
   .project-menu button { width:38px; padding:0; justify-content:center; }
   .project-menu button>span:not(.project-menu-icon) { display:none; }
   .save-state { font-size:9px; }
-  .header-actions .danger { display:none; }
   .workspace-intro { align-items:stretch; flex-direction:column; margin:0; padding:19px 14px 0; }
   .workspace-intro h1 { font-size:22px; }
   .brief-panel-heading { align-items:stretch; flex-direction:column; }
@@ -542,6 +546,10 @@ body { min-width:320px; }
 .creative-position-report { overflow:hidden; border:1px solid #dfe7e3; border-radius:6px; background:#fff; }
 .creative-position-report-title { min-height:34px; display:flex; align-items:center; gap:9px; padding:6px 9px; border-bottom:1px solid #dfe7e3; background:#f3f8f5; }
 .creative-position-report-title h3 { margin:0; color:var(--green-2); font-size:12px; }
+.carousel-choice-options { display:flex; align-items:center; gap:6px; }
+.carousel-choice-option { min-width:42px; min-height:26px; padding:3px 9px; border:1px solid #b8d9d1; border-radius:999px; color:var(--green-2); background:#fff; font-size:11px; font-weight:700; }
+.carousel-choice-option:hover,.carousel-choice-option:focus-visible { background:var(--mint); outline:0; }
+.carousel-choice-option.selected { border-color:#77bdb2; background:var(--mint); box-shadow:inset 0 0 0 1px #77bdb2; }
 .creative-position-limit-hint { margin-left:auto; color:#66766e; font-size:10px; font-weight:700; }
 .creative-position-tables { padding:7px; display:grid; gap:7px; }
 .creative-position-table-scroll { overflow-x:auto; }

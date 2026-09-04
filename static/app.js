@@ -15,12 +15,24 @@
     pinnedGeneratedBatch: null,
     generationStartedAt: 0,
     generationTimer: 0,
+    activeRunId: 0,
     continuingSchemes: new Set(),
     carouselIndexes: new Map(),
     saving: false,
     savePromise: null,
     tagConfig: null,
     tagUi: { openKey: "", query: "", confirmed: new Set(), confirmationProjectId: 0, confirmationScriptType: "", lastStep: 0, roundIndex: 1, roundOpenFields: new Map() },
+  };
+
+  const V2_GENERATION_ENDPOINTS = {
+    run: (projectId) => `/api/v2/projects/${projectId}/generate`,
+    history: (projectId) => `/api/v2/projects/${projectId}/history`,
+    runStatus: (runId) => `/api/v2/runs/${runId}`,
+    adoption: (projectId) => `/api/v2/projects/${projectId}/adopt`,
+    adoptionStatus: (projectId) => `/api/v2/projects/${projectId}/adoption`,
+    schemeImage: (schemeId) => `/api/v2/schemes/${schemeId}/image`,
+    frameImage: (schemeId, frameIndex) => `/api/v2/schemes/${schemeId}/frames/${frameIndex}/image`,
+    imageAttempt: (attemptId) => `/api/v2/image-attempts/${attemptId}`,
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -30,9 +42,9 @@
     empty: $("#emptyState"), workspace: $("#projectWorkspace"), list: $("#projectList"), sidebar: $("#projectSidebar"), sidebarBackdrop: $("#sidebarBackdrop"),
     search: $("#projectSearch"),
     description: $("#taskDescription"), descriptionLabel: $("#descriptionLabel"),
-    evidence: $("#productEvidence"), aspectField: $("#aspectField"), files: $("#referenceFiles"),
+    aspectField: $("#aspectField"),
     tagControls: $("#tagControls"),
-    fileInput: $("#referenceFileInput"), saveState: $("#saveState"), generate: $("#generateButton"),
+    saveState: $("#saveState"), generate: $("#generateButton"),
     generateTitle: $("#generateTitle"), generationHint: $("#generationHint"),
     results: $(".results-section"), resultsGrid: $("#resultsGrid"), resultsTitle: $("#resultsTitle"),
     resultsMeta: $("#resultsMeta"), batchTabs: $("#batchTabs"), stale: $("#staleResults"),
@@ -440,9 +452,7 @@
     return {
       name: state.project.name.trim() || "未命名创意",
       script_type: selectedScriptType(),
-      task_type: "",
       task_description: els.description.value,
-      product_evidence_summary: els.evidence.value,
       aspect_ratio: $("[data-aspect].active")?.dataset.aspect || "16:9",
       creative_tags: tags,
     };
@@ -511,10 +521,8 @@
     els.empty.classList.add("hidden");
     els.workspace.classList.remove("hidden");
     els.description.value = project.task_description || "";
-    els.evidence.value = project.product_evidence_summary || "";
     $$('[data-aspect]').forEach((button) => button.classList.toggle("active", button.dataset.aspect === project.aspect_ratio));
     renderTagControls();
-    renderFiles();
     updateModeCopy();
     renderAdoption();
     els.saveState.textContent = "已保存";
@@ -537,16 +545,6 @@
     const description = (els.description.value || "").trim();
     els.outputBriefSummary.textContent = description ? description.slice(0, 42) : "目标尚未填写";
     els.outputModeSummary.textContent = state.project.script_type || "展示类";
-  }
-
-  function renderFiles() {
-    const files = state.project?.reference_files || [];
-    els.files.innerHTML = files.map((file) => `<span class="file-chip">${esc(file.original_name)} · ${formatBytes(file.size_bytes)}</span>`).join("");
-  }
-
-  function formatBytes(value) {
-    const bytes = Number(value || 0);
-    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`;
   }
 
   function scheduleSave() {
@@ -601,7 +599,8 @@
 
   async function loadHistory(selectLatest = false) {
     if (!state.project) return;
-    const history = await api(`/api/projects/${state.project.id}/history`);
+    const payload = await api(V2_GENERATION_ENDPOINTS.history(state.project.id));
+    const history = payload?.history || payload;
     const pinned = state.pinnedGeneratedBatch;
     if (pinned && !history.batches.some((batch) => Number(batch.id) === Number(pinned.id))) {
       const staleIndex = history.stale_batches.findIndex((batch) => Number(batch.id) === Number(pinned.id));
@@ -673,9 +672,7 @@
     els.resultsGrid.innerHTML = batch.items.map((item, index) => {
       const image = visualImageMarkup(item);
       const sources = (item.reference_sources || []).map((source) => `${esc(source.name)}：${esc(source.note)}`).join("<br>");
-      const carouselFramesMarkup = Array.isArray(item.carousel_frames) && item.carousel_frames.length > 1 ? `<div class="carousel-result"><b>轮播定位</b>${item.carousel_frames.map((frame) => `<span>第${esc(frame)}轮</span>`).join("")}</div>` : "";
-      const resolvedTags = item.resolved_tags && typeof item.resolved_tags === "object" ? Object.entries(item.resolved_tags).filter(([, values]) => Array.isArray(values) && values.length).map(([key, values]) => `<div><b>${esc({ visual_product_selling_points: "产品卖点", visual_display_contents: "展示内容", visual_motif: "视觉母题" }[key] || key)}：</b>${esc(values.join("、"))}</div>`).join("") : "";
-      const frames = Array.isArray(item.frames) ? item.frames : [];
+      const frames = Array.isArray(item.frames) ? item.frames : (Array.isArray(item.carousel?.frames) ? item.carousel.frames : []);
       const operation = state.operationStatus.get(Number(item.id)) || item.operation || null;
       const operationSummary = operation ? `<div class="operation-status">${esc(operation.status === "completed" ? "已完成" : operation.status === "blocked" ? "需要重试" : "后台生成中")} · ${esc(operation.completed_frame_count)}/${esc(operation.total_frame_count)} 张</div>` : "";
       const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${operationSummary}${frames.map((frame) => `<div class="display-frame-row"><div>第${esc(frame.frame_index)}张：${esc(frame.planned_content)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frame.frame_index)}张轮播画面">` : ""}</div>`).join("")}</div>` : "";
@@ -689,7 +686,7 @@
             <p><b>核心主体：</b>${esc(item.core_subject)}</p><p><b>画面布局：</b>${esc(item.layout)}</p>
             <p><b>视觉风格：</b>${esc(item.visual_style)}</p><p><b>内容延展：</b>${esc((item.content_extensions || []).join("；"))}</p>
             <p><b>参考来源：</b><br>${sources}</p>
-            ${carouselFramesMarkup}${frameSummary}${resolvedTags ? `<div class="resolved-tags"><b>最终定位（用户未填写项由AI补全）：</b>${resolvedTags}</div>` : ""}
+            ${frameSummary}
           </details>
           <div class="keywords">${(item.keywords || []).map((key) => `<span>${esc(key)}</span>`).join("")}</div>
           <div class="card-actions">
@@ -844,7 +841,15 @@
       els.generate.disabled = true;
       await saveProject(true);
       updateGenerationWaitLabel();
-      const generated = await api(`/api/projects/${state.project.id}/generate`, { method: "POST" });
+      const generated = await api(V2_GENERATION_ENDPOINTS.run(state.project.id), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_description: els.description.value,
+          aspect_ratio: $("[data-aspect].active")?.dataset.aspect || "16:9",
+          creative_tags: collectTagValues(),
+        }),
+      });
+      state.activeRunId = Number(generated.run?.id ?? generated.run_id ?? generated.id ?? 0);
       // The generate response already contains the validated text schemes.
       // Paint them immediately; history reload then reconciles image statuses.
       if (generated?.batches) {
@@ -867,7 +872,7 @@
 
   async function retryImage(itemId) {
     try {
-      await api(`/api/visual-items/${itemId}/retry`, { method: "POST" });
+      await api(V2_GENERATION_ENDPOINTS.schemeImage(itemId), { method: "POST" });
       toast("已重新生成这张参考图");
       await loadHistory(false);
     } catch (error) { toast(error.message, true); }
@@ -879,7 +884,12 @@
     renderHistory();
     try {
       toast("正在按方案路线生成后续画面");
-      const payload = await api(`/api/visual-items/${itemId}/continue`, { method: "POST" });
+      const item = state.history?.batches?.flatMap((batch) => batch.items || []).find((entry) => Number(entry.id) === Number(itemId));
+      const frames = item?.frames || item?.carousel?.frames || [];
+      const frame = frames.find((entry) => ["queued", "pending", "failed"].includes(entry.image_status));
+      if (!frame) return;
+      const frameIndex = Number(frame.frame_index ?? frame.index ?? 1);
+      const payload = await api(frameIndex <= 1 ? V2_GENERATION_ENDPOINTS.schemeImage(itemId) : V2_GENERATION_ENDPOINTS.frameImage(itemId, frameIndex), { method: "POST" });
       const operationId = Number(payload.operation?.operation_id || payload.operation?.id || 0);
       if (operationId) {
         state.operationIds.set(itemId, operationId);
@@ -896,9 +906,9 @@
 
   async function adoptVisual(itemId) {
     try {
-      const payload = await api(`/api/projects/${state.project.id}/adopt`, {
+      const payload = await api(V2_GENERATION_ENDPOINTS.adoption(state.project.id), {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendation_kind: "visual", item_id: itemId }),
+        body: JSON.stringify({ scheme_id: itemId }),
       });
       state.project.adoption = { recommendation_kind: "visual", reference_id: String(itemId), snapshot: payload.snapshot };
       renderHistory(); await loadProjects();
@@ -907,7 +917,7 @@
 
   async function adoptNarrative(generationId, itemIndex) {
     try {
-      const payload = await api(`/api/projects/${state.project.id}/adopt`, {
+      const payload = await api(V2_GENERATION_ENDPOINTS.adoption(state.project.id), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recommendation_kind: "narrative", generation_id: generationId, item_index: itemIndex }),
       });
@@ -918,9 +928,23 @@
 
   function schedulePolling() {
     stopImagePolling();
+    if (state.activeRunId) {
+      state.pollTimer = setTimeout(async () => {
+        try {
+          const payload = await api(V2_GENERATION_ENDPOINTS.runStatus(state.activeRunId));
+          const run = payload.run || payload;
+          if (["success", "completed", "failed", "error"].includes(String(run.status || "").toLowerCase())) state.activeRunId = 0;
+          await loadHistory(false);
+        } catch (_) { schedulePolling(); }
+      }, 1500);
+      return;
+    }
     const batch = state.history?.batches?.[state.activeBatch];
     if (state.history?.recommendation_kind !== "visual" || !batch) return;
-    if (batch.items.some((item) => ["queued", "generating"].includes(item.image_status))) {
+    if (batch.items.some((item) => {
+      const frames = Array.isArray(item.frames) ? item.frames : (item.carousel?.frames || []);
+      return [item.image_status, ...frames.map((frame) => frame.image_status)].some((status) => ["queued", "pending", "generating"].includes(status));
+    })) {
       state.pollTimer = setTimeout(async () => {
         try { await loadHistory(false); } catch (_) { schedulePolling(); }
       }, 2000);
@@ -932,11 +956,11 @@
     if (existing) clearTimeout(existing);
     const poll = async () => {
       try {
-        const payload = await api(`/api/visual-items/${itemId}/operation/${operationId}`);
-        const operation = payload.operation || {};
+        const payload = await api(V2_GENERATION_ENDPOINTS.imageAttempt(operationId));
+        const operation = payload.attempt || payload.operation || payload;
         state.operationStatus.set(itemId, operation);
         await loadHistory(false);
-        if (["completed", "failed", "blocked"].includes(operation.status)) {
+        if (["completed", "success", "failed", "blocked", "error"].includes(operation.status)) {
           state.continuingSchemes.delete(itemId);
           state.operationIds.delete(itemId);
           state.operationStatus.set(itemId, operation);
@@ -965,19 +989,6 @@
   }
 
   function stopImagePolling() { clearTimeout(state.pollTimer); state.pollTimer = 0; }
-
-  async function uploadFiles(files) {
-    for (const file of files) {
-      try {
-        await api(`/api/projects/${state.project.id}/files`, {
-          method: "POST", headers: { "Content-Type": file.type || "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) }, body: file,
-        });
-        toast(`已添加 ${file.name}`);
-      } catch (error) { toast(`${file.name}：${error.message}`, true); }
-    }
-    const payload = await api(`/api/projects/${state.project.id}`);
-    state.project = payload.project; renderFiles();
-  }
 
   async function deleteProject(projectId) {
     const index = state.projects.findIndex((item) => item.id === projectId);
@@ -1046,7 +1057,7 @@
     els.stepper.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => { currentStep = Number(button.dataset.step); applyStep(); }));
     els.generate.addEventListener("click", generate);
     els.search.addEventListener("input", () => { clearTimeout(els.search.timer); els.search.timer = setTimeout(loadProjects, 250); });
-    [els.description, els.evidence].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
+    [els.description].forEach((input) => input.addEventListener("input", () => { applyStep(); scheduleSave(); }));
     els.tagControls.addEventListener("click", (event) => {
       const info = event.target.closest("[data-tooltip]");
       if (info) { event.stopPropagation(); toast(info.dataset.tooltip); return; }
@@ -1153,7 +1164,6 @@
     $$('[data-aspect]').forEach((button) => button.addEventListener("click", () => {
       $$('[data-aspect]').forEach((item) => item.classList.toggle("active", item === button)); scheduleSave();
     }));
-    els.fileInput.addEventListener("change", () => { if (els.fileInput.files?.length) uploadFiles(Array.from(els.fileInput.files)); els.fileInput.value = ""; });
     $("#closeImageDialog").addEventListener("click", () => els.imageDialog.close());
     els.imageDialog.addEventListener("click", (event) => { if (event.target === els.imageDialog) els.imageDialog.close(); });
   }
