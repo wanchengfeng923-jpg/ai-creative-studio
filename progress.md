@@ -22,7 +22,7 @@
 - 2026-09-04 对真实 `data/creative_studio.db` 仅执行只读 projection scrub dry-run：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`；未执行 `--apply`，真实历史 scrub/备份/恢复演练仍待单独变更卡。
 - 新增 [`docs/ai/quality-evaluation.md`](docs/ai/quality-evaluation.md)，集中记录三套 10-case 脱敏评测集、deterministic 证据和真实模型质量评测边界；没有把 fake 测试表述为真实质量通过。
 - 本阶段 checkpoint 提交：`5ad827c`（未包含用户已有的 `launcher.py` 修改）；随后以 docs-only 提交记录该哈希。
-- 已新增 [`docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md`](docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md)，供下一会话继续 Phase 5；交接明确旧 caller 删除条件、临时数据库 scrub/恢复步骤、质量评测报告和最终门禁。
+- 已新增 [`docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md`](docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md)，供下一会话继续 Phase 5；交接明确旧 caller 删除条件、临时数据库 scrub/恢复步骤、质量评测报告和最终门禁；提交为 `a525962`。
 
 ## 2026-09-03 Phase 3 静态迁移收尾与 Phase 4 交接
 
