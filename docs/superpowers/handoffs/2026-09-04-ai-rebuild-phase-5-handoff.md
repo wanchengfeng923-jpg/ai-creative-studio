@@ -1,17 +1,26 @@
-# AI 重构 Phase 5 交接文档：清理、历史数据与发布准备
+# Phase 5 交接：清理、数据治理与发布准备
 
-- 日期：2026-09-04
-- 项目：`D:\\code\\ai_creative_studio`
-- 当前分支：`codex/tag-accordion-prototype`
-- 当前实现基线：`5ad827c feat: complete carousel operations and AI governance checkpoint`
-- 当前文档验证提交：`e6382e6 docs: refresh verification counts`
-- 工作树例外：用户已有的 `launcher.py` 修改 `WEB_BIND_HOST = "0.0.0.0"` 仍未暂存；必须保留，不要把它当作 P5 变更。
+> 给下一会话的执行文档。这里的“完成”指有代码、测试或临时演练证据；没有证据的事项保持进行中。
 
-本文是下一会话继续执行 Phase 5 的事实交接。Phase 5 的目标是清理已经满足删除条件的旧路径、完成临时库上的历史 scrub/备份恢复演练、补齐评测与供应商失败分类，并让文档与 registry 一致。本文不授权真实运行库写入、删除用户数据、修改监听地址、修改 `chat2api/.env` 或调用真实 AI/图片网关。
+## 先看结论
 
-## 1. 下一会话开始顺序
+当前项目已经完成 Phase 0 至 Phase 4 的主要代码迁移，但 Phase 5 尚未完成。下一会话的首要任务不是继续扩展功能，而是回答三个问题：
 
-开始任何分析或修改前完整阅读：
+1. 哪些旧路径已经没有生产调用者，可以删除？
+2. 历史公开投影能否在临时副本上安全 scrub、备份和恢复？
+3. 评测和失败分类是否足以支撑发布决策？
+
+当前最重要的事实：
+
+- HEAD 为 `9e911e9`；实现检查点为 `5ad827c`。
+- 工作树已经有两组先于本次 handoff 的未提交修改。第一组是用户保留的 `launcher.py`：`WEB_BIND_HOST = "0.0.0.0"`。第二组是独立的普通创意标签可选任务：`config/creative_tag_options.json`、`static/app.js`、`tests/test_tag_options.py`、`tests/test_frontend_tag_reports.py`、`CHANGELOG.md`、`progress.md`、`项目代码地图.md`、`docs/adr/0004-optional-tag-groups.md` 和 `.scratch/optional-tag-selection/`。两组都要保留，不能混入 P5 提交。
+- 全量 deterministic unittest 最近一次结果为 `220` 项通过；标签可选任务的定向测试和完整门禁应由其原任务继续收尾。
+- 默认运行库只做过只读 scrub：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`。真实库未达到 fixed point，不能 `--apply`。
+- 真实 AI、真实图片网关、认证浏览器、多进程生产竞态、真实数据库写入和备份恢复尚未验证。
+
+## 1. 启动步骤
+
+下一会话开始修改前，按项目规定完整阅读：
 
 1. `AGENTS.md`
 2. `progress.md`
@@ -22,8 +31,9 @@
 7. `docs/ai/quality-evaluation.md`
 8. `docs/adr/0001-public-result-projection.md`
 9. `docs/adr/0003-carousel-v1-background-operation.md`
+10. `docs/adr/0004-optional-tag-groups.md`（若继续处理标签可选任务）
 
-随后执行只读事实检查：
+然后执行事实快照：
 
 ```powershell
 git status --short --branch
@@ -31,133 +41,152 @@ git log --oneline -8
 rg -n "LegacyCreativeGenerationAdapter|VisualRecommendationSchema|load_ai_visual_first_frame_prompt|load_ai_visual_follow_up_prompt|complete_visual_generation" src tests config docs --glob '!docs/superpowers/handoffs/*'
 ```
 
-## 2. 已完成事实
+事实快照完成标准：输出已保存到本次 P5 变更卡或 progress，并且已把标签可选任务与 P5 分开记录。
 
-### AI 三条生产链路
+## 2. 当前架构基线
 
-`PromptRegistry` 当前有三个唯一 production 项：
+### 2.1 三条 active production 链路
 
-| 用例 | registry 项 | production caller | canonical contract |
+| 用例 | PromptSpec | Module / caller | 公开结果 |
 |---|---|---|---|
-| 叙事 | `creative.narrative.generate@v6` | `narrative` | `NarrativeResult.v1` |
-| 静态展示 | `creative.visual.static.generate@static-v1` | `static` | `StaticVisualResult.v1` |
-| 轮播 | `creative.visual.carousel.plan@visual-carousel-v1` | `carousel` | `CarouselResult.v1` |
+| 叙事 | `creative.narrative.generate@v6` | `NarrativeGeneration` / `narrative` | `NarrativeResult.v1` |
+| 静态展示 | `creative.visual.static.generate@static-v1` | `StaticVisualGeneration` / `static` | `StaticVisualPublicDTO.v1` |
+| 轮播 | `creative.visual.carousel.plan@visual-carousel-v1` | `CarouselVisualGeneration` / `carousel` | `CarouselPublicDTO.v1` |
 
-三个 production caller 均穿过对应 Module、validator、公开 DTO 和 deterministic fake seam。旧 v5、旧静态 v2.3、独立首帧 prompt 和独立后续 prompt 均已在 registry 标为 `retired`，并设有 replacement、`deprecated_since`、`new_callers_forbidden` 和删除条件。
+`PromptRegistry` 在启动时校验 prompt 文件、hash、变量、contract、生命周期和唯一 production caller。三个 active 项均有 deterministic fake 和生产入口测试。
 
-### 轮播后台 Operation
+### 2.2 轮播当前行为
 
-- `POST /api/visual-items/{id}/continue` 已改为 `202`，返回公开 operation 摘要和方案。
-- `carousel_operations` 保存 lease、heartbeat、revision、逐帧进度和终态。
-- `CarouselOperationCoordinator` 串行领取下一帧；图片、frame、会话游标和 operation revision 原子提交。
-- 过期 lease 恢复时只回收明确失活操作，并把崩溃 worker 遗留的 `generating` 帧重置为 `pending`。
-- 公开层不返回 token、revision、图片指令、会话游标、gateway job id、本地路径或完整异常。
+轮播首帧来自共享 planner 响应中的私有图片指令；后续画面由 `CarouselVisualGeneration.follow_up_image_prompt()` 编排。继续接口创建 `carousel_operations`，返回 `202`，后台协调器负责 lease、heartbeat、逐帧 claim、图片等待、原子提交和过期恢复。公开投影不包含 token、revision、图片指令、会话游标、gateway job id、本地路径或完整异常。
 
-### 验证证据
+### 2.3 旧路径现状
 
-- `python -m unittest discover -s tests -v`：220 项通过。
-- `node --check static\\app.js`：通过。
-- `python -m compileall -q src chat2api`：通过。
-- `git diff --check`：通过。
-- `config/evals/narrative.v1.json`、`static.v1.json`、`carousel.v1.json` 均有 10 个脱敏 case；新增 `tests/test_narrative_evals.py` 约束叙事评测集数量和脱敏字段。
-- 未调用真实 AI、图片网关或带认证浏览器。
+| 旧项 | 当前真实引用 | P5 处理 |
+|---|---|---|
+| `LegacyCreativeGenerationAdapter` | `generation_service.py` 中作为 `model_client=None` 兼容 seam；`tests/test_generation_service.py` 验证 metadata 和 legacy persistence | 先做 caller 审计；没有“零 production caller + 保留期结束”证据时保留 |
+| `schemas.py:VisualRecommendationSchema` | `tests/test_schemas.py` 直接使用；旧视觉/轮播兼容校验仍依赖旧形状 | 不要直接删除；先确认轮播和历史读取不再依赖，并迁移测试 |
+| `load_ai_visual_first_frame_prompt()`、`load_ai_visual_follow_up_prompt()` | 当前为 retired loader 定义；registry 中对应 prompt 已 retired | 先添加无生产调用者的静态检查/测试，再删除 loader 和文件 |
+| `complete_visual_generation()` | `generation_service.py` 的轮播 production 分支仍调用；多个 repository/image 测试直接调用 | 不是当前可删除项；轮播 canonical persistence 替换完成后再评估 |
+| 旧视觉字段 `subtitle`、`creative_description`、`core_subject`、`layout`、`visual_style` | 历史读取、轮播兼容和旧测试仍存在 | 新静态写入不得恢复这些字段；历史读取保留直到 scrub/保留期门禁完成 |
 
-## 3. Phase 5 当前未完成项
+关键判断：`create_application()` 默认会注入 model client，但这不等于所有兼容 seam 已经没有生产风险。删除前必须有可重复的 caller 证据，而不是只看默认构造参数。
 
-### 3.1 旧代码清理前的 caller 审计
+## 3. P5 工作包
 
-先建立一份只读审计结果，区分 production、测试、历史读取和 dead code：
+### P5-A：旧路径 caller 审计
 
-- `src/creative_studio/generation_service.py:LegacyCreativeGenerationAdapter`：显式 `model_client=None` 时的兼容 seam；测试覆盖其 metadata 和 legacy persistence。默认 `create_application()` 注入 model client，不能只因默认 composition root 不走该分支就立即删除。
-- `src/creative_studio/schemas.py:VisualRecommendationSchema`：仍被 `tests/test_schemas.py` 和旧视觉/轮播兼容校验引用；在轮播旧 contract、历史读取和测试迁移完成前保留。
-- `src/creative_studio/ai_creative.py:load_ai_visual_first_frame_prompt` 与 `load_ai_visual_follow_up_prompt`：当前仅为 retired loader/审计 seam；需先补“无生产 caller”测试和历史读取说明，再删除实现与对应 prompt 文件。
-- `complete_visual_generation()`：仍是旧视觉/轮播持久化入口；静态 production 已切到 `complete_static_generation()`，但轮播和兼容测试仍依赖它，不能在 P5 初始步骤删除。
+目标：形成能支持“删除/保留”决策的证据，而不是简单 grep 清单。
 
-删除条件必须同时满足：三个 Module 已有稳定生产 caller；`rg` 结果中旧生产 caller 为零；历史 importer/读取不再依赖；保留期结束；回归评测和全量测试通过。否则只补 metadata、审计测试和文档，不强行删除。
+执行：
 
-### 3.2 历史公开投影 scrub、备份和恢复演练
+1. 对上表每个旧项记录 `production`、`test`、`history/import`、`dead` 四类引用。
+2. 对每个引用写明调用入口、输入/输出 contract 和是否读写用户数据。
+3. 为确认结果添加最小测试或静态审计脚本；测试必须在临时目录运行。
+4. 只有当旧项的 production caller 为零、历史读取不再依赖、替代路径已通过回归且保留期结束，才建立独立删除提交。
 
-真实库只允许继续 dry-run：
+验收：
+
+- registry 的三个 active 项各自恰好一个 production caller；
+- 旧 loader 没有运行时代码调用；
+- `LegacyCreativeGenerationAdapter`、`VisualRecommendationSchema`、`complete_visual_generation()` 的保留理由和删除条件都落在文档/测试中；
+- 未删除仍被轮播 production 使用的旧持久化入口。
+
+停止条件：发现任何旧项仍写入新 static canonical 数据、任何公开 DTO 出现私有字段，立即停止删除，保留诊断结果。
+
+### P5-B：临时数据库 scrub、备份和恢复
+
+目标：证明 projection scrub 可重复、可回滚，而不是直接修改用户运行库。
+
+真实库只允许执行：
 
 ```powershell
 $env:PYTHONPATH = "D:\\code\\ai_creative_studio\\src"
 python -m creative_studio.projection_scrub --database data\\creative_studio.db
 ```
 
-2026-09-04 已知结果：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`。因此真实库尚未达到 fixed point，不能执行 `--apply`。
-
-P5 可安全完成的部分是在 `.scratch\\projection-scrub\\` 创建临时副本，按 `docs/operations.md` 完成：
-
-1. dry-run；
-2. 使用新的 backup 路径执行 `--apply`；
-3. 对 apply 后副本再次 dry-run，确认 `changed_rows=0`、`private_field_occurrences=0`；
-4. 从 backup 复制恢复副本，再 dry-run 比较统计；
-5. 用临时副本启动只读应用或直接查询项目/图片记录，确认恢复可读。
-
-临时演练成功不等于真实库迁移完成。真实库 apply 需要独立变更卡、停止服务、数据库/图片/上传目录备份、恢复验证和用户确认；禁止通过绕过工具保护执行。
-
-### 3.3 质量评测报告和供应商失败分类
-
-`docs/ai/quality-evaluation.md` 已记录三套 10-case fixture 和当前 deterministic 证据，但还没有真实模型质量报告。下一会话可以先完成离线报告模板和 fake 失败分类，包含：
-
-- 硬约束通过率、字段路径和私有字段扫描；
-- 确认事实错误数、证据状态和不确定性标记；
-- 机制差异、可制作性、一眼可懂的人工评分栏；
-- 第二批重复率、调用次数、延迟和预算字段；
-- `model_output_invalid`、`provider_protocol_invalid`、`image_generation_failed`、`carousel_operation_failed` 等稳定错误码的统计维度。
-
-真实模型/图片网关评测仍需固定脱敏输入、独立输出目录、预算和授权，不得把 fake 结果写成质量通过。
-
-### 3.4 文档一致性与现状更新
-
-完成任何 P5 子任务后同步：
-
-- `progress.md`：追加式记录真实变更、验证和未验证项；
-- `docs/ai-rebuild-master-plan.md`：只更新当前事实或 Phase 5 状态；
-- `docs/operations.md`：更新可执行备份、恢复和 scrub 证据；
-- `项目代码地图.md`：若 caller、表或入口变化则同步；
-- `docs/ai/quality-evaluation.md`：记录评测资产和报告状态。
-
-历史 handoff 不要改写成当前事实；若旧文档与当前代码冲突，增加指针或标记历史基线。
-
-## 4. P5 建议执行顺序
-
-1. 建立 `.scratch/ai-phase-5/spec.md`，写目标、非目标、不变量、验收例子、风险、回滚和真实库禁令。
-2. 添加 caller 审计测试/脚本，证明 registry 的三个 production caller 唯一，旧路径只剩允许的兼容/历史/测试引用。
-3. 在临时 SQLite 副本完成 projection scrub、backup、restore 和 fixed-point 检查；不触碰默认 `data/creative_studio.db`。
-4. 为评测和供应商错误分类补齐 deterministic 报告结构与测试。
-5. 只有当删除条件全部有证据时，分小提交清理 retired loader、dead schema 或误导性测试；每删一项立即运行定向测试。
-6. 更新上述文档和本进度记录。
-7. 执行最终门禁：
+临时演练步骤：
 
 ```powershell
-$env:PYTHONPATH = "D:\\code\\ai_creative_studio\\src"
-python -m unittest discover -s tests -v
-node --check static\\app.js
-python -m compileall -q src chat2api
-git diff --check
-git status --short --branch
+New-Item -ItemType Directory -Force .scratch\\projection-scrub | Out-Null
+Copy-Item -LiteralPath data\\creative_studio.db -Destination .scratch\\projection-scrub\\creative-studio-copy.db
+python -m creative_studio.projection_scrub --database .scratch\\projection-scrub\\creative-studio-copy.db
+python -m creative_studio.projection_scrub --database .scratch\\projection-scrub\\creative-studio-copy.db --apply --backup .scratch\\projection-scrub\\creative-studio-before.db
+python -m creative_studio.projection_scrub --database .scratch\\projection-scrub\\creative-studio-copy.db
+Copy-Item -LiteralPath .scratch\\projection-scrub\\creative-studio-before.db -Destination .scratch\\projection-scrub\\creative-studio-restored.db
+python -m creative_studio.projection_scrub --database .scratch\\projection-scrub\\creative-studio-restored.db
 ```
 
-8. 提交前确认 `git diff --cached --name-only` 不包含 `launcher.py`、`data/`、`data/images/`、`data/uploads/`、`chat2api/.env` 或其他运行产物。
+验收：
 
-## 5. P5 完成门禁
+- apply 前副本的统计被记录；
+- apply 后副本报告 `changed_rows=0`、`private_field_occurrences=0`、`invalid_json_rows=0`、`unknown_kind_rows=0`；
+- restored 副本的统计与 apply 前一致；
+- backup、copy、restored 文件都位于 `.scratch/`，不进入 Git；
+- 没有对 `data/creative_studio.db`、`data/images/` 或 `data/uploads/` 写入。
 
-只有以下全部满足时，才可把 Phase 5 标记完成：
+停止条件：任何 invalid JSON、unknown kind、统计不一致、备份路径已存在或副本不可读时停止；不要用参数绕过保护。真实库 apply 需要用户确认、停止服务、完整备份和单独变更卡。
 
-- `rg` 证明旧生产 caller 为零，且保留项有明确历史读取/测试理由；
-- 每个 active PromptSpec 有唯一 caller、contract、validator、public DTO 和评测集；
-- 临时副本 scrub 达到 fixed point，backup 可恢复并可读取；
-- 有版本化质量评测报告和供应商失败分类；
-- 文档互相一致，progress 记录真实提交哈希；
-- 全量测试、Node、compileall 和 diff check 全部通过；
-- 真实 AI、图片、浏览器或生产数据库未验证的部分在最终报告中明确列出。
+### P5-C：评测报告和供应商失败分类
 
-在此之前，Phase 5 状态应写为“进行中”，不要把删除旧代码、deterministic 通过或临时库恢复演练表述为生产发布完成。
+目标：把三套 fixture 变成可审阅的版本化报告结构，同时保持“fake 通过不代表真实质量通过”。
 
-## 6. 回滚
+现有资产：
 
-- 代码清理按单项提交回滚，不覆盖数据库、图片和上传目录。
-- registry/contract 变更优先回滚对应配置和 caller 接线提交。
-- projection scrub 只对临时副本 apply；恢复演练保留原副本和 backup，不覆盖默认运行库。
-- 如发现公开 DTO 泄露私有字段、旧 worker 覆盖新 attempt、静态路径回归或真实数据误写，立即停止 P5，保留诊断证据并回滚最近代码提交。
+- `config/evals/narrative.v1.json`：10 cases；
+- `config/evals/static.v1.json`：10 cases；
+- `config/evals/carousel.v1.json`：10 cases；
+- `docs/ai/quality-evaluation.md`：当前 deterministic 证据和真实评测边界。
+
+下一会话应补齐：
+
+1. 每个用例的 hard constraints、事实/证据、机制差异、可制作性、一眼可懂、第二批去重、私有字段扫描、调用次数、延迟和预算字段。
+2. 失败分类的稳定维度：`model_output_invalid`、`provider_protocol_invalid`、`image_generation_failed`、`carousel_operation_failed`，并区分可重试性、阶段和字段路径。
+3. baseline、candidate、repair/failure 三组结果的报告模板；没有真实结果时明确标记 `not_run`。
+4. 报告测试：fixture 数量、case id 唯一、敏感凭据不出现、报告 schema 可解析。
+
+验收：报告能回答“格式是否通过、事实是否可追溯、机制是否重复、失败发生在哪个阶段、实际调用几次”，但不虚构人工评分或供应商成功率。
+
+### P5-D：文档和发布准备
+
+只有代码/数据证据变化时才同步相应文档：
+
+- `progress.md`：追加事实、验证命令、结果、提交哈希和未验证项；
+- `docs/ai-rebuild-master-plan.md`：更新 Phase 5 当前状态和删除门禁；
+- `docs/operations.md`：更新 scrub/备份/恢复实际演练结果；
+- `项目代码地图.md`：caller、入口或表变化时更新；
+- `docs/ai/quality-evaluation.md`：更新评测报告状态。
+
+不要把历史 handoff 改成当前事实，也不要为了“完成 Phase 5”删除仍有兼容用途的代码。
+
+## 4. 推荐提交切片
+
+按以下边界提交，便于回滚和审查：
+
+1. `test: audit retired AI callers`：只加审计测试/脚本和必要事实文档；
+2. `test: rehearse projection scrub restore`：只保留临时演练脚本/测试，不含真实库；
+3. `docs: add AI evaluation report schema`：评测报告和失败分类；
+4. `refactor: remove retired loader`：只有 P5-A 删除门禁满足时才做；
+5. `docs: close phase 5`：所有门禁通过后更新现状和提交哈希。
+
+每个提交后运行受影响的定向测试；最终再运行全量门禁。提交时显式排除 `launcher.py`、标签可选任务的文件、`data/`、`data/images/`、`data/uploads/`、`chat2api/.env` 和 `.scratch` 运行产物。
+
+## 5. 最终完成判定
+
+Phase 5 只能在以下条件全部满足后标记完成：
+
+- 旧 production caller 为零，并且每个保留项有可验证的历史读取/测试理由；
+- active PromptSpec、Module、validator、public DTO、persistence 和评测集一一对应；
+- 临时副本 scrub 达到 fixed point，backup 可恢复且恢复副本可读；
+- 版本化评测报告和供应商失败分类已提交；
+- 文档互相一致，`progress.md` 记录真实提交哈希；
+- `python -m unittest discover -s tests -v`、`node --check static\\app.js`、`python -m compileall -q src chat2api`、`git diff --check` 全部通过；
+- 真实 AI、图片网关、认证浏览器和真实生产库仍未运行的部分在最终报告中逐项列出。
+
+只要其中一项缺失，状态写“Phase 5 进行中”，并把具体缺口留在 progress，不要用“代码已通过测试”代替发布完成。
+
+## 6. 回滚和安全边界
+
+- 代码清理按提交回滚；不通过 Git 覆盖数据库、图片或上传文件。
+- registry/contract 回归优先回滚对应配置和 caller 提交。
+- scrub 只在临时副本 apply；backup 和 restored 副本作为证据保留。
+- 任何真实库写入、真实 AI/图片请求、监听地址变化、凭据变化、部署或认证边界变化，都要先停下，走项目高风险变更卡并取得用户确认。

@@ -1,5 +1,23 @@
 # 当前项目进度（2026-09-01）
 
+## 2026-09-04 普通创意标签改为可选
+
+### 已完成
+
+- 标签目录升级为 `tags-2026-09-04-v3`，显式声明叙事类和展示类的目标人群必选，其余普通创意标签可选。
+- 正式页面允许空选普通标签后确认收起，并在摘要中保留“未选择”和修改入口。
+- “是否轮播”、轮播数量和轮播形式继续作为必选流程控件，原有条件联动和服务端校验不变。
+- 决策记录见 [`docs/adr/0004-optional-tag-groups.md`](docs/adr/0004-optional-tag-groups.md)。
+
+### 验证
+
+- 定向规则测试已按 TDD 从失败转为通过；完整 deterministic unittest、Node 语法、Python compileall、JSON 解析和 `git diff --check` 待本次收尾执行。
+- 未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置；未调用真实 AI 或图片网关。
+
+### 未验证
+
+- 带认证浏览器中的桌面和移动端人工交互尚待检查。
+
 ## 2026-09-04 Phase 4 轮播后台状态机与 Phase 5 治理收口
 
 ### 已完成
@@ -23,6 +41,7 @@
 - 新增 [`docs/ai/quality-evaluation.md`](docs/ai/quality-evaluation.md)，集中记录三套 10-case 脱敏评测集、deterministic 证据和真实模型质量评测边界；没有把 fake 测试表述为真实质量通过。
 - 本阶段 checkpoint 提交：`5ad827c`（未包含用户已有的 `launcher.py` 修改）；随后以 docs-only 提交记录该哈希。
 - 已新增 [`docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md`](docs/superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md)，供下一会话继续 Phase 5；交接明确旧 caller 删除条件、临时数据库 scrub/恢复步骤、质量评测报告和最终门禁；提交为 `a525962`。
+- 2026-09-04 应用户反馈重写 Phase 5 handoff：补充当前工作树中的标签可选独立任务、旧路径逐项 caller 证据、P5-A 至 P5-D 工作包、临时 scrub/恢复验收、停止条件和提交切片；待本次 docs-only 修订提交后更新最终哈希。
 
 ## 2026-09-03 Phase 3 静态迁移收尾与 Phase 4 交接
 
