@@ -178,11 +178,11 @@ class AiV2Application:
     def history(self, project_id: int) -> dict[str, Any]:
         if self.project_provider(project_id) is None:
             raise AiV2ApplicationError("project_not_found", "project not found", phase="authorization")
-        return {"schema_version": "ai-v2-history-v1", "runs": [public_run(run) for run in self.store.list_public_runs(project_id)]}
+        return {"schema_version": "ai-v2-history-v1", "runs": [self._public_run_with_details(run) for run in self.store.list_public_runs(project_id)]}
 
     def run(self, project_id: int, run_id: int) -> dict[str, Any]:
         try:
-            return public_run(self.store.read_public_run_by_id(run_id))
+            return self._public_run_with_details(self.store.read_public_run_by_id(run_id))
         except AiV2StoreConflict as exc:
             raise AiV2ApplicationError("run_not_found", "run not found", phase="lookup") from exc
 
@@ -239,16 +239,53 @@ class AiV2Application:
         except AiV2StoreConflict as exc:
             raise AiV2ApplicationError("attempt_not_found", "attempt not found", phase="lookup") from exc
         artifact_id = state.get("artifact_id")
-        connection = getattr(self.store, "connection", None)
-        if not isinstance(artifact_id, int) or connection is None:
+        if not isinstance(artifact_id, int):
             raise AiV2ApplicationError("image_not_found", "image not found", phase="lookup")
-        row = connection.execute(
-            "SELECT content, mime_type FROM ai_v2_artifacts WHERE artifact_id=? AND attempt_id=?",
-            (artifact_id, attempt_id),
-        ).fetchone()
-        if row is None or row["mime_type"] not in {"image/png", "image/jpeg", "image/webp"}:
+        artifact = self.store.read_artifact(attempt_id)
+        if artifact is None or artifact[1] not in {"image/png", "image/jpeg", "image/webp"}:
             raise AiV2ApplicationError("image_not_found", "image not found", phase="lookup")
-        return bytes(row["content"]), str(row["mime_type"])
+        return artifact
+
+    def _public_run_with_details(self, run: Mapping[str, Any]) -> dict[str, Any]:
+        enriched = dict(run)
+        schemes = []
+        for scheme in self.store.list_schemes(int(run["run_id"])):
+            item = dict(scheme)
+            item["use_case"] = run["use_case"]
+            if run["use_case"] == "carousel":
+                frames = []
+                for frame in self.store.list_frames(int(scheme["scheme_id"])):
+                    current = dict(frame)
+                    key = f"{scheme['scheme_version']}:frame:{frame['frame_index']}"
+                    attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), int(frame["frame_index"]), key)
+                    current["image_state"] = self.store.read_image_attempt_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
+                    frames.append(current)
+                item["frames"] = frames
+            else:
+                frame = self.store.list_frames(int(scheme["scheme_id"]))[0]
+                key = f"{scheme['scheme_version']}:frame:1"
+                attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), 1, key)
+                item["image_state"] = self.store.read_image_attempt_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
+            schemes.append(item)
+        enriched["schemes"] = schemes
+        return public_run(enriched)
+
+    def adopt(self, project_id: int, scheme_id: int) -> dict[str, Any]:
+        try:
+            scheme = self.store.read_scheme(scheme_id)
+        except AiV2StoreConflict as exc:
+            raise AiV2ApplicationError("scheme_not_found", "scheme not found", phase="lookup") from exc
+        if int(self.project_id_for_scheme(scheme_id)) != int(project_id):
+            raise AiV2ApplicationError("scheme_not_found", "scheme not found", phase="lookup")
+        snapshot = public_run({"use_case": scheme["use_case"], "items": [scheme["canonical"]]})["items"][0]
+        self.store.save_adoption(project_id, scheme_id, scheme["scheme_version"], snapshot)
+        result = self.store.read_adoption(project_id)
+        if result is None:
+            raise AiV2ApplicationError("adoption_not_found", "adoption not found", phase="lookup")
+        return result
+
+    def adoption(self, project_id: int) -> dict[str, Any] | None:
+        return self.store.read_adoption(project_id)
 
 
 __all__ = ["AiV2Application", "AiV2ApplicationError", "CandidateImageModel", "CandidateTextModel"]

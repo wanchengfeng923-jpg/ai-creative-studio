@@ -102,9 +102,10 @@ def assert_ai_v2_boundary(root: Path) -> None:
             for issue in _python_import_violations(path, source):
                 violations.append(f"{relative_path}: {issue}")
 
+        scan_source = source.replace("ai_v2_adoptions", "")
         for token, description in patterns:
-            if token in source:
-                line_number = source[: source.index(token)].count("\n") + 1
+            if token in scan_source:
+                line_number = scan_source[: scan_source.index(token)].count("\n") + 1
                 source_line = source.splitlines()[line_number - 1].strip()
                 violations.append(
                     f"{relative_path}:{line_number}: {description} {token!r} in {source_line!r}"

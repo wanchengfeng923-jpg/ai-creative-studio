@@ -54,7 +54,7 @@ class NarrativeTextUseCase:
         spec = self.registry.get("creative.ai_v2.narrative", "v1")
         input_fingerprint = fingerprint(input_value, "narrative", prompt_version=spec.version)
         try:
-            run = self.store.reserve_run(project_id, "narrative", input_fingerprint, batch_index)
+            run = self.store.reserve_run(project_id, "narrative", input_fingerprint, batch_index, aspect_ratio=input_value.aspect_ratio)
         except AiV2StoreConflict as exc:
             raise NarrativeTextUseCaseError("batch_conflict", str(exc), retryable=False) from exc
         try:

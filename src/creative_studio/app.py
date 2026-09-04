@@ -295,7 +295,7 @@ class StudioHandler(BaseHTTPRequestHandler):
     def _require_v2_route_access(self, path: str, context) -> bool:
         """Resolve a v2 resource to its project before exposing its public DTO."""
 
-        project_match = re.fullmatch(r"/api/v2/projects/(\d+)/(?:generate|history)", path)
+        project_match = re.fullmatch(r"/api/v2/projects/(\d+)/(?:generate|history|adopt|adoption)", path)
         try:
             if project_match:
                 return self._require_v2_project_access(int(project_match.group(1)), context)

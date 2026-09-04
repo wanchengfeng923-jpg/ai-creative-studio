@@ -48,6 +48,14 @@ class AiV2BoundaryTests(unittest.TestCase):
 
             assert_ai_v2_boundary(root)
 
+    def test_allows_v2_adoption_table_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source_dir = root / "src" / "creative_studio" / "ai_v2"
+            source_dir.mkdir(parents=True)
+            (source_dir / "store.py").write_text("TABLE = 'ai_v2_adoptions'", encoding="utf-8")
+            assert_ai_v2_boundary(root)
+
 
 if __name__ == "__main__":
     unittest.main()

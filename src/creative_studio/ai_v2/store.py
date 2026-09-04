@@ -28,6 +28,7 @@ class RunRecord:
     use_case: Literal["narrative", "static", "carousel"] | str
     batch_index: int
     input_fingerprint: str
+    aspect_ratio: str = "16:9"
 
 
 @dataclass(frozen=True)
@@ -87,21 +88,25 @@ class SqliteAiV2Store:
     def migrate(self) -> None:
         migrate(self.connection)
 
-    def reserve_run(self, project_id: int, use_case: str, input_fingerprint: str, batch_index: int) -> RunRecord:
+    def reserve_run(self, project_id: int, use_case: str, input_fingerprint: str, batch_index: int, *, aspect_ratio: str = "16:9") -> RunRecord:
         if batch_index not in (1, 2):
             raise AiV2StoreConflict("only two v2 batches are allowed")
         with self.connection:
             existing = self.connection.execute(
-                "SELECT COUNT(DISTINCT batch_index) FROM ai_v2_runs WHERE project_id=? AND use_case=? AND input_fingerprint=?",
+                "SELECT COUNT(DISTINCT batch_index) FROM ai_v2_runs WHERE project_id=? AND use_case=? AND input_fingerprint=? AND status <> 'failed'",
                 (project_id, use_case, input_fingerprint),
             ).fetchone()[0]
-            if existing >= 2:
+            duplicate = self.connection.execute(
+                "SELECT 1 FROM ai_v2_runs WHERE project_id=? AND use_case=? AND input_fingerprint=? AND batch_index=? AND status <> 'failed'",
+                (project_id, use_case, input_fingerprint, batch_index),
+            ).fetchone()
+            if duplicate is not None or existing >= 2:
                 raise AiV2StoreConflict("v2 batch limit reached")
             cursor = self.connection.execute(
-                "INSERT INTO ai_v2_runs(project_id, use_case, batch_index, input_fingerprint) VALUES (?, ?, ?, ?)",
-                (project_id, use_case, batch_index, input_fingerprint),
+                "INSERT INTO ai_v2_runs(project_id, use_case, batch_index, input_fingerprint, aspect_ratio) VALUES (?, ?, ?, ?, ?)",
+                (project_id, use_case, batch_index, input_fingerprint, aspect_ratio),
             )
-        return RunRecord(cursor.lastrowid, project_id, use_case, batch_index, input_fingerprint)  # type: ignore[arg-type]
+        return RunRecord(cursor.lastrowid, project_id, use_case, batch_index, input_fingerprint, aspect_ratio)  # type: ignore[arg-type]
 
     def fail_run(self, run_id: int, error_code: str) -> None:
         with self.connection:
@@ -158,7 +163,7 @@ class SqliteAiV2Store:
 
     def read_public_run(self, project_id: int, run_id: int) -> dict[str, Any]:
         row = self.connection.execute(
-            "SELECT run_id, project_id, use_case, batch_index, input_fingerprint, status, canonical_json, error_code FROM ai_v2_runs WHERE project_id=? AND run_id=?",
+            "SELECT run_id, project_id, use_case, batch_index, input_fingerprint, aspect_ratio, status, canonical_json, error_code FROM ai_v2_runs WHERE project_id=? AND run_id=?",
             (project_id, run_id),
         ).fetchone()
         if row is None:
@@ -169,6 +174,7 @@ class SqliteAiV2Store:
             "use_case": row["use_case"],
             "batch_index": row["batch_index"],
             "input_fingerprint": row["input_fingerprint"],
+            "aspect_ratio": row["aspect_ratio"],
             "status": row["status"],
             "canonical": json.loads(row["canonical_json"]) if row["canonical_json"] else None,
             "error_code": row["error_code"],
@@ -214,7 +220,7 @@ class SqliteAiV2Store:
         """读取单个 v2 方案及其运行类型，供图片用例构造 typed request。"""
 
         row = self.connection.execute(
-            "SELECT s.scheme_id, s.run_id, s.scheme_index, s.scheme_version, s.canonical_json, r.use_case FROM ai_v2_schemes s JOIN ai_v2_runs r ON r.run_id=s.run_id WHERE s.scheme_id=?",
+            "SELECT s.scheme_id, s.run_id, s.scheme_index, s.scheme_version, s.canonical_json, r.use_case, r.aspect_ratio FROM ai_v2_schemes s JOIN ai_v2_runs r ON r.run_id=s.run_id WHERE s.scheme_id=?",
             (scheme_id,),
         ).fetchone()
         if row is None:
@@ -225,6 +231,7 @@ class SqliteAiV2Store:
             "scheme_index": row["scheme_index"],
             "scheme_version": row["scheme_version"],
             "use_case": row["use_case"],
+            "aspect_ratio": row["aspect_ratio"],
             "canonical": json.loads(row["canonical_json"]),
         }
 
@@ -249,6 +256,28 @@ class SqliteAiV2Store:
         if row is None:
             raise AiV2StoreConflict("attempt not found")
         return dict(row)
+
+    def read_artifact(self, attempt_id: int) -> tuple[bytes, str] | None:
+        row = self.connection.execute(
+            "SELECT content, mime_type FROM ai_v2_artifacts WHERE attempt_id=?",
+            (attempt_id,),
+        ).fetchone()
+        return None if row is None else (bytes(row["content"]), str(row["mime_type"]))
+
+    def save_adoption(self, project_id: int, scheme_id: int, source_scheme_version: str, snapshot: Mapping[str, Any]) -> None:
+        payload = json.dumps(dict(snapshot), ensure_ascii=False, separators=(",", ":"))
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO ai_v2_adoptions(project_id, scheme_id, source_scheme_version, snapshot_json) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(project_id) DO UPDATE SET scheme_id=excluded.scheme_id, source_scheme_version=excluded.source_scheme_version, snapshot_json=excluded.snapshot_json, updated_at=CURRENT_TIMESTAMP",
+                (project_id, scheme_id, source_scheme_version, payload),
+            )
+
+    def read_adoption(self, project_id: int) -> dict[str, Any] | None:
+        row = self.connection.execute("SELECT project_id, scheme_id, source_scheme_version, snapshot_json, updated_at FROM ai_v2_adoptions WHERE project_id=?", (project_id,)).fetchone()
+        if row is None:
+            return None
+        return {"project_id": row["project_id"], "scheme_id": row["scheme_id"], "source_scheme_version": row["source_scheme_version"], "snapshot": json.loads(row["snapshot_json"]), "updated_at": row["updated_at"]}
 
     def read_artifact_for_frame(self, scheme_id: int, frame_index: int) -> ImageArtifact:
         """读取已成功帧的 bytes/MIME，供下一帧图片请求作为参考。"""

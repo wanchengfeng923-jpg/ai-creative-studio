@@ -70,7 +70,7 @@ class ImageWorker:
                 frame["execution_prompt"],
                 session_key,
                 attempt.request_key,
-                "16:9",
+                scheme["aspect_ratio"],
                 reference,
                 provider_request_id=f"{attempt.request_key}:attempt:{attempt.attempt_no}",
             ),

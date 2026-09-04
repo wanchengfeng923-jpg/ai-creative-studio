@@ -32,6 +32,9 @@ class AiV2HttpApi:
                 if match:
                     view = self.application.frame_image(int(match.group(1)), int(match.group(2)))
                     return (200 if view.status == "success" else 202), self._view(view)
+                match = re.fullmatch(r"/api/v2/projects/(\d+)/adopt", path)
+                if match:
+                    return 200, self.application.adopt(int(match.group(1)), int((body or {}).get("scheme_id")))
             if method == "GET":
                 match = re.fullmatch(r"/api/v2/projects/(\d+)/history", path)
                 if match:
@@ -42,6 +45,10 @@ class AiV2HttpApi:
                 match = re.fullmatch(r"/api/v2/image-attempts/(\d+)", path)
                 if match:
                     return 200, self.application.image_attempt(int(match.group(1)))
+                match = re.fullmatch(r"/api/v2/projects/(\d+)/adoption", path)
+                if match:
+                    adoption = self.application.adoption(int(match.group(1)))
+                    return 200, adoption or {"project_id": int(match.group(1)), "adoption": None}
             return 404, {"error_code": "not_found", "phase": "routing", "retryable": False, "trace_id": trace_id}
         except AiV2ApplicationError as exc:
             status = 503 if exc.retryable and exc.phase == "image" else 409 if exc.error_code in {"frame_order_conflict", "batch_conflict", "image_already_successful"} else 422 if exc.phase == "input" else 404 if exc.error_code.endswith("_not_found") else 400
@@ -60,4 +67,3 @@ class AiV2HttpApi:
 
 
 __all__ = ["AiV2HttpApi"]
-

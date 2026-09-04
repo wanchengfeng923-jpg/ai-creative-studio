@@ -60,6 +60,17 @@ class AiV2ApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(current["run_id"], payload["run_id"])
 
+    def test_history_reopen_keeps_scheme_and_image_state(self) -> None:
+        body = {"task_description": "x", "aspect_ratio": "9:16", "creative_tags": {}}
+        _, generated = self.api.dispatch("POST", "/api/v2/projects/1/generate", body)
+        scheme_id = generated["items"][0]["scheme_id"]
+        self.api.dispatch("POST", f"/api/v2/schemes/{scheme_id}/image", {})
+        _, history = self.api.dispatch("GET", "/api/v2/projects/1/history", None)
+        reopened = history["runs"][0]
+        self.assertEqual(reopened["items"][0]["scheme_id"], scheme_id)
+        self.assertIn(reopened["items"][0]["image_state"]["status"], {"success", "pending", "generating", "failed"})
+        self.assertEqual(reopened["aspect_ratio"], "9:16")
+
     def test_static_image_is_accepted_once_and_repeated_request_is_idempotent(self) -> None:
         body = {"task_description": "x", "aspect_ratio": "16:9", "creative_tags": {}}
         _, generated = self.api.dispatch("POST", "/api/v2/projects/1/generate", body)

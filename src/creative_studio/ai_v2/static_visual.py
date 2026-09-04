@@ -60,7 +60,7 @@ class StaticTextUseCase:
         spec = self.registry.get("creative.ai_v2.static", "v1")
         input_fingerprint = fingerprint(input_value, "static", prompt_version=spec.version)
         try:
-            run = self.store.reserve_run(project_id, "static", input_fingerprint, batch_index)
+            run = self.store.reserve_run(project_id, "static", input_fingerprint, batch_index, aspect_ratio=input_value.aspect_ratio)
         except AiV2StoreConflict as exc:
             raise StaticTextUseCaseError("batch_conflict", str(exc), retryable=False) from exc
         try:
@@ -152,7 +152,7 @@ class StaticTextUseCase:
                 frame["execution_prompt"],
                 session_key,
                 request_key,
-                "16:9",
+                scheme["aspect_ratio"],
                 None,
                 provider_request_id=f"{request_key}:attempt:1",
             ))
@@ -187,7 +187,7 @@ class StaticTextUseCase:
                 frame["execution_prompt"],
                 session_key,
                 request_key,
-                "16:9",
+                scheme["aspect_ratio"],
                 None,
                 provider_request_id=f"{request_key}:attempt:{attempt.attempt_no}",
             ),

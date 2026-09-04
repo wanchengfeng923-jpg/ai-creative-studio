@@ -76,7 +76,7 @@ class CarouselTextUseCase:
         spec = self.registry.get("creative.ai_v2.carousel", "v1")
         input_fingerprint = fingerprint(input_value, "carousel", prompt_version=spec.version)
         try:
-            run = self.store.reserve_run(project_id, "carousel", input_fingerprint, batch_index)
+            run = self.store.reserve_run(project_id, "carousel", input_fingerprint, batch_index, aspect_ratio=input_value.aspect_ratio)
         except AiV2StoreConflict as exc:
             raise CarouselTextUseCaseError("batch_conflict", str(exc), retryable=False) from exc
         try:
@@ -175,7 +175,7 @@ class CarouselTextUseCase:
                 frame["execution_prompt"],
                 session_key,
                 request_key,
-                "16:9",
+                scheme["aspect_ratio"],
                 None,
                 provider_request_id=f"{request_key}:attempt:1",
             ))
@@ -210,7 +210,7 @@ class CarouselTextUseCase:
                 frame["execution_prompt"],
                 session_key,
                 request_key,
-                "16:9",
+                scheme["aspect_ratio"],
                 reference,
                 provider_request_id=f"{request_key}:attempt:{attempt.attempt_no}",
             ),

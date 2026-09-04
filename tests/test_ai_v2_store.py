@@ -84,6 +84,15 @@ class AiV2StoreTests(unittest.TestCase):
             self.store.reserve_run(1, "static", "same", 3)
         self.assertEqual(self.store.count_runs(1, "same"), 2)
 
+    def test_rejects_repeating_an_existing_batch_index(self) -> None:
+        self.store.reserve_run(1, "static", "same", 1)
+        with self.assertRaises(AiV2StoreConflict):
+            self.store.reserve_run(1, "static", "same", 1)
+
+    def test_persists_aspect_ratio_for_image_requests(self) -> None:
+        run = self.store.reserve_run(1, "static", "fp", 1, aspect_ratio="9:16")
+        self.assertEqual(self.store.read_public_run(1, run.run_id)["aspect_ratio"], "9:16")
+
     def test_saves_static_schemes_and_single_pending_frame_each(self) -> None:
         run = self.store.reserve_run(1, "static", "fp", 1)
         self.store.save_text_result(run.run_id, _static_result(), TextSession("s", "c", "m"))

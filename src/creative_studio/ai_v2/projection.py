@@ -114,6 +114,8 @@ def public_run(run: Mapping[str, Any]) -> dict[str, Any]:
         value = run.get(key)
         if isinstance(value, int) and not isinstance(value, bool):
             result[key] = value
+    if run.get("aspect_ratio") in {"16:9", "9:16"}:
+        result["aspect_ratio"] = run["aspect_ratio"]
     use_case = str(run.get("use_case") or "").strip().lower()
     if use_case in {"narrative", "static", "carousel"}:
         result["use_case"] = use_case
@@ -146,4 +148,3 @@ def public_run(run: Mapping[str, Any]) -> dict[str, Any]:
 
 
 __all__ = ["public_image_state", "public_run", "public_scheme"]
-

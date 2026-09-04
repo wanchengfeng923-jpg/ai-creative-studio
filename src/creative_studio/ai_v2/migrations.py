@@ -90,6 +90,15 @@ def migrate(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA foreign_keys = ON")
     for statement in SCHEMA_STATEMENTS:
         connection.execute(statement)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_v2_runs)")}
+    if "aspect_ratio" not in columns:
+        connection.execute("ALTER TABLE ai_v2_runs ADD COLUMN aspect_ratio TEXT NOT NULL DEFAULT '16:9'")
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS ai_v2_adoptions ("
+        "project_id INTEGER PRIMARY KEY, scheme_id INTEGER NOT NULL, "
+        "source_scheme_version TEXT NOT NULL, snapshot_json TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS ai_v2_image_attempt_request_idx "
         "ON ai_v2_image_attempts(scheme_id, frame_index, request_key, attempt_no)"
