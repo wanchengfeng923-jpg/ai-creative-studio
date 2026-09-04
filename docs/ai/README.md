@@ -10,6 +10,7 @@
 - `../operations.md`：启动、停止、备份、恢复和故障处置步骤。
 - `../../progress.md`：按日期追加的历史记录，不覆盖、不作为当前架构事实。
 - [`quality-evaluation.md`](quality-evaluation.md)：固定脱敏评测集、当前 deterministic 证据和真实质量评测边界。
+- [`../superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md`](../superpowers/handoffs/2026-09-04-ai-rebuild-phase-5-handoff.md)：下一会话继续 Phase 5 的执行顺序、caller 审计、临时 scrub/恢复演练和完成门禁。
 
 如果未来把总纲拆成 `00-current-facts.md`、`01-problem-register.md` 等文件，只能由本入口指向拆分后的章节，不能复制同一事实。拆分完成并经过一致性检查前，总纲仍是唯一权威。
 
