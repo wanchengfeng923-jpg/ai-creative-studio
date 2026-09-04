@@ -89,7 +89,11 @@ python -m creative_studio.backup --retention-root .scratch --keep-latest 7
 
 ## 静态展示生成边界
 
-非轮播展示生成从 `StaticVisualGeneration` 进入 `StaticVisualResult.v1` 校验；一批固定三案，成功后为每案创建一个首图任务。`generation_service.py` 通过
+旧版生成链路（`generation_service.py`、`image_jobs.py`、`/api/projects/*/generate` 和 `/api/visual-items/*`）已退休，生产入口不再构造或调用这些模块；历史运维说明仅保留为审计记录。
+
+AI v2 入口使用 `/api/v2`：请求只接受 `task_description`、`aspect_ratio`、`creative_tags` 三个业务字段。文字生成同步返回，静态方案首次点击才创建图片会话，轮播每次点击只推进一帧；公开响应不包含 Prompt、execution、会话游标、供应商 job id 或本地路径。
+
+非轮播展示生成从旧 `StaticVisualGeneration` 进入 `StaticVisualResult.v1` 校验；一批固定三案，成功后为每案创建一个首图任务。`generation_service.py` 通过
 `StaticVisualImageRequest` 把画幅、私有指令和稳定 request id 交给图片队列。canonical 正文写入
 `generations.items_json` 和 `visual_items.content_json`，私有
 `image_generation_instruction` 只写入 `visual_items.image_prompt` 和受控图片队列，静态方案不写入
@@ -99,7 +103,7 @@ python -m creative_studio.backup --retention-root .scratch --keep-latest 7
 
 ## 轮播后台 Operation
 
-轮播继续接口 `POST /api/visual-items/{id}/continue` 在首图成功后创建持久化
+旧轮播继续接口 `POST /api/visual-items/{id}/continue` 在首图成功后创建持久化
 `carousel_operations`，立即返回 HTTP `202`、`operation_id` 和方案公开 DTO。前端随后轮询
 `GET /api/visual-items/{id}/operation/{operation_id}`，逐帧状态仍以
 `GET /api/visual-items/{id}/frames/status` 为准。operation 的公开状态为 `queued`、`running`、

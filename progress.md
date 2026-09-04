@@ -2199,3 +2199,18 @@
 - 全量 unittest：322 passed。
 - v2 unittest：59 passed。
 - `node --check static/ai-v2/app.js`、`compileall src chat2api`、v2 release gate、`git diff --check`：全部通过。
+# 2026-09-05 AI v2 正式收尾
+
+### 已完成
+
+- 网关复审后修复未知图片状态、显式终态重试键、续帧 cursor、唯一 Prompt caller，并从组合根移除旧 AI 生产链。
+- 修复 v2 批次唯一性、失败文字重试、画幅持久化、历史重开 DTO、图片 artifact 存储边界。
+- 新增 `ai_v2_adoptions` 采用快照 API；正式根页面切换为 v2 DTO 和 v2 图片/采用路由。
+- 清理旧 AI 专属测试，保留认证、项目 CRUD、文件和运行数据测试。
+
+### 验证
+
+- 全量 unittest：202 passed。
+- v2 unittest：84 passed。
+- `node --check static/app.js static/ai-v2/app.js`、`compileall`、v2 release gate、boundary、`git diff --check`：通过。
+- 未调用真实 AI/图片供应商，未修改 `chat2api/.env` 或真实运行数据。

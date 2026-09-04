@@ -140,3 +140,8 @@
 - 启动器连接状态新增 GPT 用户名，来自网页 Access Token 的 profile claims。
 - Session Cookie 热更新成功后同步刷新启动器中的 GPT 用户名。
 - 启动器保存新的 Session Cookie 时，网关在线会立即热更新会话并换取 Access Token，避免继续使用旧会话；热更新失败时提示重启网关。
+# Next
+
+- AI v2 已成为正式网页根入口：三字段文字优先、静态按需首图、轮播逐帧续图和 v2 采用快照均走隔离的 `ai_v2_*` 表。
+- 旧 AI 生产组合根、生成/视觉路由和旧 AI 专属测试已移除；认证、项目归属、项目文件和运行数据保留。
+- 发布门禁仍只证明 deterministic contract；真实模型与图片供应商质量保持 `not-run`。

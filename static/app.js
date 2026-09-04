@@ -600,7 +600,15 @@
   async function loadHistory(selectLatest = false) {
     if (!state.project) return;
     const payload = await api(V2_GENERATION_ENDPOINTS.history(state.project.id));
-    const history = payload?.history || payload;
+    const history = normalizeV2History(payload?.history || payload);
+    const adoptionPayload = await api(V2_GENERATION_ENDPOINTS.adoptionStatus(state.project.id));
+    if (adoptionPayload?.snapshot) {
+      history.adoption = {
+        recommendation_kind: history.recommendation_kind,
+        reference_id: String(adoptionPayload.scheme_id),
+        snapshot: adoptionPayload.snapshot,
+      };
+    }
     const pinned = state.pinnedGeneratedBatch;
     if (pinned && !history.batches.some((batch) => Number(batch.id) === Number(pinned.id))) {
       const staleIndex = history.stale_batches.findIndex((batch) => Number(batch.id) === Number(pinned.id));
@@ -627,6 +635,45 @@
     }));
     renderHistory();
     if (history.batches.length && currentStep < 2) { currentStep = 2; applyStep(); }
+  }
+
+  function normalizeV2History(payload) {
+    if (!Array.isArray(payload?.runs)) return payload;
+    const runs = payload.runs.map((run) => ({
+      id: run.run_id,
+      run_id: run.run_id,
+      batch_index: run.batch_index,
+      use_case: run.use_case,
+      status: run.status,
+      aspect_ratio: run.aspect_ratio,
+      items: (run.items || []).map((item) => ({
+        ...item,
+        id: item.scheme_id,
+        title: item.title || `方案 ${item.scheme_index || item.item_index || ""}`,
+        subtitle: item.core_idea || "",
+        creative_description: item.image_description || item.ad_copy || "",
+        core_subject: item.image_description || "",
+        layout: item.core_idea || "",
+        visual_style: item.ad_copy || "",
+        image_status: item.image_state?.status,
+        image_url: item.image_state?.image_url,
+        image_error: item.image_state?.error_code,
+        frames: (item.frames || []).map((frame) => ({
+          ...frame,
+          frame_index: frame.index ?? frame.frame_index,
+          image_status: frame.image_state?.status,
+          image_url: frame.image_state?.image_url,
+          image_error: frame.image_state?.error_code,
+        })),
+      })),
+    }));
+    return {
+      ...payload,
+      batches: runs,
+      stale_batches: [],
+      remaining_generations: Math.max(0, 2 - runs.length),
+      recommendation_kind: runs[0]?.use_case === "narrative" ? "narrative" : "visual",
+    };
   }
 
   function renderHistory() {
@@ -771,11 +818,10 @@
     els.resultsGrid.innerHTML = batch.items.map((item, index) => `<article class="creative-card story-card">
       <div class="card-kicker">STORY ${String(index + 1).padStart(2, "0")}</div><h3>${esc(item.story)}</h3>
       ${(item.hooks || []).map((hook, hookIndex) => `<div class="hook"><strong>钩子 ${hookIndex + 1} · ${esc(hook.text)}</strong><ol>${(hook.scenes || []).map((scene) => `<li>${esc(scene)}</li>`).join("")}</ol></div>`).join("")}
-      <div class="card-actions"><button data-adopt-narrative="${batch.id}:${index}">${isAdopted("narrative", `${batch.id}:${index}`) ? "已采用" : "采用此故事"}</button></div>
+      <div class="card-actions"><button data-adopt-narrative="${item.id}">${isAdopted("narrative", String(item.id)) ? "已采用" : "采用此故事"}</button></div>
     </article>`).join("");
     els.resultsGrid.querySelectorAll("[data-adopt-narrative]").forEach((button) => button.addEventListener("click", () => {
-      const [generationId, itemIndex] = button.dataset.adoptNarrative.split(":").map(Number);
-      adoptNarrative(generationId, itemIndex);
+      adoptNarrative(Number(button.dataset.adoptNarrative));
     }));
   }
 
@@ -915,13 +961,13 @@
     } catch (error) { toast(error.message, true); }
   }
 
-  async function adoptNarrative(generationId, itemIndex) {
+  async function adoptNarrative(schemeId) {
     try {
       const payload = await api(V2_GENERATION_ENDPOINTS.adoption(state.project.id), {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recommendation_kind: "narrative", generation_id: generationId, item_index: itemIndex }),
+        body: JSON.stringify({ scheme_id: schemeId }),
       });
-      state.project.adoption = { recommendation_kind: "narrative", reference_id: `${generationId}:${itemIndex}`, snapshot: payload.snapshot };
+      state.project.adoption = { recommendation_kind: "narrative", reference_id: String(schemeId), snapshot: payload.snapshot };
       renderHistory(); await loadProjects();
     } catch (error) { toast(error.message, true); }
   }
