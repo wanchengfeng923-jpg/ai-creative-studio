@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import tempfile
 import unittest
+from http import HTTPStatus
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from creative_studio.ai_v2.adapters.image_gateway import ImageGatewayAdapter
@@ -12,6 +15,7 @@ from creative_studio.ai_v2.adapters.text_gateway import TextGatewayAdapter
 from creative_studio.ai_v2.adapters.text_gateway import TextGatewayError
 from creative_studio.ai_v2.application import AiV2Application
 from creative_studio.ai_v2.fakes import DeterministicImageModel, DeterministicTextModel, image_artifact
+from creative_studio.ai_v2.http_api import AiV2HttpApi
 from creative_studio.ai_v2.model_ports import (
     ImageContinuation,
     ImageRequest,
@@ -22,7 +26,7 @@ from creative_studio.ai_v2.model_ports import (
     TextRequest,
 )
 from creative_studio.ai_v2.store import SqliteAiV2Store
-from creative_studio.app import create_application
+from creative_studio.app import StudioHandler, create_application
 from launcher import Launcher
 
 
@@ -44,6 +48,12 @@ class _Transport:
 
     def get_bytes(self, path):
         return self.download
+
+
+class _FailingTransport(_Transport):
+    def post_json(self, path, payload):
+        self.posts.append((path, dict(payload)))
+        raise TimeoutError("response was lost")
 
 
 def _static_text() -> str:
@@ -94,7 +104,10 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
         transport.post_response = {"job_id": "job-1", "status": "queued"}
         adapter = ImageGatewayAdapter(transport, base_url="http://127.0.0.1:8780")
         reference = image_artifact(b"jpeg", "image/jpeg")
-        request = ImageRequest("scheme", 2, "prompt", "session-key", "request-key", "16:9", reference)
+        request = ImageRequest(
+            "scheme", 2, "prompt", "session-key", "request-key", "16:9", reference,
+            provider_request_id="request-key:attempt:2",
+        )
 
         result = adapter.continue_image_session(ImageContinuation(
             request,
@@ -103,13 +116,41 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
 
         path, payload = transport.posts[0]
         self.assertEqual(path, "http://127.0.0.1:8780/v1/images/jobs")
-        self.assertEqual(payload["request_id"], "request-key")
+        self.assertEqual(payload["request_id"], "request-key:attempt:2")
         self.assertEqual(payload["image_session_key"], "session-key")
         self.assertEqual(payload["request_key"], "request-key")
         self.assertEqual(payload["conversation_id"], "conversation")
         self.assertEqual(payload["parent_message_id"], "parent")
         self.assertEqual(payload["image"], "data:image/jpeg;base64," + base64.b64encode(b"jpeg").decode("ascii"))
         self.assertEqual(result.state, "working")
+
+    def test_actual_failed_job_envelope_requires_explicit_terminal_marker(self) -> None:
+        request = ReconcileRequest("session", "logical-key", None, "job-1")
+        for error in ("gateway_restarted", "upstream page closed unexpectedly"):
+            with self.subTest(error=error):
+                transport = _Transport()
+                transport.get_response = {
+                    "job_id": "job-1",
+                    "request_id": "logical-key:attempt:1",
+                    "status": "failed",
+                    "image_url": "",
+                    "error": error,
+                    "conversation_id": "",
+                    "parent_message_id": "",
+                }
+                adapter = ImageGatewayAdapter(transport, base_url="http://127.0.0.1:8780")
+                self.assertEqual(adapter.reconcile(request).state, "unknown")
+
+        transport = _Transport()
+        transport.get_response = {
+            "job_id": "job-1",
+            "request_id": "logical-key:attempt:1",
+            "status": "failed",
+            "error": "provider_rejected",
+            "terminal_failure": True,
+        }
+        adapter = ImageGatewayAdapter(transport, base_url="http://127.0.0.1:8780")
+        self.assertEqual(adapter.reconcile(request).state, "terminal_failure")
 
     def test_image_reconcile_gets_job_and_downloads_declared_mime(self) -> None:
         transport = _Transport()
@@ -152,6 +193,28 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
         self.assertEqual(result.state, "success")
         self.assertEqual(result.artifact.mime_type, "image/jpeg")  # type: ignore[union-attr]
         self.assertEqual(result.cursor.revision, 1)  # type: ignore[union-attr]
+
+    def test_continuation_immediate_success_increments_existing_cursor(self) -> None:
+        transport = _Transport()
+        transport.post_response = {
+            "job_id": "job-2",
+            "status": "success",
+            "image_url": "http://127.0.0.1:8780/images/result.png",
+            "conversation_id": "conversation",
+            "parent_message_id": "parent-2",
+        }
+        transport.download = (b"png", "image/png")
+        adapter = ImageGatewayAdapter(transport, base_url="http://127.0.0.1:8780")
+        previous = ImageSessionCursor("chat2api", "conversation", "parent-1", 4)
+        request = ImageRequest(
+            "scheme", 2, "prompt", "session", "logical-key", "16:9", None,
+            provider_request_id="logical-key:attempt:1",
+        )
+
+        result = adapter.continue_image_session(ImageContinuation(request, previous))
+
+        self.assertEqual(result.state, "success")
+        self.assertEqual(result.cursor.revision, 5)  # type: ignore[union-attr]
 
     def test_image_reconcile_rejects_cross_origin_download(self) -> None:
         transport = _Transport()
@@ -225,14 +288,111 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
                 database_path=root / "studio.db",
                 images_dir=root / "images",
                 uploads_dir=root / "uploads",
-                model_client=None,
-                image_runner=object(),
                 environment={"CREATIVE_STUDIO_AI_GATEWAY_URL": "http://127.0.0.1:8780"},
             )
             ai_v2 = application.ai_v2_application
             self.assertIsInstance(ai_v2.static.text_model, TextGatewayAdapter)  # type: ignore[union-attr]
             self.assertIsInstance(ai_v2.static.image_model, ImageGatewayAdapter)  # type: ignore[union-attr]
             ai_v2.store.close()  # type: ignore[union-attr]
+
+    def test_composition_root_does_not_construct_legacy_ai_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch(
+                "creative_studio.generation_service.CreativeGenerationService.__init__",
+                side_effect=AssertionError("legacy service constructed"),
+            ), patch(
+                "creative_studio.image_jobs.ImageJobRunner.__init__",
+                side_effect=AssertionError("legacy worker constructed"),
+            ), patch(
+                "creative_studio.image_jobs.GptWebImageClient.__init__",
+                side_effect=AssertionError("legacy image client constructed"),
+            ), patch(
+                "creative_studio.model_client.HttpModelClient.__init__",
+                side_effect=AssertionError("legacy model client constructed"),
+            ):
+                application = create_application(
+                    database_path=root / "studio.db",
+                    uploads_dir=root / "uploads",
+                    environment={},
+                    ai_v2_text_model=DeterministicTextModel([_static_text()]),
+                    ai_v2_image_model=DeterministicImageModel(),
+                )
+
+            self.assertFalse(hasattr(application, "generation_service"))
+            self.assertFalse(hasattr(application, "image_runner"))
+
+    def test_legacy_generation_post_routes_are_unavailable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = create_application(
+                database_path=root / "studio.db",
+                uploads_dir=root / "uploads",
+                environment={},
+                ai_v2_text_model=DeterministicTextModel([_static_text()]),
+                ai_v2_image_model=DeterministicImageModel(),
+            )
+            application.generate = lambda _project_id: {"success": True}
+            application.select_visual_scheme = lambda _item_id: {"scheme_id": 1}
+            application.continue_visual_scheme = lambda _item_id: {"scheme": {"scheme_id": 1}}
+            application.adopt_visual = lambda _project_id, _item_id: {"scheme_id": 1}
+            application.repository.get_visual_item_owner_id = lambda _item_id: 1
+            application.repository.retry_visual_item = lambda _item_id: True
+            application.image_runner = SimpleNamespace(retry=lambda _item_id: None)
+            context = SimpleNamespace(user={"id": 1, "role": "admin", "must_change_password": False})
+
+            for path in (
+                "/api/projects/1/generate",
+                "/api/visual-items/1/select",
+                "/api/visual-items/1/continue",
+                "/api/visual-items/1/retry",
+                "/api/projects/1/adopt",
+            ):
+                with self.subTest(path=path):
+                    handler = object.__new__(StudioHandler)
+                    handler.server = SimpleNamespace(application=application)
+                    handler.path = path
+                    handler.headers = {}
+                    handler.rfile = io.BytesIO()
+                    handler.client_address = ("127.0.0.1", 1)
+                    handler._require_auth = lambda **_kwargs: context
+                    handler._context = lambda: context
+                    handler._require_project_access = lambda *_args: {}
+                    responses = []
+                    handler._json = lambda payload, status=HTTPStatus.OK: responses.append(
+                        (payload, HTTPStatus(status))
+                    )
+
+                    StudioHandler._post(handler)
+
+                    self.assertEqual(responses[-1][1], HTTPStatus.NOT_FOUND)
+
+    def test_initial_image_timeout_returns_503_without_local_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SqliteAiV2Store(Path(directory) / "studio.db")
+            transport = _FailingTransport()
+            application = AiV2Application(
+                store,
+                text_model=DeterministicTextModel([_static_text()]),
+                image_model=ImageGatewayAdapter(transport, base_url="http://127.0.0.1:8780"),
+                project_provider=lambda project_id: {"id": project_id, "script_type": "展示类"},
+            )
+            api = AiV2HttpApi(application)
+            _, generated = api.dispatch("POST", "/api/v2/projects/1/generate", {
+                "task_description": "x", "aspect_ratio": "16:9", "creative_tags": {},
+            })
+            scheme_id = generated["items"][0]["scheme_id"]
+
+            first = api.dispatch("POST", f"/api/v2/schemes/{scheme_id}/image", {})
+            second = api.dispatch("POST", f"/api/v2/schemes/{scheme_id}/image", {})
+
+            self.assertEqual(first[0], 503)
+            self.assertTrue(first[1]["retryable"])
+            self.assertEqual(second[0], 503)
+            self.assertEqual(store.count_image_sessions(scheme_id), 0)
+            self.assertIsNone(store.find_image_attempt(scheme_id, 1, "v2-run-1-scheme-1:frame:1"))
+            self.assertEqual(transport.posts[0][1]["request_id"], transport.posts[1][1]["request_id"])
+            store.close()
 
     def test_launcher_injects_only_v2_ai_runtime_names(self) -> None:
         with patch.dict("os.environ", {"WEB_ERP_AI_API_URL": "legacy"}, clear=False):

@@ -68,6 +68,7 @@ class ImageRequest:
     request_key: str
     aspect_ratio: str
     reference_artifact: ImageArtifact | None
+    provider_request_id: str | None = None
 
 
 @dataclass(frozen=True)

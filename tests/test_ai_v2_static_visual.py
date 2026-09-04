@@ -113,6 +113,18 @@ class AiV2StaticVisualTests(unittest.TestCase):
         self.assertEqual(len(image_model.created_image_sessions), 1)
         self.assertEqual(len(image_model.start_calls), 1)
         self.assertEqual(len(image_model.continue_calls), 1)
+        self.assertEqual(
+            image_model.start_calls[0].provider_request_id,
+            "v2-run-1-scheme-1:frame:1:attempt:1",
+        )
+        self.assertEqual(
+            image_model.continue_calls[0].request.provider_request_id,
+            "v2-run-1-scheme-1:frame:1:attempt:2",
+        )
+        self.assertEqual(
+            image_model.start_calls[0].request_key,
+            image_model.continue_calls[0].request.request_key,
+        )
 
 
 if __name__ == "__main__":

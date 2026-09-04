@@ -64,7 +64,16 @@ class ImageWorker:
         if scheme["use_case"] == "carousel" and state["frame_index"] > 1:
             reference = self.store.read_artifact_for_frame(state["scheme_id"], state["frame_index"] - 1)
         submission = self.image_model.continue_image_session(ImageContinuation(
-            ImageRequest(scheme["scheme_version"], state["frame_index"], frame["execution_prompt"], session_key, attempt.request_key, "16:9", reference),
+            ImageRequest(
+                scheme["scheme_version"],
+                state["frame_index"],
+                frame["execution_prompt"],
+                session_key,
+                attempt.request_key,
+                "16:9",
+                reference,
+                provider_request_id=f"{attempt.request_key}:attempt:{attempt.attempt_no}",
+            ),
             session.cursor,
         ))
         self._apply_submission(attempt, submission)

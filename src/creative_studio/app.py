@@ -18,36 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .ai_creative import (
-    AiCreativeConfigurationError,
-    AiCreativeQueueTimeoutError,
-    AiCreativeRequestError,
-    NARRATIVE_TAG_KEYS,
-    VISUAL_TAG_KEYS,
-    generate_creative_recommendations,
-    generate_visual_creative_recommendations,
-    load_ai_creative_config,
-    load_ai_creative_game_info,
-    load_ai_visual_creative_config,
-    normalize_creative_tags,
-    recommendation_kind_for_script_type,
-)
-from .carousel import CarouselValidationError, normalize_visual_carousel_config
-from .generation_models import CreativeGenerationRequest
-from .generation_models import (
-    GenerationConflictError,
-    GenerationInputError,
-    GenerationNotFoundError,
-    GenerationQueueTimeoutError,
-    error_details,
-)
-from .generation_service import CreativeGenerationService
-from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_environment
-from .model_client import HttpModelClient, ModelClient
 from .public_projection import PublicResultMapper
-from .prompt_registry import PromptRegistry, PromptRegistryError
-from .reference_assets import FileReferenceAssetStore
-from .observability import StructuredObservability
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 from .ai_v2.adapters.image_gateway import ImageGatewayAdapter
@@ -65,7 +36,6 @@ DATA_DIR = ROOT_DIR / "data"
 DATABASE_PATH = DATA_DIR / "creative_studio.db"
 IMAGES_DIR = DATA_DIR / "images"
 UPLOADS_DIR = DATA_DIR / "uploads"
-PROMPT_REGISTRY_PATH = ROOT_DIR / "config" / "prompts" / "registry.json"
 
 
 class StudioApplication:
@@ -75,22 +45,16 @@ class StudioApplication:
         self,
         repository: StudioRepository,
         auth: AuthService,
-        image_runner: Any,
-        generation_service: CreativeGenerationService,
         *,
         public_mapper: PublicResultMapper,
         uploads_dir: Path,
-        prompt_registry: PromptRegistry | None = None,
         ai_v2_application: AiV2Application | None = None,
         ai_v2_factory: Callable[[], AiV2Application] | None = None,
     ) -> None:
         self.repository = repository
         self.auth = auth
-        self.image_runner = image_runner
-        self.generation_service = generation_service
         self.public_mapper = public_mapper
         self.uploads_dir = Path(uploads_dir).resolve()
-        self.prompt_registry = prompt_registry
         self._ai_v2_application = ai_v2_application
         self._ai_v2_factory = ai_v2_factory
         self._ai_v2_api: AiV2HttpApi | None = None
@@ -108,181 +72,19 @@ class StudioApplication:
             self._ai_v2_api = AiV2HttpApi(application)
         return self._ai_v2_api
 
-    @staticmethod
-    def _load_model_client(environment: Mapping[str, str] | None = None) -> HttpModelClient | None:
-        source = environment if environment is not None else os.environ
-        api_url = str(source.get("WEB_ERP_AI_API_URL") or "http://127.0.0.1:8780/v1/chat/completions").strip()
-        api_key = str(source.get("WEB_ERP_AI_API_KEY") or "local-chatgpt-gateway").strip()
-        model = str(source.get("WEB_ERP_AI_MODEL") or "gpt-5-6-mini").strip()
-        if not api_url or not api_key or not model:
-            return None
-        try:
-            timeout_seconds = float(source.get("WEB_ERP_AI_TIMEOUT_SECONDS") or 30)
-        except (TypeError, ValueError):
-            timeout_seconds = 30.0
-        return HttpModelClient(
-            api_url=api_url,
-            api_key=api_key,
-            timeout_seconds=timeout_seconds,
-        )
-
-    @staticmethod
-    def _ensure_default_ai_environment(environment: MutableMapping[str, str] | None = None) -> None:
-        """Allow direct ``python -m creative_studio.app`` startup to use the local gateway."""
-
-        target = environment if environment is not None else os.environ
-
-        defaults = {
-            "WEB_ERP_AI_API_URL": "http://127.0.0.1:8780/v1/chat/completions",
-            "WEB_ERP_AI_API_KEY": "local-chatgpt-gateway",
-            "WEB_ERP_AI_MODEL": "gpt-5-6-mini",
-            "WEB_ERP_AI_PROVIDER": "chatgpt-web",
-            "WEB_ERP_AI_VISUAL_PROMPT_PATH": str(ROOT_DIR / "config" / "ai_visual_creative_prompt_v2.txt"),
-            "WEB_ERP_AI_PROMPT_PATH": str(ROOT_DIR / "config" / "ai_creative_prompt_v5.txt"),
-            "WEB_ERP_AI_TIMEOUT_SECONDS": "300",
-        }
-        for key, value in defaults.items():
-            if not str(target.get(key) or "").strip():
-                target[key] = value
-
-    @staticmethod
-    def _fingerprint(project: dict[str, Any]) -> str:
-        script_type = str(project.get("script_type") or "").strip()
-        normalized_tags = normalize_creative_tags(project.get("creative_tags"))
-        active_keys = VISUAL_TAG_KEYS if script_type == "展示类" else NARRATIVE_TAG_KEYS
-        value: dict[str, Any] = {
-            "script_type": script_type,
-            "creative_tags": {
-                key: sorted(normalized_tags[key])
-                for key in active_keys
-            },
-            "task_type": str(project.get("task_type") or "").strip(),
-            "task_description": str(project.get("task_description") or "").strip(),
-            "product_evidence_summary": str(project.get("product_evidence_summary") or "").strip(),
-            "aspect_ratio": str(project.get("aspect_ratio") or "").strip(),
-            "reference_assets": [
-                {
-                    "name": str(item.get("original_name") or ""),
-                    "sha256": str(item.get("sha256") or ""),
-                    "mime_type": str(item.get("mime_type") or ""),
-                    "size_bytes": int(item.get("size_bytes") or 0),
-                    "extraction_status": str(item.get("extraction_status") or "pending"),
-                    "safe_summary": str(item.get("safe_summary") or ""),
-                }
-                for item in (project.get("reference_files") or [])
-                if isinstance(item, Mapping)
-            ],
-        }
-        if script_type == "展示类":
-            value["visual_carousel"] = normalize_visual_carousel_config(project.get("creative_tags"))
-        canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-    def history(self, project_id: int) -> dict[str, Any]:
-        project = self.repository.get_project(project_id)
-        if project is None:
-            raise StudioDataError("项目不存在")
-        kind = recommendation_kind_for_script_type(project["script_type"])
-        # GenerationService is the canonical owner of snapshot normalization and
-        # prompt metadata. Rebuild that snapshot here so history classification
-        # uses exactly the same fingerprint as the generation write path.
-        fingerprint = self.generation_service._build_snapshot(project).fingerprint
-        result = self.public_mapper.history(
-            self.repository.generation_history(project_id, kind, fingerprint),
-            recommendation_kind=kind,
-        )
-        result.update({
-            "success": True,
-            "recommendation_kind": kind,
-            "input_fingerprint": fingerprint,
-            "adoption": self.public_mapper.adoption(project.get("adoption")),
-        })
-        return result
-
-    def generate(self, project_id: int) -> dict[str, Any]:
-        outcome = self.generation_service.generate(CreativeGenerationRequest(project_id=project_id))
-        result = self.public_mapper.history(
-            outcome.history,
-            recommendation_kind=outcome.snapshot.kind,
-        )
-        result.update({
-            "success": True,
-            "recommendation_kind": outcome.snapshot.kind,
-            "input_fingerprint": outcome.snapshot.fingerprint,
-        })
-        return result
-
-    def select_visual_scheme(self, item_id: int) -> dict[str, Any]:
-        mapper = getattr(self, "public_mapper", None) or PublicResultMapper()
-        return mapper.display_scheme(self.generation_service.select_scheme(int(item_id)))
-
-    def continue_visual_scheme(self, item_id: int) -> dict[str, Any]:
-        result = self.generation_service.continue_scheme(int(item_id))
-        if "operation" not in result:
-            # Keep the explicit legacy/test seam readable while production uses
-            # the operation coordinator above.
-            return {"scheme": self.public_mapper.display_scheme(result)}
-        return {
-            "operation": self.public_mapper.carousel_operation(result["operation"]),
-            "scheme": self.public_mapper.display_scheme(result["scheme"]),
-        }
-
-    def carousel_operation_status(self, item_id: int, operation_id: int) -> dict[str, Any]:
-        operation = self.repository.get_carousel_operation(int(operation_id))
-        if operation is None or int(operation.get("scheme_id") or 0) != int(item_id):
-            raise GenerationNotFoundError("轮播操作不存在")
-        scheme = self.repository.get_display_scheme(int(item_id))
-        if scheme is None:
-            raise GenerationNotFoundError("展示方案不存在")
-        return {
-            "operation": self.public_mapper.carousel_operation(operation),
-            "scheme": self.public_mapper.display_scheme(scheme),
-        }
-
-    def adopt_visual(self, project_id: int, item_id: int) -> dict[str, Any]:
-        reference_id, source = self.repository.visual_adoption_source(project_id, item_id)
-        snapshot = self.public_mapper.result_item(source, recommendation_kind="visual")
-        self.repository.save_adoption(project_id, "visual", reference_id, snapshot)
-        return snapshot
-
-    def adopt_narrative(
-        self,
-        project_id: int,
-        generation_id: int,
-        item_index: int,
-    ) -> dict[str, Any]:
-        reference_id, source = self.repository.narrative_adoption_source(
-            project_id,
-            generation_id,
-            item_index,
-        )
-        snapshot = self.public_mapper.result_item(source, recommendation_kind="narrative")
-        self.repository.save_adoption(project_id, "narrative", reference_id, snapshot)
-        return snapshot
-
-
-_DEFAULT_MODEL_CLIENT = object()
-
-
 def create_application(
     *,
     database_path: Path = DATABASE_PATH,
     images_dir: Path = IMAGES_DIR,
     uploads_dir: Path = UPLOADS_DIR,
-    model_client: ModelClient | None | object = _DEFAULT_MODEL_CLIENT,
-    image_runner: Any | None = None,
-    image_client: GptWebImageClient | None = None,
     clock: Callable[[], str] | None = None,
     environment: MutableMapping[str, str] | None = None,
-    prompt_registry: PromptRegistry | None = None,
     ai_v2_text_model: TextModelPort | None = None,
     ai_v2_image_model: ImageModelPort | None = None,
 ) -> StudioApplication:
     """Build the application graph, allowing deterministic adapters in tests."""
 
     source = environment if environment is not None else os.environ
-    StudioApplication._ensure_default_ai_environment(source)
-    prompt_registry = prompt_registry or PromptRegistry.load(PROMPT_REGISTRY_PATH)
     public_mapper = PublicResultMapper()
     repository = StudioRepository(
         database_path,
@@ -296,28 +98,6 @@ def create_application(
     bootstrap_password = source.get("CREATIVE_STUDIO_BOOTSTRAP_PASSWORD")
     if not repository.list_users() and bootstrap_username and bootstrap_password:
         auth.init_admin(bootstrap_username, bootstrap_password)
-    if image_runner is None:
-        client = image_client or GptWebImageClient(
-            gateway_base_from_environment(source),
-            source.get("WEB_ERP_AI_CONTROL_TOKEN", ""),
-        )
-        image_runner = ImageJobRunner(repository, images_dir, client)
-    resolved_model_client = (
-        StudioApplication._load_model_client(source)
-        if model_client is _DEFAULT_MODEL_CLIENT
-        else model_client
-    )
-    generation_service = CreativeGenerationService(
-        repository,
-        model_client=resolved_model_client,
-        image_runner=image_runner,
-        environment=source,
-        prompt_registry=prompt_registry,
-        reference_asset_port=FileReferenceAssetStore(repository, uploads_dir),
-        observability=StructuredObservability(),
-    )
-    generation_service.recover_carousel_operations()
-
     def create_ai_v2_application() -> AiV2Application:
         gateway_url = str(
             source.get("CREATIVE_STUDIO_AI_GATEWAY_URL") or "http://127.0.0.1:8780"
@@ -353,11 +133,8 @@ def create_application(
     return StudioApplication(
         repository,
         auth,
-        image_runner,
-        generation_service,
         public_mapper=public_mapper,
         uploads_dir=uploads_dir,
-        prompt_registry=prompt_registry,
         ai_v2_factory=create_ai_v2_application,
     )
 
@@ -639,89 +416,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                     "project": self.application.public_mapper.project(project),
                 })
             return
-        history_match = re.fullmatch(r"/api/projects/(\d+)/history", path)
-        if history_match:
-            context = self._context()
-            self._require_project_access(int(history_match.group(1)), context)
-            self._json(self.application.history(int(history_match.group(1))))
-            return
-        frame_status_match = re.fullmatch(r"/api/visual-items/(\d+)/frames/status", path)
-        if frame_status_match:
-            scheme_id = int(frame_status_match.group(1))
-            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
-            context = self._context()
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            scheme = self.application.repository.get_display_scheme(scheme_id)
-            if scheme is None:
-                self._json({"success": False, "error": "展示方案不存在"}, HTTPStatus.NOT_FOUND)
-            else:
-                payload = {
-                    "success": True,
-                    "scheme": self.application.public_mapper.display_scheme(scheme),
-                }
-                operation = self.application.repository.latest_carousel_operation(scheme_id)
-                if operation is not None:
-                    payload["operation"] = self.application.public_mapper.carousel_operation(operation)
-                self._json(payload)
-            return
-        operation_match = re.fullmatch(r"/api/visual-items/(\d+)/operation/(\d+)", path)
-        if operation_match:
-            scheme_id, operation_id = int(operation_match.group(1)), int(operation_match.group(2))
-            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
-            context = self._context()
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            result = self.application.carousel_operation_status(scheme_id, operation_id)
-            self._json({"success": True, **result})
-            return
-        status_match = re.fullmatch(r"/api/visual-items/(\d+)/status", path)
-        if status_match:
-            context = self._context()
-            owner = self.application.repository.get_visual_item_owner_id(int(status_match.group(1)))
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            item = self.application.repository.visual_item(int(status_match.group(1)))
-            if item is None:
-                self._json({"success": False, "error": "图片任务不存在"}, HTTPStatus.NOT_FOUND)
-            else:
-                self._json({
-                    "success": True,
-                    "item": self.application.public_mapper.visual_status(item),
-                })
-            return
-        image_match = re.fullmatch(r"/api/visual-items/(\d+)/image", path)
-        if image_match:
-            context = self._context()
-            owner = self.application.repository.get_visual_item_owner_id(int(image_match.group(1)))
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            image_path = self.application.repository.image_path_for_item(int(image_match.group(1)))
-            if image_path is None or not image_path.is_file():
-                self.send_error(HTTPStatus.NOT_FOUND)
-            else:
-                self._file(image_path, cache="no-store")
-            return
-        frame_image_match = re.fullmatch(r"/api/visual-items/(\d+)/frames/(\d+)/image", path)
-        if frame_image_match:
-            scheme_id = int(frame_image_match.group(1))
-            frame_index = int(frame_image_match.group(2))
-            owner = self.application.repository.get_visual_item_owner_id(scheme_id)
-            context = self._context()
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            image_path = self.application.repository.image_path_for_frame(scheme_id, frame_index)
-            if image_path is None or not image_path.is_file():
-                self.send_error(HTTPStatus.NOT_FOUND)
-            else:
-                self._file(image_path, cache="no-store")
-            return
-        self._static(path)
+        self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
 
     def _post(self) -> None:
         path = urlsplit(self.path).path
@@ -786,51 +481,6 @@ class StudioHandler(BaseHTTPRequestHandler):
                 "success": True,
                 "project": self.application.public_mapper.project(project),
             }, HTTPStatus.CREATED)
-            return
-        generate_match = re.fullmatch(r"/api/projects/(\d+)/generate", path)
-        if generate_match:
-            self._require_project_access(int(generate_match.group(1)), self._context())
-            self._json(self.application.generate(int(generate_match.group(1))))
-            return
-        scheme_match = re.fullmatch(r"/api/visual-items/(\d+)/(select|continue)", path)
-        if scheme_match:
-            item_id, action = int(scheme_match.group(1)), scheme_match.group(2)
-            owner = self.application.repository.get_visual_item_owner_id(item_id)
-            context = self._context()
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            result = self.application.select_visual_scheme(item_id) if action == "select" else self.application.continue_visual_scheme(item_id)
-            self._json({"success": True, **result}, HTTPStatus.ACCEPTED if action == "continue" else HTTPStatus.OK)
-            return
-        adopt_match = re.fullmatch(r"/api/projects/(\d+)/adopt", path)
-        if adopt_match:
-            project_id = int(adopt_match.group(1))
-            self._require_project_access(project_id, self._context())
-            data = self._read_json()
-            if data.get("recommendation_kind") == "narrative":
-                snapshot = self.application.adopt_narrative(
-                    project_id, int(data.get("generation_id") or 0), int(data.get("item_index") or 0)
-                )
-            else:
-                snapshot = self.application.adopt_visual(project_id, int(data.get("item_id") or 0))
-            self._json({
-                "success": True,
-                "snapshot": snapshot,
-            })
-            return
-        retry_match = re.fullmatch(r"/api/visual-items/(\d+)/retry", path)
-        if retry_match:
-            item_id = int(retry_match.group(1))
-            owner = self.application.repository.get_visual_item_owner_id(item_id)
-            context = self._context()
-            if context.user.get("role") != "admin" and owner != context.user.get("id"):
-                self._json({"success": False, "error": "无权访问该项目"}, HTTPStatus.FORBIDDEN)
-                return
-            if not self.application.repository.retry_visual_item(item_id):
-                raise StudioDataError("只有失败的图片可以重新生成")
-            self.application.image_runner.retry(item_id)
-            self._json({"success": True})
             return
         upload_match = re.fullmatch(r"/api/projects/(\d+)/files", path)
         if upload_match:
@@ -970,41 +620,11 @@ class StudioHandler(BaseHTTPRequestHandler):
         if isinstance(exc, AuthError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.UNAUTHORIZED)
             return
-        if isinstance(exc, GenerationInputError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.UNPROCESSABLE_ENTITY)
-            return
-        if isinstance(exc, GenerationNotFoundError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.NOT_FOUND)
-            return
-        if isinstance(exc, GenerationConflictError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.CONFLICT)
-            return
-        if isinstance(exc, GenerationQueueTimeoutError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.SERVICE_UNAVAILABLE)
-            return
         if isinstance(exc, StudioDataError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
             return
-        if isinstance(exc, AiCreativeConfigurationError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.INTERNAL_SERVER_ERROR)
-            return
-        if isinstance(exc, AiCreativeQueueTimeoutError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.SERVICE_UNAVAILABLE)
-            return
-        if isinstance(exc, AiCreativeRequestError):
-            self._json(StudioHandler._generation_error_payload(exc), HTTPStatus.BAD_GATEWAY)
-            return
         traceback.print_exc()
         self._json({"success": False, "error": "服务处理失败，请查看启动窗口日志"}, HTTPStatus.INTERNAL_SERVER_ERROR)
-
-    @staticmethod
-    def _generation_error_payload(exc: Exception) -> dict[str, Any]:
-        details = error_details(exc)
-        return {
-            "success": False,
-            "error": str(exc),
-            **details.public_fields(),
-        }
 
 
 class _ResponseHandled(Exception):
@@ -1017,15 +637,12 @@ def run() -> None:
     application = create_application()
     server = ThreadingHTTPServer((host, port), StudioHandler)
     server.application = application  # type: ignore[attr-defined]
-    application.image_runner.start()
     print(f"AI创意工作台：http://{host}:{port}/")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
-        application.generation_service.stop()
-        application.image_runner.stop()
         if application._ai_v2_application is not None:
             application._ai_v2_application.store.close()
         server.server_close()

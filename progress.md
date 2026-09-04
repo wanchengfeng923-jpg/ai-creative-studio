@@ -1,5 +1,24 @@
 # 当前项目进度（2026-09-04）
 
+## 2026-09-05 AI v2 网关运行时审查修复
+
+### 已完成
+
+- 修复首次图片 POST 返回未知结果时遗留不可恢复 session/attempt 的问题；首次未知现在在本地建状态前返回可重试 503，重复请求保持同一供应商幂等键。
+- 将 chat2api 普通 `failed` 和重启失败包络保持为 unknown；只有显式终态标记才允许在同一图片会话内创建新 attempt。
+- 逻辑 `request_key` 保持稳定，供应商 `request_id` 按 attempt 编号区分；轮播续帧立即成功时正确递增已有 cursor revision。
+- 生产 composition root 不再构造旧文字模型、旧图片 worker 或旧生成服务，旧生成 HTTP 路由已退休；三份 v2 Prompt registry 项分别指向唯一的用例 caller。
+- 审查证据记录在 `.scratch/ai-v2-gateway-runtime/review-ledger.md`。
+
+### 验证
+
+- reviewer 红灯阶段：22 项定向测试中 9 failures、4 errors；修复后同一组 22 项全部通过。
+- `python -m unittest discover -s tests -p 'test_ai_v2_*.py' -v`：78 项通过。
+- 认证、认证刷新、项目 round-trip/search 和 v2 应用集成：20 项通过。
+- 全量 `341` 项中 `329` 项通过；其余 `3 failures + 9 errors` 均为已退休旧 composition root/API 的历史测试，不恢复旧生产行为，留给正式切换清理删除或替换。
+- Python compileall、v2 boundary 和 `git diff --check` 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
 ## 2026-09-04 AI v2 Task 0 冻结点与会话策略
 
 ### 已完成

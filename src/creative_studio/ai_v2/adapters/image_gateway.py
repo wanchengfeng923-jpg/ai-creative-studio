@@ -43,7 +43,7 @@ class ImageGatewayAdapter(ImageModelPort):
     @staticmethod
     def _request_payload(request: ImageRequest) -> dict[str, object]:
         return {
-            "request_id": request.request_key,
+            "request_id": request.provider_request_id or request.request_key,
             "image_session_key": request.image_session_key,
             "request_key": request.request_key,
             "scheme_version": request.scheme_version,
@@ -59,7 +59,9 @@ class ImageGatewayAdapter(ImageModelPort):
             return "working"
         if status == "success":
             return "success"
-        if status in {"failed", "terminal_failure"}:
+        if status == "terminal_failure" or (
+            status == "failed" and payload.get("terminal_failure") is True
+        ):
             return "terminal_failure"
         return "unknown"
 
@@ -98,7 +100,11 @@ class ImageGatewayAdapter(ImageModelPort):
         revision = previous.revision + 1 if previous is not None else 1
         return ImageSessionCursor("chat2api", conversation_id, parent_message_id, revision)
 
-    def _submit(self, payload: dict[str, object]) -> ImageSubmission:
+    def _submit(
+        self,
+        payload: dict[str, object],
+        previous_cursor: ImageSessionCursor | None = None,
+    ) -> ImageSubmission:
         try:
             response = self.transport.post_json(self._path("v1/images/jobs"), payload)
         except Exception:
@@ -110,7 +116,7 @@ class ImageGatewayAdapter(ImageModelPort):
                 artifact = self._artifact(response)
             except Exception:
                 artifact = None
-            cursor = self._cursor(response, None)
+            cursor = self._cursor(response, previous_cursor)
             if artifact is None or cursor is None:
                 return ImageSubmission("unknown", job_id, None, None, "provider_protocol_invalid")
             return ImageSubmission("success", job_id, cursor, artifact, None)
@@ -137,7 +143,7 @@ class ImageGatewayAdapter(ImageModelPort):
                 f"data:{reference.mime_type};base64,"
                 f"{base64.b64encode(reference.content).decode('ascii')}"
             )
-        return self._submit(payload)
+        return self._submit(payload, request.cursor)
 
     def reconcile(self, request: ReconcileRequest) -> ReconcileResult:
         if not request.provider_job_id:

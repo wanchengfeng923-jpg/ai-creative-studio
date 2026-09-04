@@ -170,8 +170,20 @@ class CarouselTextUseCase:
             if frame_index != 1:
                 raise CarouselTextUseCaseError("frame_order_conflict", "first frame must be generated first", retryable=False)
             submission = self.image_model.start_image_session(ImageRequest(
-                scheme["scheme_version"], frame_index, frame["execution_prompt"], session_key, request_key, "16:9", None
+                scheme["scheme_version"],
+                frame_index,
+                frame["execution_prompt"],
+                session_key,
+                request_key,
+                "16:9",
+                None,
+                provider_request_id=f"{request_key}:attempt:1",
             ))
+            if submission.state == "unknown":
+                raise CarouselTextUseCaseError(
+                    submission.error_code or "provider_state_unknown",
+                    "image provider state is unknown",
+                )
             session = self.store.ensure_image_session(scheme_id, session_key, submission.cursor, submission.provider_job_id)
             attempt = self.store.reserve_image_attempt(scheme_id, frame_index, request_key)
             self._apply_submission(attempt, submission)
@@ -192,7 +204,16 @@ class CarouselTextUseCase:
             raise CarouselTextUseCaseError("provider_protocol_invalid", "image session cursor unavailable")
         reference = self.store.read_artifact_for_frame(scheme_id, frame_index - 1) if frame_index > 1 else None
         submission = self.image_model.continue_image_session(ImageContinuation(
-            ImageRequest(scheme["scheme_version"], frame_index, frame["execution_prompt"], session_key, request_key, "16:9", reference),
+            ImageRequest(
+                scheme["scheme_version"],
+                frame_index,
+                frame["execution_prompt"],
+                session_key,
+                request_key,
+                "16:9",
+                reference,
+                provider_request_id=f"{request_key}:attempt:{attempt.attempt_no}",
+            ),
             session.cursor,
         ))
         self._apply_submission(attempt, submission)

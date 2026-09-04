@@ -10,7 +10,7 @@
       "output_schema": "narrative-text-v1",
       "max_model_calls": 1,
       "lifecycle": "production",
-      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
+      "caller": "creative_studio.ai_v2.narrative.NarrativeTextUseCase.generate"
     },
     {
       "id": "creative.ai_v2.static",
@@ -21,7 +21,7 @@
       "output_schema": "static-text-v1",
       "max_model_calls": 1,
       "lifecycle": "production",
-      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
+      "caller": "creative_studio.ai_v2.static_visual.StaticTextUseCase.generate"
     },
     {
       "id": "creative.ai_v2.carousel",
@@ -32,7 +32,7 @@
       "output_schema": "carousel-text-v1",
       "max_model_calls": 1,
       "lifecycle": "production",
-      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
+      "caller": "creative_studio.ai_v2.carousel_visual.CarouselTextUseCase.generate"
     }
   ]
 }

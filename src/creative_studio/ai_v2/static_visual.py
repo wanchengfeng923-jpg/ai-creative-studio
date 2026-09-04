@@ -147,8 +147,20 @@ class StaticTextUseCase:
 
         if session is None:
             submission = self.image_model.start_image_session(ImageRequest(
-                scheme["scheme_version"], 1, frame["execution_prompt"], session_key, request_key, "16:9", None
+                scheme["scheme_version"],
+                1,
+                frame["execution_prompt"],
+                session_key,
+                request_key,
+                "16:9",
+                None,
+                provider_request_id=f"{request_key}:attempt:1",
             ))
+            if submission.state == "unknown":
+                raise StaticTextUseCaseError(
+                    submission.error_code or "provider_state_unknown",
+                    "image provider state is unknown",
+                )
             session = self.store.ensure_image_session(scheme_id, session_key, submission.cursor, submission.provider_job_id)
             attempt = self.store.reserve_image_attempt(scheme_id, 1, request_key)
             self._apply_submission(attempt, submission)
@@ -169,7 +181,16 @@ class StaticTextUseCase:
         if cursor is None:
             raise StaticTextUseCaseError("provider_protocol_invalid", "image session cursor unavailable")
         submission = self.image_model.continue_image_session(ImageContinuation(
-            ImageRequest(scheme["scheme_version"], 1, frame["execution_prompt"], session_key, request_key, "16:9", None),
+            ImageRequest(
+                scheme["scheme_version"],
+                1,
+                frame["execution_prompt"],
+                session_key,
+                request_key,
+                "16:9",
+                None,
+                provider_request_id=f"{request_key}:attempt:{attempt.attempt_no}",
+            ),
             cursor,
         ))
         self._apply_submission(attempt, submission)
