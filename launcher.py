@@ -808,7 +808,21 @@ class Launcher(tk.Tk):
 
     def _environment(self) -> dict[str, str]:
         env = os.environ.copy()
-        env.update({"PYTHONPATH": str(ROOT / "src"), "CREATIVE_STUDIO_HOST": WEB_BIND_HOST, "CREATIVE_STUDIO_PORT": "8775", "PORT": "8780", "HOST": "127.0.0.1", "WEB_ERP_AI_PROVIDER": "chatgpt-web", "WEB_ERP_AI_API_URL": f"{GATEWAY_URL}/v1/chat/completions", "WEB_ERP_AI_API_KEY": "local-chatgpt-gateway", "WEB_ERP_AI_MODEL": "gpt-5-6-mini", "WEB_ERP_AI_PROMPT_VERSION": "v5", "WEB_ERP_AI_PROMPT_PATH": str(ROOT / "config" / "ai_creative_prompt_v5.txt"), "WEB_ERP_AI_VISUAL_PROMPT_PATH": str(ROOT / "config" / "ai_visual_creative_prompt_v2.txt"), "WEB_ERP_AI_VISUAL_PROMPT_VERSION": "visual-v2.3", "WEB_ERP_AI_GAME_INFO_PATH": str(ROOT / "config" / "ai_creative_game_info_v2.json"), "WEB_ERP_AI_TIMEOUT_SECONDS": "300", "WEB_ERP_AI_CONTROL_TOKEN": read_env().get("CHATGPT_CONTROL_TOKEN", "")})
+        for key in tuple(env):
+            if key.startswith("WEB_ERP_AI_"):
+                env.pop(key, None)
+        env.update({
+            "PYTHONPATH": str(ROOT / "src"),
+            "CREATIVE_STUDIO_HOST": WEB_BIND_HOST,
+            "CREATIVE_STUDIO_PORT": "8775",
+            "PORT": "8780",
+            "HOST": "127.0.0.1",
+            "CREATIVE_STUDIO_AI_GATEWAY_URL": GATEWAY_URL,
+            "CREATIVE_STUDIO_AI_API_KEY": "local-chatgpt-gateway",
+            "CREATIVE_STUDIO_AI_MODEL": "gpt-5-6-mini",
+            "CREATIVE_STUDIO_AI_TIMEOUT_SECONDS": "300",
+            "CREATIVE_STUDIO_AI_CONTROL_TOKEN": read_env().get("CHATGPT_CONTROL_TOKEN", ""),
+        })
         return env
 
     def start_services(self) -> None:

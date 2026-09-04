@@ -9,6 +9,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from .carousel_visual import CarouselTextUseCase, CarouselTextUseCaseError
+from .image_worker import ImageWorker
 from .input_contract import AiV2Input, InputContractError, normalize_input, resolve_use_case
 from .model_ports import (
     ImageArtifact,
@@ -142,6 +143,7 @@ class AiV2Application:
         self.store = store
         self.registry = registry or AiV2PromptRegistry()
         self.project_provider = project_provider or (lambda project_id: {"id": project_id, "script_type": "展示类"})
+        self.image_worker = ImageWorker(store, image_model) if image_model is not None else None
         self.narrative = NarrativeTextUseCase(self.registry, text_model, store)
         self.static = StaticTextUseCase(self.registry, text_model, store, image_model=image_model)
         self.carousel = CarouselTextUseCase(self.registry, text_model, store, image_model=image_model)
@@ -204,6 +206,9 @@ class AiV2Application:
             state = self.store.read_image_attempt_state(attempt_id)
         except AiV2StoreConflict as exc:
             raise AiV2ApplicationError("attempt_not_found", "image attempt not found", phase="lookup") from exc
+        if state["status"] in {"pending", "generating"} and self.image_worker is not None:
+            self.image_worker.submit(attempt_id)
+            state = self.store.read_image_attempt_state(attempt_id)
         return public_image_state({**state, "image_url": f"/api/v2/image-attempts/{attempt_id}/image" if state.get("artifact_id") else None})
 
     def project_id_for_run(self, run_id: int) -> int:

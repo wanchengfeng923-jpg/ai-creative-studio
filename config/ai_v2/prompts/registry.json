@@ -9,8 +9,8 @@
       "input_schema": "AiV2Input.v1",
       "output_schema": "narrative-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
     },
     {
       "id": "creative.ai_v2.static",
@@ -20,8 +20,8 @@
       "input_schema": "AiV2Input.v1",
       "output_schema": "static-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
     },
     {
       "id": "creative.ai_v2.carousel",
@@ -31,8 +31,8 @@
       "input_schema": "AiV2Input.v1",
       "output_schema": "carousel-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.application.AiV2Application.generate"
     }
   ]
 }

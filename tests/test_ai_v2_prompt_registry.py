@@ -14,11 +14,11 @@ from creative_studio.ai_v2.prompt_registry import (
 
 
 class AiV2PromptRegistryTests(unittest.TestCase):
-    def test_default_registry_is_candidate_only_until_prompt_approval(self) -> None:
+    def test_default_registry_has_production_application_caller(self) -> None:
         registry = AiV2PromptRegistry()
         spec = registry.get("creative.ai_v2.narrative", "v1")
-        self.assertEqual(spec.lifecycle, "candidate")
-        self.assertIsNone(spec.caller)
+        self.assertEqual(spec.lifecycle, "production")
+        self.assertEqual(spec.caller, "creative_studio.ai_v2.application.AiV2Application.generate")
         self.assertEqual(spec.max_model_calls, 1)
 
     def test_missing_file_and_hash_mismatch_fail_closed(self) -> None:

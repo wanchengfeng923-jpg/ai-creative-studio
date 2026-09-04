@@ -50,7 +50,9 @@ from .reference_assets import FileReferenceAssetStore
 from .observability import StructuredObservability
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
-from .ai_v2.application import AiV2Application, AiV2ApplicationError, CandidateImageModel, CandidateTextModel
+from .ai_v2.adapters.image_gateway import ImageGatewayAdapter
+from .ai_v2.adapters.text_gateway import GatewayHttpTransport, TextGatewayAdapter
+from .ai_v2.application import AiV2Application, AiV2ApplicationError
 from .ai_v2.http_api import AiV2HttpApi
 from .ai_v2.model_ports import ImageModelPort, TextModelPort
 from .ai_v2.store import SqliteAiV2Store
@@ -315,11 +317,36 @@ def create_application(
         observability=StructuredObservability(),
     )
     generation_service.recover_carousel_operations()
+
     def create_ai_v2_application() -> AiV2Application:
+        gateway_url = str(
+            source.get("CREATIVE_STUDIO_AI_GATEWAY_URL") or "http://127.0.0.1:8780"
+        ).strip()
+        api_key = str(source.get("CREATIVE_STUDIO_AI_API_KEY") or "local-chatgpt-gateway").strip()
+        model = str(source.get("CREATIVE_STUDIO_AI_MODEL") or "gpt-5-6-mini").strip()
+        control_token = str(source.get("CREATIVE_STUDIO_AI_CONTROL_TOKEN") or "").strip()
+        try:
+            timeout_seconds = float(source.get("CREATIVE_STUDIO_AI_TIMEOUT_SECONDS") or 300)
+        except (TypeError, ValueError):
+            timeout_seconds = 300.0
+        transport = GatewayHttpTransport(
+            api_key=api_key,
+            control_token=control_token,
+            timeout_seconds=timeout_seconds,
+        )
+        text_model = ai_v2_text_model if ai_v2_text_model is not None else TextGatewayAdapter(
+            transport,
+            base_url=gateway_url,
+            model=model,
+        )
+        image_model = ai_v2_image_model if ai_v2_image_model is not None else ImageGatewayAdapter(
+            transport,
+            base_url=gateway_url,
+        )
         return AiV2Application(
             SqliteAiV2Store(database_path),
-            text_model=ai_v2_text_model or CandidateTextModel(),
-            image_model=ai_v2_image_model or CandidateImageModel(),
+            text_model=text_model,
+            image_model=image_model,
             project_provider=repository.get_project,
         )
 
