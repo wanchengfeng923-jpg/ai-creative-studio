@@ -49,6 +49,10 @@ from .reference_assets import FileReferenceAssetStore
 from .observability import StructuredObservability
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
+from .ai_v2.application import AiV2Application, AiV2ApplicationError, CandidateImageModel, CandidateTextModel
+from .ai_v2.http_api import AiV2HttpApi
+from .ai_v2.model_ports import ImageModelPort, TextModelPort
+from .ai_v2.store import SqliteAiV2Store
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -74,6 +78,8 @@ class StudioApplication:
         public_mapper: PublicResultMapper,
         uploads_dir: Path,
         prompt_registry: PromptRegistry | None = None,
+        ai_v2_application: AiV2Application | None = None,
+        ai_v2_factory: Callable[[], AiV2Application] | None = None,
     ) -> None:
         self.repository = repository
         self.auth = auth
@@ -82,6 +88,22 @@ class StudioApplication:
         self.public_mapper = public_mapper
         self.uploads_dir = Path(uploads_dir).resolve()
         self.prompt_registry = prompt_registry
+        self._ai_v2_application = ai_v2_application
+        self._ai_v2_factory = ai_v2_factory
+        self._ai_v2_api: AiV2HttpApi | None = None
+
+    @property
+    def ai_v2_application(self) -> AiV2Application | None:
+        if self._ai_v2_application is None and self._ai_v2_factory is not None:
+            self._ai_v2_application = self._ai_v2_factory()
+        return self._ai_v2_application
+
+    @property
+    def ai_v2_api(self) -> AiV2HttpApi | None:
+        application = self.ai_v2_application
+        if application is not None and self._ai_v2_api is None:
+            self._ai_v2_api = AiV2HttpApi(application)
+        return self._ai_v2_api
 
     @staticmethod
     def _load_model_client(environment: Mapping[str, str] | None = None) -> HttpModelClient | None:
@@ -250,6 +272,8 @@ def create_application(
     clock: Callable[[], str] | None = None,
     environment: MutableMapping[str, str] | None = None,
     prompt_registry: PromptRegistry | None = None,
+    ai_v2_text_model: TextModelPort | None = None,
+    ai_v2_image_model: ImageModelPort | None = None,
 ) -> StudioApplication:
     """Build the application graph, allowing deterministic adapters in tests."""
 
@@ -290,6 +314,14 @@ def create_application(
         observability=StructuredObservability(),
     )
     generation_service.recover_carousel_operations()
+    def create_ai_v2_application() -> AiV2Application:
+        return AiV2Application(
+            SqliteAiV2Store(database_path),
+            text_model=ai_v2_text_model or CandidateTextModel(),
+            image_model=ai_v2_image_model or CandidateImageModel(),
+            project_provider=repository.get_project,
+        )
+
     return StudioApplication(
         repository,
         auth,
@@ -298,6 +330,7 @@ def create_application(
         public_mapper=public_mapper,
         uploads_dir=uploads_dir,
         prompt_registry=prompt_registry,
+        ai_v2_factory=create_ai_v2_application,
     )
 
 
@@ -374,6 +407,103 @@ class StudioHandler(BaseHTTPRequestHandler):
             raise _ResponseHandled()
         return project
 
+    def _v2_application(self) -> AiV2Application:
+        application = self.application.ai_v2_application
+        if application is None:
+            raise RuntimeError("AI v2 application is not configured")
+        return application
+
+    def _v2_api_error(self, exc: AiV2ApplicationError) -> None:
+        status = HTTPStatus.NOT_FOUND if exc.error_code.endswith("_not_found") else HTTPStatus.BAD_REQUEST
+        self._json({
+            "error_code": exc.error_code,
+            "phase": exc.phase,
+            "retryable": exc.retryable,
+            "trace_id": uuid.uuid4().hex,
+            "field_path": exc.field_path,
+        }, status)
+
+    def _require_v2_auth(self, csrf: bool = False):
+        context = self.application.auth.authenticate_session(
+            self._session_cookie(), self._csrf_cookie() if csrf else None
+        )
+        if context is None:
+            self._json({
+                "error_code": "unauthorized",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.UNAUTHORIZED)
+            raise _ResponseHandled()
+        if context.user.get("must_change_password"):
+            self._json({
+                "error_code": "password_change_required",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.FORBIDDEN)
+            raise _ResponseHandled()
+        return context
+
+    def _require_v2_project_access(self, project_id: int, context) -> bool:
+        project = self.application.repository.get_project(project_id)
+        if project is None:
+            self._json({
+                "error_code": "project_not_found",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.NOT_FOUND)
+            return False
+        if context.user.get("role") != "admin" and project.get("owner_user_id") != context.user.get("id"):
+            self._json({
+                "error_code": "forbidden",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.FORBIDDEN)
+            return False
+        return True
+
+    def _require_v2_route_access(self, path: str, context) -> bool:
+        """Resolve a v2 resource to its project before exposing its public DTO."""
+
+        project_match = re.fullmatch(r"/api/v2/projects/(\d+)/(?:generate|history)", path)
+        try:
+            if project_match:
+                return self._require_v2_project_access(int(project_match.group(1)), context)
+            run_match = re.fullmatch(r"/api/v2/runs/(\d+)", path)
+            if run_match:
+                return self._require_v2_project_access(self._v2_application().project_id_for_run(int(run_match.group(1))), context)
+            scheme_match = re.fullmatch(r"/api/v2/schemes/(\d+)/(?:image|frames/\d+/image)", path)
+            if scheme_match:
+                return self._require_v2_project_access(self._v2_application().project_id_for_scheme(int(scheme_match.group(1))), context)
+            attempt_match = re.fullmatch(r"/api/v2/image-attempts/(\d+)(?:/image)?", path)
+            if attempt_match:
+                return self._require_v2_project_access(self._v2_application().project_id_for_attempt(int(attempt_match.group(1))), context)
+        except AiV2ApplicationError as exc:
+            self._v2_api_error(exc)
+            return False
+        return True
+
+    def _dispatch_v2(self, method: str, path: str, body: Mapping[str, Any] | None, context) -> None:
+        if not self._require_v2_route_access(path, context):
+            return
+        image_match = re.fullmatch(r"/api/v2/image-attempts/(\d+)/image", path)
+        if method == "GET" and image_match:
+            try:
+                content, mime_type = self._v2_application().image_bytes(int(image_match.group(1)))
+            except AiV2ApplicationError as exc:
+                self._v2_api_error(exc)
+                return
+            self._bytes(content, mime_type, cache="no-store")
+            return
+        api = self.application.ai_v2_api
+        if api is None:
+            raise RuntimeError("AI v2 HTTP API is not configured")
+        status, payload = api.dispatch(method, path, body)
+        self._json(payload, status)
+
     def _set_auth_cookies(self, session_token: str, csrf_token: str) -> None:
         secure = "; Secure" if self.application.auth.cookie_secure else ""
         self._pending_cookies = [f"studio_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"studio_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
@@ -420,6 +550,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         if path == "/api/auth/me":
             context = self._require_auth()
             self._json({"success": True, "user": context.user})
+            return
+        if path.startswith("/api/v2/"):
+            self._dispatch_v2("GET", path, None, self._require_v2_auth())
             return
         if path == "/api/admin/users":
             self._require_admin()
@@ -591,6 +724,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             self.application.auth.delete_user(int(context.user["id"]), int(delete_match.group(1)))
             self._json({"success": True})
             return
+        if path.startswith("/api/v2/"):
+            self._dispatch_v2("POST", path, self._read_json(), self._require_v2_auth(csrf=True))
+            return
         self._require_auth(csrf=True)
         if path == "/api/projects":
             data = self._read_json()
@@ -751,6 +887,14 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _bytes(self, content: bytes, mime_type: str, cache: str = "public, max-age=300") -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Length", str(len(content)))
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        self.wfile.write(content)
+
     def _static(self, request_path: str) -> None:
         relative = "index.html" if request_path in {"", "/"} else unquote(request_path.lstrip("/"))
         target = (STATIC_DIR / relative).resolve()
@@ -829,6 +973,8 @@ def run() -> None:
     finally:
         application.generation_service.stop()
         application.image_runner.stop()
+        if application._ai_v2_application is not None:
+            application._ai_v2_application.store.close()
         server.server_close()
 
 
