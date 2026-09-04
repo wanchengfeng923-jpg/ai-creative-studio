@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import mimetypes
 import os
@@ -424,9 +425,31 @@ class StudioHandler(BaseHTTPRequestHandler):
         }, status)
 
     def _require_v2_auth(self, csrf: bool = False):
-        context = self.application.auth.authenticate_session(
-            self._session_cookie(), self._csrf_cookie() if csrf else None
-        )
+        context = self.application.auth.authenticate_session(self._session_cookie())
+        if context is None:
+            self._json({
+                "error_code": "unauthorized",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.UNAUTHORIZED)
+            raise _ResponseHandled()
+        csrf_cookie = self._csrf_cookie() if csrf else None
+        csrf_header = self.headers.get("X-CSRF-Token") if csrf else None
+        if csrf and (
+            not csrf_cookie
+            or not isinstance(csrf_header, str)
+            or not hmac.compare_digest(csrf_cookie, csrf_header)
+        ):
+            self._json({
+                "error_code": "csrf_invalid",
+                "phase": "authorization",
+                "retryable": False,
+                "trace_id": uuid.uuid4().hex,
+            }, HTTPStatus.FORBIDDEN)
+            raise _ResponseHandled()
+        if csrf:
+            context = self.application.auth.authenticate_session(self._session_cookie(), csrf_cookie)
         if context is None:
             self._json({
                 "error_code": "unauthorized",
@@ -506,10 +529,10 @@ class StudioHandler(BaseHTTPRequestHandler):
 
     def _set_auth_cookies(self, session_token: str, csrf_token: str) -> None:
         secure = "; Secure" if self.application.auth.cookie_secure else ""
-        self._pending_cookies = [f"studio_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"studio_csrf={csrf_token}; Path=/; SameSite=Lax{secure}"]
+        self._pending_cookies = [f"studio_session={session_token}; Path=/; HttpOnly; SameSite=Lax{secure}", f"studio_csrf={csrf_token}; Path=/; SameSite=Strict{secure}"]
 
     def _clear_auth_cookies(self) -> None:
-        self._pending_cookies = ["studio_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", "studio_csrf=; Path=/; Max-Age=0; SameSite=Lax"]
+        self._pending_cookies = ["studio_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax", "studio_csrf=; Path=/; Max-Age=0; SameSite=Strict"]
 
     def do_GET(self) -> None:
         try:
@@ -896,6 +919,9 @@ class StudioHandler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     def _static(self, request_path: str) -> None:
+        if request_path in {"/ai-v2", "/ai-v2/"}:
+            self._file(STATIC_DIR / "ai-v2" / "index.html", cache="no-cache")
+            return
         relative = "index.html" if request_path in {"", "/"} else unquote(request_path.lstrip("/"))
         target = (STATIC_DIR / relative).resolve()
         if target != STATIC_DIR.resolve() and STATIC_DIR.resolve() not in target.parents:

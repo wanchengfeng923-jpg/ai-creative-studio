@@ -8,6 +8,11 @@ function setStatus(message, tone = '') {
   statusLine.dataset.tone = tone;
 }
 
+function csrfHeaders() {
+  const token = document.cookie.split('; ').find((entry) => entry.startsWith('studio_csrf='))?.split('=').slice(1).join('');
+  return { 'Content-Type': 'application/json', 'X-CSRF-Token': token ? decodeURIComponent(token) : '' };
+}
+
 function selectedTags() {
   const tags = {};
   document.querySelectorAll('[data-tag-group]').forEach((group) => {
@@ -93,7 +98,7 @@ async function requestImage(schemeId, frameIndex, button) {
   button.disabled = true;
   const path = frameIndex == null ? `/api/v2/schemes/${schemeId}/image` : `/api/v2/schemes/${schemeId}/frames/${frameIndex}/image`;
   try {
-    const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const response = await fetch(path, { method: 'POST', headers: csrfHeaders(), body: '{}' });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error_code || 'image request failed');
     setStatus(payload.status === 'success' ? '图片已完成' : '图片处理中');
@@ -128,7 +133,7 @@ form.addEventListener('submit', async (event) => {
     creative_tags: selectedTags(),
   };
   try {
-    const response = await fetch('/api/v2/projects/1/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const response = await fetch('/api/v2/projects/1/generate', { method: 'POST', headers: csrfHeaders(), body: JSON.stringify(body) });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error_code || 'generation failed');
     renderRun(payload);
@@ -137,4 +142,3 @@ form.addEventListener('submit', async (event) => {
 });
 
 renderTags({});
-

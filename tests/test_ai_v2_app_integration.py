@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import sqlite3
 import unittest
 from http import HTTPStatus
 from pathlib import Path
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 
 from creative_studio.ai_v2.fakes import DeterministicImageModel, DeterministicTextModel, image_artifact
 from creative_studio.ai_v2.model_ports import ImageSessionCursor, ImageSubmission
-from creative_studio.app import StudioHandler, create_application
+from creative_studio.app import STATIC_DIR, StudioHandler, create_application
 
 
 def _static_text() -> str:
@@ -55,6 +56,17 @@ def _carousel_text() -> str:
 
 
 class AiV2AppIntegrationTests(unittest.TestCase):
+    @staticmethod
+    def _legacy_counts(application) -> dict[str, int]:
+        connection = sqlite3.connect(application.repository.database_path)
+        try:
+            return {
+                table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                for table in ("generations", "visual_items", "adoptions")
+            }
+        finally:
+            connection.close()
+
     def _call(self, application, method: str, path: str, payload: dict[str, object], *, user: dict[str, object] | None):
         handler = object.__new__(StudioHandler)
         handler.server = SimpleNamespace(application=application)
@@ -92,6 +104,76 @@ class AiV2AppIntegrationTests(unittest.TestCase):
         StudioHandler.do_GET(handler)
         response["body"] = handler.wfile.getvalue()
         return response
+
+    def _real_post(self, application, path: str, payload: dict[str, object], headers: dict[str, str]):
+        handler = object.__new__(StudioHandler)
+        handler.server = SimpleNamespace(application=application)
+        handler.path = path
+        handler.headers = headers
+        handler.rfile = io.BytesIO()
+        handler.client_address = ("127.0.0.1", 1)
+        responses: list[tuple[dict[str, object], HTTPStatus]] = []
+        handler._json = lambda value, status=HTTPStatus.OK: responses.append((value, HTTPStatus(status)))
+        handler._read_json = lambda: payload
+        StudioHandler.do_POST(handler)
+        return responses[-1]
+
+    def test_v2_static_page_does_not_fall_back_to_legacy_index(self) -> None:
+        handler = object.__new__(StudioHandler)
+        served: list[Path] = []
+        handler._file = lambda path, cache: served.append(path)
+        handler.send_error = lambda status: self.fail(f"unexpected static error: {status}")
+
+        StudioHandler._static(handler, "/ai-v2/")
+
+        self.assertEqual(served, [STATIC_DIR / "ai-v2" / "index.html"])
+        js = (STATIC_DIR / "ai-v2" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("X-CSRF-Token", js)
+
+    def test_v2_writes_require_real_matching_csrf_header(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = create_application(
+                database_path=root / "studio.db",
+                images_dir=root / "images",
+                uploads_dir=root / "uploads",
+                ai_v2_text_model=DeterministicTextModel([_static_text()]),
+                ai_v2_image_model=DeterministicImageModel(),
+                environment={},
+            )
+            application.auth.init_admin("admin", "correct horse battery staple")
+            project = application.repository.create_project("v2", "展示类", 1)
+            login = application.auth.login("admin", "correct horse battery staple")
+            cookie_handler = object.__new__(StudioHandler)
+            cookie_handler.server = SimpleNamespace(application=application)
+            StudioHandler._set_auth_cookies(cookie_handler, login.session_token, login.csrf_token)
+            cookie = f"studio_session={login.session_token}; studio_csrf={login.csrf_token}"
+            body = {"task_description": "说明", "aspect_ratio": "16:9", "creative_tags": {}}
+            missing, missing_status = self._real_post(
+                application, f"/api/v2/projects/{project['id']}/generate", body, {"Cookie": cookie}
+            )
+            forged, forged_status = self._real_post(
+                application,
+                f"/api/v2/projects/{project['id']}/generate",
+                body,
+                {"Cookie": cookie, "X-CSRF-Token": "forged"},
+            )
+            accepted, accepted_status = self._real_post(
+                application,
+                f"/api/v2/projects/{project['id']}/generate",
+                body,
+                {"Cookie": cookie, "X-CSRF-Token": login.csrf_token},
+            )
+            application.ai_v2_application.store.close()
+
+        self.assertEqual(missing_status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(missing["error_code"], "csrf_invalid")
+        self.assertEqual(forged_status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(forged["error_code"], "csrf_invalid")
+        self.assertEqual(accepted_status, HTTPStatus.OK)
+        self.assertEqual(accepted["use_case"], "static")
+        self.assertIn("studio_csrf=", cookie_handler._pending_cookies[1])
+        self.assertIn("SameSite=Strict", cookie_handler._pending_cookies[1])
 
     def test_v2_generate_requires_existing_auth_and_uses_owned_project(self) -> None:
         with TemporaryDirectory() as directory:
@@ -155,6 +237,7 @@ class AiV2AppIntegrationTests(unittest.TestCase):
             admin = {"id": 1, "role": "admin", "must_change_password": False}
             stranger = {"id": 2, "role": "user", "must_change_password": False}
             request = {"task_description": "说明", "aspect_ratio": "16:9", "creative_tags": {}}
+            legacy_before = self._legacy_counts(application)
             generated, generated_status = self._call(application, "do_POST", f"/api/v2/projects/{project['id']}/generate", request, user=admin)
             scheme_id = generated["items"][0]["scheme_id"]
             history, history_status = self._call(application, "do_GET", f"/api/v2/projects/{project['id']}/history", {}, user=admin)
@@ -163,6 +246,9 @@ class AiV2AppIntegrationTests(unittest.TestCase):
             forbidden_run, forbidden_run_status = self._call(application, "do_GET", f"/api/v2/runs/{generated['run_id']}", {}, user=stranger)
             image_state, image_status = self._call(application, "do_POST", f"/api/v2/schemes/{scheme_id}/image", {}, user=admin)
             image_response = self._image(application, image_state["image_url"], user=admin)
+            foreign_scheme, foreign_scheme_status = self._call(application, "do_POST", f"/api/v2/schemes/{scheme_id}/image", {}, user=stranger)
+            foreign_attempt, foreign_attempt_status = self._call(application, "do_GET", f"/api/v2/image-attempts/{image_state['attempt_id']}", {}, user=stranger)
+            foreign_image, foreign_image_status = self._call(application, "do_GET", image_state["image_url"], {}, user=stranger)
 
             carousel_request = {"task_description": "说明", "aspect_ratio": "16:9", "creative_tags": {"visual_carousel": ["是"], "visual_carousel_count": ["2"]}}
             carousel, carousel_status = self._call(application, "do_POST", f"/api/v2/projects/{project['id']}/generate", carousel_request, user=admin)
@@ -170,6 +256,7 @@ class AiV2AppIntegrationTests(unittest.TestCase):
             skipped, skipped_status = self._call(application, "do_POST", f"/api/v2/schemes/{carousel_scheme_id}/frames/2/image", {}, user=admin)
             first_frame, first_frame_status = self._call(application, "do_POST", f"/api/v2/schemes/{carousel_scheme_id}/frames/1/image", {}, user=admin)
             second_frame, second_frame_status = self._call(application, "do_POST", f"/api/v2/schemes/{carousel_scheme_id}/frames/2/image", {}, user=admin)
+            legacy_after = self._legacy_counts(application)
             application.ai_v2_application.store.close()
 
         self.assertEqual(generated_status, HTTPStatus.OK)
@@ -185,6 +272,12 @@ class AiV2AppIntegrationTests(unittest.TestCase):
         self.assertEqual(image_response["status"], HTTPStatus.OK)
         self.assertEqual(image_response["headers"]["Content-Type"], "image/png")
         self.assertEqual(image_response["body"], b"png-bytes")
+        self.assertEqual(foreign_scheme_status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(foreign_scheme["error_code"], "forbidden")
+        self.assertEqual(foreign_attempt_status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(foreign_attempt["error_code"], "forbidden")
+        self.assertEqual(foreign_image_status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(foreign_image["error_code"], "forbidden")
         self.assertEqual(carousel_status, HTTPStatus.OK)
         self.assertEqual(skipped_status, HTTPStatus.CONFLICT)
         self.assertEqual(skipped["error_code"], "frame_order_conflict")
@@ -192,6 +285,7 @@ class AiV2AppIntegrationTests(unittest.TestCase):
         self.assertEqual(second_frame_status, HTTPStatus.OK)
         self.assertEqual(first_frame["status"], "success")
         self.assertEqual(second_frame["status"], "success")
+        self.assertEqual(legacy_after, legacy_before)
 
 
 if __name__ == "__main__":
