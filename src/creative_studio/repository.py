@@ -13,7 +13,14 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from .auth import AuthDataError, hash_password, normalize_username, token_digest
-from .generation_models import GenerationConflictError, GenerationNotFoundError
+from .generation_models import (
+    GenerationConflictError,
+    GenerationNotFoundError,
+    GenerationRun,
+    ReferenceAsset,
+    ReferenceAssetContent,
+    ReferenceAssetError,
+)
 
 
 PROJECT_FIELDS = {
@@ -334,6 +341,15 @@ class StudioRepository:
         ):
             if column not in generation_columns:
                 connection.execute(f"ALTER TABLE generations ADD COLUMN {column} {definition}")
+        project_file_columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(project_files)")}
+        for column, definition in (
+            ("sha256", "TEXT NOT NULL DEFAULT ''"),
+            ("mime_type", "TEXT NOT NULL DEFAULT ''"),
+            ("extraction_status", "TEXT NOT NULL DEFAULT 'pending'"),
+            ("safe_summary", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            if column not in project_file_columns:
+                connection.execute(f"ALTER TABLE project_files ADD COLUMN {column} {definition}")
         if current_version < SCHEMA_VERSION:
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -1019,7 +1035,8 @@ class StudioRepository:
             if row is None:
                 return None
             files = connection.execute(
-                "SELECT id, original_name, size_bytes, created_at FROM project_files WHERE project_id=? ORDER BY id",
+                "SELECT id, original_name, size_bytes, sha256, mime_type, extraction_status, safe_summary, created_at "
+                "FROM project_files WHERE project_id=? ORDER BY id",
                 (int(project_id),),
             ).fetchall()
             adoption = connection.execute(
@@ -1093,17 +1110,117 @@ class StudioRepository:
             cursor = connection.execute("DELETE FROM projects WHERE id=?", (int(project_id),))
         return cursor.rowcount > 0
 
-    def add_project_file(self, project_id: int, original_name: str, stored_name: str, size_bytes: int) -> dict[str, Any]:
+    def add_project_file(
+        self,
+        project_id: int,
+        original_name: str,
+        stored_name: str,
+        size_bytes: int,
+        *,
+        sha256: str = "",
+        mime_type: str = "",
+        extraction_status: str = "pending",
+        safe_summary: str = "",
+    ) -> dict[str, Any]:
         if self.get_project(project_id) is None:
             raise StudioDataError("项目不存在")
         timestamp = now_text()
+        normalized_sha = str(sha256 or "").strip().lower()
+        if normalized_sha and not re.fullmatch(r"[0-9a-f]{64}", normalized_sha):
+            raise StudioDataError("参考文件摘要无效")
+        normalized_status = str(extraction_status or "pending").strip().lower()
+        if normalized_status not in {"pending", "complete", "failed", "unsupported"}:
+            raise StudioDataError("参考文件提取状态无效")
         with closing(self._connect()) as connection:
             cursor = connection.execute(
-                "INSERT INTO project_files(project_id,original_name,stored_name,size_bytes,created_at) VALUES(?,?,?,?,?)",
-                (int(project_id), str(original_name)[:255], str(stored_name), int(size_bytes), timestamp),
+                """
+                INSERT INTO project_files(
+                    project_id,original_name,stored_name,size_bytes,sha256,mime_type,
+                    extraction_status,safe_summary,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    int(project_id), str(original_name)[:255], str(stored_name), max(0, int(size_bytes)),
+                    normalized_sha, str(mime_type or "")[:120], normalized_status,
+                    " ".join(str(safe_summary or "").split())[:2000], timestamp,
+                ),
             )
             file_id = int(cursor.lastrowid)
-        return {"id": file_id, "original_name": str(original_name)[:255], "size_bytes": int(size_bytes), "created_at": timestamp}
+        return {
+            "id": file_id,
+            "original_name": str(original_name)[:255],
+            "size_bytes": max(0, int(size_bytes)),
+            "sha256": normalized_sha,
+            "mime_type": str(mime_type or "")[:120],
+            "extraction_status": normalized_status,
+            "safe_summary": " ".join(str(safe_summary or "").split())[:2000],
+            "created_at": timestamp,
+        }
+
+    @staticmethod
+    def _reference_asset_from_row(row: sqlite3.Row) -> ReferenceAsset:
+        return ReferenceAsset(
+            asset_id=int(row["id"]),
+            project_id=int(row["project_id"]),
+            original_name=str(row["original_name"] or ""),
+            sha256=str(row["sha256"] or ""),
+            mime_type=str(row["mime_type"] or ""),
+            size_bytes=max(0, int(row["size_bytes"] or 0)),
+            extraction_status=str(row["extraction_status"] or "pending"),
+            safe_summary=str(row["safe_summary"] or ""),
+            created_at=str(row["created_at"] or ""),
+        )
+
+    def list_reference_assets(self, project_id: int) -> tuple[ReferenceAsset, ...]:
+        """按项目返回受控参考资料 metadata，不泄露 stored_name。"""
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT * FROM project_files WHERE project_id=? ORDER BY id", (int(project_id),)
+            ).fetchall()
+        return tuple(self._reference_asset_from_row(row) for row in rows)
+
+    def reference_asset_content(
+        self,
+        project_id: int,
+        asset_id: int,
+        *,
+        uploads_dir: Path,
+        max_bytes: int = 64_000,
+    ) -> ReferenceAssetContent:
+        """读取项目内文本资料的受控片段；路径和归属均由服务端校验。"""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT * FROM project_files WHERE id=? AND project_id=?",
+                (int(asset_id), int(project_id)),
+            ).fetchone()
+        if row is None:
+            raise GenerationNotFoundError("参考文件不存在")
+        asset = self._reference_asset_from_row(row)
+        if asset.mime_type not in {"", "text/plain", "text/markdown", "text/csv", "application/json"}:
+            return ReferenceAssetContent(asset=asset, text="", truncated=False)
+        root = Path(uploads_dir).resolve()
+        project_root = (root / str(project_id)).resolve()
+        target = (project_root / str(row["stored_name"])).resolve()
+        if target == project_root or project_root not in target.parents:
+            raise ReferenceAssetError("参考文件路径越界", error_code="reference_asset_path_invalid")
+        if not target.is_file():
+            raise GenerationNotFoundError("参考文件不可读取")
+        limit = max(1, min(int(max_bytes), 256_000))
+        raw = target.read_bytes()
+        truncated = len(raw) > limit
+        text = raw[:limit].decode("utf-8", errors="replace")
+        return ReferenceAssetContent(asset=asset, text=text, truncated=truncated)
+
+    def reference_asset_storage_name(self, project_id: int, asset_id: int) -> str:
+        """返回文件系统适配器使用的内部存储名，不进入公开 DTO。"""
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                "SELECT stored_name FROM project_files WHERE id=? AND project_id=?",
+                (int(asset_id), int(project_id)),
+            ).fetchone()
+        if row is None:
+            raise GenerationNotFoundError("参考文件不存在")
+        return str(row["stored_name"] or "")
 
     def reference_file_names(self, project_id: int) -> list[str]:
         with closing(self._connect()) as connection:
@@ -1156,6 +1273,7 @@ class StudioRepository:
         request_id: str = "",
     ) -> dict[str, Any]:
         timestamp = self._clock()
+        context_value = dict(context_json or {})
         with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             project = connection.execute("SELECT id FROM projects WHERE id=?", (int(project_id),)).fetchone()
@@ -1183,8 +1301,9 @@ class StudioRepository:
             cursor = connection.execute(
                 """
                 INSERT INTO generations(project_id,recommendation_kind,schema_version,input_fingerprint,
-                                        batch_index,status,context_json,request_id,created_at,updated_at)
-                VALUES(?,?,?,?,?,'pending',?,?,?,?)
+                                        batch_index,status,context_json,request_id,prompt_id,prompt_version,prompt_hash,
+                                        input_schema_version,output_schema_version,model,provider,created_at,updated_at)
+                VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     int(project_id),
@@ -1192,8 +1311,15 @@ class StudioRepository:
                     schema_version,
                     fingerprint,
                     batch_index,
-                    _json(context_json or {}),
+                    _json(context_value),
                     str(request_id or "").strip() or None,
+                    str(context_value.get("prompt_id") or "")[:200],
+                    str(context_value.get("prompt_version") or "")[:100],
+                    str(context_value.get("prompt_hash") or "")[:128],
+                    str(context_value.get("input_schema_version") or "")[:100],
+                    str(context_value.get("output_schema_version") or "")[:100],
+                    str(context_value.get("model") or "")[:200],
+                    str(context_value.get("provider") or "")[:100],
                     timestamp,
                     timestamp,
                 ),
@@ -1205,6 +1331,102 @@ class StudioRepository:
             "conversation_id": str(previous["conversation_id"] or "") if previous else "",
             "parent_message_id": str(previous["assistant_message_id"] or "") if previous else "",
         }
+
+    def _generation_run_from_row(self, row: sqlite3.Row | None) -> GenerationRun | None:
+        if row is None:
+            return None
+        context = _loads(row["context_json"], {})
+        usage = _loads(row["usage_json"], {})
+        if not isinstance(context, Mapping):
+            context = {}
+        if not isinstance(usage, Mapping):
+            usage = {}
+        return GenerationRun(
+            run_id=int(row["id"]),
+            project_id=int(row["project_id"]),
+            kind=str(row["recommendation_kind"] or ""),
+            batch_index=int(row["batch_index"] or 0),
+            status=str(row["status"] or ""),
+            schema_version=str(row["schema_version"] or ""),
+            input_fingerprint=str(row["input_fingerprint"] or ""),
+            request_id=str(row["request_id"] or ""),
+            context=context,
+            conversation_id=str(row["conversation_id"] or ""),
+            assistant_message_id=str(row["assistant_message_id"] or ""),
+            usage=usage,
+            error={
+                "message": str(row["error"] or ""),
+                "code": str(row["error_code"] or ""),
+                "phase": str(row["error_phase"] or ""),
+                "field_path": str(row["error_field_path"] or ""),
+                "retryable": bool(row["error_retryable"]),
+                "trace_id": str(row["error_trace_id"] or ""),
+            } if str(row["error"] or row["error_code"] or "") else {},
+            created_at=str(row["created_at"] or ""),
+            updated_at=str(row["updated_at"] or ""),
+            prompt_id=str(row["prompt_id"] or ""),
+            prompt_version=str(row["prompt_version"] or ""),
+            prompt_hash=str(row["prompt_hash"] or ""),
+            input_schema_version=str(row["input_schema_version"] or ""),
+            output_schema_version=str(row["output_schema_version"] or ""),
+            model=str(row["model"] or ""),
+            provider=str(row["provider"] or ""),
+            tag_catalog_version=str(context.get("tag_catalog_version") or ""),
+            reference_version=str(context.get("reference_version") or ""),
+        )
+
+    def reserve_run(
+        self,
+        project_id: int,
+        kind: str,
+        schema_version: str,
+        fingerprint: str,
+        *,
+        context: Mapping[str, Any] | None = None,
+        request_id: str = "",
+    ) -> GenerationRun:
+        reservation = self.reserve_generation(
+            project_id,
+            kind,
+            schema_version,
+            fingerprint,
+            context_json=context,
+            request_id=request_id,
+        )
+        run = self.get_run(int(reservation["id"]))
+        if run is None:
+            raise StudioDataError("生成运行记录创建失败")
+        return run
+
+    def get_run(self, run_id: int) -> GenerationRun | None:
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT * FROM generations WHERE id=?", (int(run_id),)).fetchone()
+        return self._generation_run_from_row(row)
+
+    def complete_run(self, run_id: int, result: Any, *, aspect_ratio: str = "16:9") -> list[int]:
+        run = self.get_run(int(run_id))
+        if run is None:
+            raise GenerationNotFoundError("生成记录不存在")
+        if run.kind == "narrative":
+            self.complete_narrative_generation(run.run_id, result)
+            return []
+        return self._complete_generation(run.run_id, result, visual_items=(result.items, aspect_ratio))
+
+    def complete_static_run(self, run_id: int, result: Any, *, aspect_ratio: str = "16:9") -> list[int]:
+        """Canonical static result persistence seam."""
+        return self.complete_static_generation(int(run_id), result, aspect_ratio)
+
+    def fail_run(self, run_id: int, failure: Mapping[str, Any]) -> None:
+        self.fail_generation(
+            int(run_id),
+            str(failure.get("message") or "生成失败"),
+            error_code=str(failure.get("error_code") or failure.get("code") or "generation_failed"),
+            phase=str(failure.get("phase") or "generation"),
+            field_path=str(failure.get("field_path") or ""),
+            retryable=bool(failure.get("retryable", False)),
+            trace_id=str(failure.get("trace_id") or ""),
+            detail=str(failure.get("detail") or ""),
+        )
 
     def complete_narrative_generation(self, generation_id: int, result: Any) -> None:
         self._complete_generation(generation_id, result, visual_items=None)

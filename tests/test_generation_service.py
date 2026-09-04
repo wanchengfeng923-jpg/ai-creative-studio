@@ -530,10 +530,17 @@ class GenerationServiceTests(unittest.TestCase):
             "items[0].frame_plan[1].description",
         )
 
-    def test_generate_blank_task_description_raises_input_error(self) -> None:
+    def test_generate_narrative_allows_blank_task_description(self) -> None:
         self.repo.update_project(self.narrative_project["id"], {"task_description": "   "})
-        with self.assertRaises(GenerationInputError):
-            self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+        result = self.service.generate(CreativeGenerationRequest(project_id=self.narrative_project["id"]))
+        self.assertEqual(result.snapshot.task_description, "")
+        self.assertEqual(len(self.service.adapter.calls), 1)
+
+    def test_generate_visual_allows_blank_creative_description(self) -> None:
+        self.repo.update_project(self.visual_project["id"], {"task_description": "   "})
+        result = self.service.generate(CreativeGenerationRequest(project_id=self.visual_project["id"]))
+        self.assertEqual(result.snapshot.task_description, "")
+        self.assertEqual(len(self.service.adapter.calls), 1)
 
     def test_generate_missing_project_raises_not_found_error(self) -> None:
         with self.assertRaises(GenerationNotFoundError):

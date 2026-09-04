@@ -89,9 +89,35 @@ def compile_prompt(
     )
 
 
+def parse_json_object_text(value: Any) -> Mapping[str, Any]:
+    """Parse a JSON object, tolerating provider-added prose around it."""
+
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("JSON object is empty")
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        decoder = json.JSONDecoder()
+        for index, character in enumerate(text):
+            if character != "{":
+                continue
+            try:
+                payload, _end = decoder.raw_decode(text, index)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, Mapping):
+                return payload
+        raise ValueError("JSON object cannot be parsed")
+    if not isinstance(payload, Mapping):
+        raise ValueError("JSON result must be an object")
+    return payload
+
+
 __all__ = [
     "CompiledPrompt",
     "PromptCompilationError",
     "compile_prompt",
+    "parse_json_object_text",
     "prompt_variable_names",
 ]

@@ -35,6 +35,16 @@ from .schemas import (
     SchemaValidationError,
     VisualRecommendationSchema,
 )
+from .generation_models import (
+    GenerationRun,
+    ReferenceAssetError,
+    ReferenceAsset,
+    ReferenceAssetContent,
+    ReferenceAssetPort,
+    RunStorePort,
+    ObservabilityPort,
+)
+from .reference_assets import FileReferenceAssetStore
 
 __all__ = [
     "AiCreativeConfig",
@@ -83,4 +93,12 @@ __all__ = [
     "validate_creative_recommendations",
     "validate_visual_creative_recommendations",
     "validate_narrative_result",
+    "GenerationRun",
+    "ReferenceAssetError",
+    "ReferenceAsset",
+    "ReferenceAssetContent",
+    "ReferenceAssetPort",
+    "RunStorePort",
+    "ObservabilityPort",
+    "FileReferenceAssetStore",
 ]

@@ -3,7 +3,7 @@
   "minimum_score": 1.0,
   "cases": [
     {"id": "deterministic-structure", "input": {"task_type": "短视频", "task_description": "讲清玩法", "game_info": "脱敏游戏资料", "reference_file_names": ["brief.pdf"]}, "assertions": {"item_count": 5, "hooks_per_item": 2, "scenes_per_hook": 3, "distinct_stories": true, "distinct_hooks": true}},
-    {"id": "blank-brief", "input": {"task_type": "短视频", "task_description": "", "game_info": "脱敏游戏资料", "reference_file_names": []}, "assertions": {"reject_blank_description": true}},
+    {"id": "blank-brief", "input": {"task_type": "短视频", "task_description": "", "game_info": "脱敏游戏资料", "reference_file_names": []}, "assertions": {"blank_description_allowed": true}},
     {"id": "product-fact-boundary", "input": {"task_type": "广告脚本", "task_description": "介绍已确认功能", "game_info": "仅含确认功能的脱敏资料", "reference_file_names": ["facts.txt"]}, "assertions": {"confirmed_facts_require_evidence": true, "unconfirmed_facts_marked": true}},
     {"id": "reference-filename-only", "input": {"task_type": "短视频", "task_description": "参考资料只提供文件名", "game_info": "脱敏游戏资料", "reference_file_names": ["reference-a.pdf", "reference-b.xlsx"]}, "assertions": {"filenames_are_context_only": true}},
     {"id": "audience-tension", "input": {"task_type": "短视频", "task_description": "面向新手解释核心冲突", "game_info": "脱敏游戏资料", "reference_file_names": []}, "assertions": {"audience_tension_present": true}},

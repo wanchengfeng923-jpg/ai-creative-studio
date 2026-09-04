@@ -2,7 +2,9 @@
 
 ## 当前边界
 
-当前默认只允许本机访问：网页服务监听 `127.0.0.1:8775`，AI 网关监听 `127.0.0.1:8780`。网页已有登录和项目归属控制，但仍不具备正式多人部署所需的自动备份、恢复演练、外部限流和公网安全能力。此前的局域网共享已撤回；再次开放局域网或公网必须单独走高风险变更卡，不得只修改监听地址。
+当前默认只允许本机访问：网页服务监听 `127.0.0.1:8775`，AI 网关监听 `127.0.0.1:8780`。网页已有登录和项目归属控制，备份工具和临时恢复演练已具备，但仍不具备正式多人部署所需的自动调度、外部限流和公网安全能力。此前的局域网共享已撤回；再次开放局域网或公网必须单独走高风险变更卡，不得只修改监听地址。
+
+注意：当前工作树中 `launcher.py` 的 `WEB_BIND_HOST = "0.0.0.0"` 是用户已有未提交修改，不能视为本手册默认，也不能在本路线中擅自回退或继续扩大暴露范围；启动前应由负责人确认监听边界。
 
 ## 启动
 
@@ -48,16 +50,42 @@
 | 参考文件 | `data/uploads/` | 用户上传的本地参考文件 |
 | AI 令牌 | `chat2api/.env` | 敏感配置，不进 Git |
 
-## 当前手动备份
+## 备份与恢复
 
-当前尚未实现自动备份。需要备份时：
+仓库现在提供可重复的 `creative_studio.backup` 工具，但尚未安装定时任务；调度仍需由部署负责人按发布变更卡配置。默认命令只读检查数据库、图片和上传目录，不创建输出：
 
-1. 停止网页和网关。
-2. 将 `data/creative_studio.db`、`data/images/`、`data/uploads/` 复制到带日期的独立备份目录。
-3. 不复制或明文散落 `chat2api/.env`；令牌单独放在受保护的位置。
-4. 重新启动后，用备份目录复制到临时位置做一次读取检查，不要直接覆盖当前数据。
+```powershell
+$env:PYTHONPATH = "D:\code\ai_creative_studio\src"
+python -m creative_studio.backup --dry-run --output .scratch\backup-smoke
+```
 
-多人内网版本上线前，必须改成自动备份，并至少恢复一份备份验证数据库、项目记录和图片都能打开。
+执行实际备份前停止网页和网关，并使用独立、带日期的空目录：
+
+```powershell
+python -m creative_studio.backup --database data\creative_studio.db --images data\images --uploads data\uploads --output .scratch\backup-2026-09-04
+```
+
+工具会保存 `manifest.json`、SQLite 在线备份和图片/上传文件 SHA-256。恢复先写入同级临时目录，
+校验 manifest、SQLite 可读性以及 `project_files`/成功图片引用完整性，成功后才切换为目标目录；
+失败不会留下半成品目标目录。恢复只能写入新目录或空目录：
+
+```powershell
+python -m creative_studio.backup --restore-from .scratch\backup-2026-09-04 --target .scratch\restored-2026-09-04
+```
+
+JSON 结果中的 `verified=true` 和 `references_verified=true` 必须同时出现；manifest 路径穿越、重复
+路径、非法 SHA-256、文件缺失或数据库引用缺失都会拒绝恢复。
+
+保留策略目前是只读计划，不会自动删除用户备份。部署负责人可按变更卡查询“保留最近 N 份”计划：
+
+```powershell
+python -m creative_studio.backup --retention-root .scratch --keep-latest 7
+```
+
+输出的 `keep`、`eligible_for_removal` 和 `invalid` 目录必须人工复核；仓库没有默认删除命令，
+避免调度器误删唯一可恢复副本。
+
+不要复制或明文散落 `chat2api/.env`；令牌单独放在受保护的位置。恢复演练通过后仍需对项目、图片和上传引用做只读 smoke，禁止直接覆盖当前运行目录。多人内网正式上线前，必须把该工具接入受控调度器，设置保留策略、失败告警，并至少完成一次跨目录恢复。
 
 ## 静态展示生成边界
 
@@ -67,7 +95,7 @@
 `image_generation_instruction` 只写入 `visual_items.image_prompt` 和受控图片队列，静态方案不写入
 `display_frames`。浏览器 history/status/adopt 由 `StaticVisualPublicDTO.v1` 白名单投影，不能包含私有图片指令、完整模型响应、本地路径或 gateway job id。
 
-本阶段的 registry、临时 SQLite、fake model/image runner 和前端 canonical renderer 已通过当前 `220` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
+本阶段的 registry、临时 SQLite、fake model/image runner、参考资料边界和前端 canonical renderer 已通过当前 `254` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
 
 ## 轮播后台 Operation
 
@@ -121,6 +149,10 @@ python -m creative_studio.projection_scrub --database .scratch\projection-scrub\
 恢复文件的统计应与 apply 前的临时副本一致。工具硬拒绝直接 apply 仓库默认 `data/creative_studio.db`；本文档也不授权绕过该保护。若未来确需处理真实运行库，必须另行取得用户确认，停止服务，完成数据库、图片和上传目录的独立备份与恢复演练，再通过单独评审的迁移方案执行。
 
 截至 2026-09-04，对默认运行库执行过一次只读 dry-run，结果为 `scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`。因此当前运行库仍需要单独的备份、恢复演练和历史 scrub 变更卡；本次未执行 `--apply`，也未写入真实数据。
+
+Phase 5 临时副本恢复演练已由 `tests/test_projection_scrub.py` 覆盖：副本先 dry-run，再使用新 backup
+apply；从 backup 恢复后再次 apply，最后 dry-run 达到 `changed_rows=0` 和
+`private_field_occurrences=0`。演练只使用临时目录，不代表真实运行库已经迁移。
 
 ## 故障处理
 

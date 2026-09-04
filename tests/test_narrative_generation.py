@@ -88,6 +88,24 @@ class NarrativeGenerationTests(unittest.TestCase):
         self.assertEqual(raised.exception.field_path, "items")
         self.assertFalse(raised.exception.retryable)
 
+    def test_accepts_json_object_wrapped_in_provider_explanation(self):
+        wrapped = "下面是结果：```json\n" + json.dumps(_payload("容错"), ensure_ascii=False) + "\n```"
+        model = DeterministicTextModel([ModelResponse(wrapped)])
+        module = NarrativeGeneration(model)
+
+        result = module.generate(NarrativeInput(task_description="任务"))
+
+        self.assertEqual(result.items[0]["story"], "容错0")
+
+    def test_ignores_non_contract_metadata_on_hook_objects(self):
+        payload = _payload("扩展字段")
+        payload["items"][0]["hooks"][0]["rationale"] = "模型附加的解释"
+        model = DeterministicTextModel([ModelResponse(json.dumps(payload, ensure_ascii=False))])
+
+        result = NarrativeGeneration(model).generate(NarrativeInput(task_description="任务"))
+
+        self.assertEqual(set(result.items[0]["hooks"][0]), {"text", "scenes"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,6 +45,8 @@ from .image_jobs import GptWebImageClient, ImageJobRunner, gateway_base_from_env
 from .model_client import HttpModelClient, ModelClient
 from .public_projection import PublicResultMapper
 from .prompt_registry import PromptRegistry, PromptRegistryError
+from .reference_assets import FileReferenceAssetStore
+from .observability import StructuredObservability
 from .repository import StudioDataError, StudioRepository
 from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 
@@ -133,6 +135,18 @@ class StudioApplication:
             "task_description": str(project.get("task_description") or "").strip(),
             "product_evidence_summary": str(project.get("product_evidence_summary") or "").strip(),
             "aspect_ratio": str(project.get("aspect_ratio") or "").strip(),
+            "reference_assets": [
+                {
+                    "name": str(item.get("original_name") or ""),
+                    "sha256": str(item.get("sha256") or ""),
+                    "mime_type": str(item.get("mime_type") or ""),
+                    "size_bytes": int(item.get("size_bytes") or 0),
+                    "extraction_status": str(item.get("extraction_status") or "pending"),
+                    "safe_summary": str(item.get("safe_summary") or ""),
+                }
+                for item in (project.get("reference_files") or [])
+                if isinstance(item, Mapping)
+            ],
         }
         if script_type == "展示类":
             value["visual_carousel"] = normalize_visual_carousel_config(project.get("creative_tags"))
@@ -144,7 +158,10 @@ class StudioApplication:
         if project is None:
             raise StudioDataError("项目不存在")
         kind = recommendation_kind_for_script_type(project["script_type"])
-        fingerprint = self._fingerprint(project)
+        # GenerationService is the canonical owner of snapshot normalization and
+        # prompt metadata. Rebuild that snapshot here so history classification
+        # uses exactly the same fingerprint as the generation write path.
+        fingerprint = self.generation_service._build_snapshot(project).fingerprint
         result = self.public_mapper.history(
             self.repository.generation_history(project_id, kind, fingerprint),
             recommendation_kind=kind,
@@ -269,6 +286,8 @@ def create_application(
         image_runner=image_runner,
         environment=source,
         prompt_registry=prompt_registry,
+        reference_asset_port=FileReferenceAssetStore(repository, uploads_dir),
+        observability=StructuredObservability(),
     )
     generation_service.recover_carousel_operations()
     return StudioApplication(
@@ -679,8 +698,23 @@ class StudioHandler(BaseHTTPRequestHandler):
             raise StudioDataError("参考文件目录无效")
         target_dir.mkdir(parents=True, exist_ok=True)
         target = target_dir / stored_name
-        target.write_bytes(self.rfile.read(size))
-        record = self.application.repository.add_project_file(project_id, Path(original_name).name, stored_name, size)
+        payload = self.rfile.read(size)
+        target.write_bytes(payload)
+        mime_type = mimetypes.guess_type(Path(original_name).name)[0] or "application/octet-stream"
+        extraction_status = "complete" if mime_type.startswith("text/") or mime_type == "application/json" else "unsupported"
+        safe_summary = ""
+        if extraction_status == "complete":
+            safe_summary = " ".join(payload[:8_000].decode("utf-8", errors="replace").split())[:2_000]
+        record = self.application.repository.add_project_file(
+            project_id,
+            Path(original_name).name,
+            stored_name,
+            size,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            mime_type=mime_type,
+            extraction_status=extraction_status,
+            safe_summary=safe_summary,
+        )
         self._json({"success": True, "file": record}, HTTPStatus.CREATED)
 
     def _read_json(self) -> dict[str, Any]:

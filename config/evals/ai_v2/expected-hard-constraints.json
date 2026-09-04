@@ -1,0 +1,47 @@
+{
+  "version": "ai-v2-hard-constraints-v1",
+  "input": {
+    "allowed_fields": ["task_description", "aspect_ratio", "creative_tags"],
+    "allowed_aspect_ratios": ["16:9", "9:16"],
+    "max_task_description_length": 500,
+    "unknown_fields": "reject",
+    "empty_task_description": "allow",
+    "empty_creative_tags": {},
+    "tag_values": "trim_deduplicate_preserve_order"
+  },
+  "outputs": {
+    "narrative-text-v1": {
+      "item_count": 5,
+      "hooks_per_item": 2,
+      "scenes_per_hook": 3,
+      "private_fields": []
+    },
+    "static-text-v1": {
+      "item_count": 3,
+      "image_prompt_count_per_item": 1,
+      "private_fields": ["execution", "execution.image_prompt"]
+    },
+    "carousel-text-v1": {
+      "item_count": 3,
+      "frame_count_range": [2, 5],
+      "frame_indexes": "contiguous_from_1",
+      "image_prompt_indexes": "match_frames",
+      "private_fields": ["execution", "execution.continuity_rules", "execution.image_prompts"]
+    }
+  },
+  "prohibited_public_fields": [
+    "execution",
+    "image_prompt",
+    "image_prompts",
+    "conversation_id",
+    "parent_message_id",
+    "gateway_job_id",
+    "image_path",
+    "raw_model_response"
+  ],
+  "failure_policy": {
+    "schema_error": "fail_current_batch",
+    "hidden_format_repair_call": false,
+    "max_text_model_calls_per_batch": 1
+  }
+}

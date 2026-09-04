@@ -128,6 +128,18 @@ class StaticVisualContractTests(unittest.TestCase):
         self.assertEqual(len(client.requests), 2)
         self.assertIn("items[1].visual_mechanism", client.requests[1].messages[0]["content"])
 
+    def test_accepts_json_object_wrapped_in_provider_explanation(self) -> None:
+        wrapped = "结果如下：```json\n" + json.dumps(valid_payload(), ensure_ascii=False) + "\n```"
+        client = _SequenceModelClient([ModelResponse(content=wrapped)])
+        module = StaticVisualGeneration(
+            client,
+            prompt_template="任务：{{task_description}}\n标签：{{creative_tags}}",
+        )
+
+        result = module.generate(StaticVisualPromptInput(task_description="测试静态创意"))
+
+        self.assertEqual([item["concept_id"] for item in result.items], ["A", "B", "C"])
+
 
 class _SequenceModelClient:
     def __init__(self, responses: list[ModelResponse]) -> None:

@@ -117,6 +117,25 @@ class ProjectionScrubTests(unittest.TestCase):
             backup.backup(restored)
         self.assertIn("image_prompt", " ".join(self._stored_json()))
 
+        restored_stats = scrub_public_projections(self.database_path)
+        self.assertEqual(restored_stats.changed_rows, 2)
+
+        with closing(sqlite3.connect(self.database_path)) as connection:
+            connection.execute("DELETE FROM generations")
+            connection.execute("DELETE FROM adoptions")
+            connection.commit()
+        with closing(sqlite3.connect(self.backup_path)) as backup, closing(
+            sqlite3.connect(self.database_path)
+        ) as restored:
+            backup.backup(restored)
+        scrubbed = scrub_public_projections(
+            self.database_path, apply=True, backup_path=Path(self.temp.name) / "restored-before.db"
+        )
+        self.assertEqual(scrubbed.changed_rows, 2)
+        fixed = scrub_public_projections(self.database_path)
+        self.assertEqual(fixed.changed_rows, 0)
+        self.assertEqual(fixed.private_field_occurrences, 0)
+
     def test_apply_refuses_invalid_json_without_writing_valid_rows(self) -> None:
         before = self._stored_json()
         with closing(sqlite3.connect(self.database_path)) as connection:

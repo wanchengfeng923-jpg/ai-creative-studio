@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from .model_client import ModelClient, ModelRequest, ModelResponse, ModelResponseFormatError
 from .model_ports import TextModelPort
-from .prompting import compile_prompt, prompt_variable_names
+from .prompting import compile_prompt, parse_json_object_text, prompt_variable_names
 
 
 class StaticVisualOutputError(ValueError):
@@ -33,6 +33,7 @@ class StaticVisualPromptInput:
     aspect_ratio: str = "16:9"
     product_evidence_summary: str = ""
     reference_file_names: tuple[str, ...] = ()
+    reference_context: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -262,7 +263,7 @@ class StaticVisualGeneration:
             f"{key}={','.join(str(item) for item in values)}"
             for key, values in sorted((data.creative_tags or {}).items(), key=lambda item: str(item[0]))
         ) or "（未选择标签）"
-        references = "、".join(data.reference_file_names) or "（无参考文件，仅表示未提供文件名）"
+        references = "、".join(data.reference_context or data.reference_file_names) or "（无参考文件，仅表示未提供文件名）"
         template = self.prompt_template or (
             "任务类型：{{task_type}}\n任务描述：{{task_description}}\n展示类标签：{{creative_tags}}\n"
             "目标画幅：{{aspect_ratio}}\n产品信息：{{product_evidence_summary}}\n"
@@ -300,7 +301,7 @@ class StaticVisualGeneration:
                     conversation_id=conversation_id,
                     parent_message_id=parent_message_id,
                 ))
-                result = validate_static_visual_result(json.loads(response.content))
+                result = validate_static_visual_result(parse_json_object_text(response.content))
                 self.last_response = response
                 return result
             except ModelResponseFormatError as exc:

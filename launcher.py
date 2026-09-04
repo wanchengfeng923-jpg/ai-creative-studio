@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import base64
 import os
 import re
 import shutil
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / "chat2api" / ".env"
 WEB_URL = "http://127.0.0.1:8775/"
 GATEWAY_URL = "http://127.0.0.1:8780"
-WEB_BIND_HOST = "127.0.0.1"
+WEB_BIND_HOST = "0.0.0.0"
 
 
 def _terminate_process(process: subprocess.Popen[bytes], timeout: float = 3.0) -> None:
@@ -72,6 +73,61 @@ def gateway_upstream_verified(models: dict[str, object]) -> bool:
 def should_refresh_from_cookie(models: dict[str, object], has_cookie: bool) -> bool:
     """上游验证失败且有会话 Cookie 时，允许用 Cookie 更新网关 Token。"""
     return bool(has_cookie) and not gateway_upstream_verified(models)
+
+
+def build_session_update_request(cookie: str, control_token: str = "") -> urllib.request.Request:
+    """构造网关会话热更新请求；请求体只在本机进程间传递 Cookie。"""
+    headers = {"Content-Type": "application/json"}
+    if control_token.strip():
+        headers["X-Control-Token"] = control_token.strip()
+    return urllib.request.Request(
+        f"{GATEWAY_URL}/v1/session",
+        data=json.dumps({"session_cookie": cookie}).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+
+def push_session_cookie(cookie: str, control_token: str = "") -> tuple[bool, str]:
+    """在线网关立即切换 Cookie；返回可展示的安全结果，不泄露凭据。"""
+    if not cookie.strip():
+        return False, "Session Cookie 为空"
+    try:
+        request = build_session_update_request(cookie.strip(), control_token)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if payload.get("ok") and payload.get("has_token"):
+            return True, "网关已立即切换到新 Session Cookie"
+        return False, str(payload.get("error") or "网关未接受新 Session Cookie")[:160]
+    except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError) as exc:
+        return False, format_connection_error(exc, (cookie, control_token))
+
+
+def token_username(token: str) -> str:
+    """从 GPT 网页 Access Token 的 profile claims 提取可展示的用户名。"""
+    try:
+        parts = str(token or "").strip().split(".")
+        if len(parts) != 3:
+            return "未识别"
+        payload = parts[1].replace("-", "+").replace("_", "/")
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.b64decode(payload).decode("utf-8"))
+        profile = claims.get("https://api.openai.com/profile")
+        if not isinstance(profile, dict):
+            return "未识别"
+        candidates = [
+            str(profile.get(key) or "").strip()
+            for key in ("name", "username", "email")
+        ]
+        for value in candidates:
+            if value and "\ufffd" not in value:
+                return value
+        for value in candidates:
+            if value:
+                return value
+        return "未识别"
+    except (ValueError, TypeError, UnicodeError, json.JSONDecodeError):
+        return "未识别"
 
 
 def read_env() -> dict[str, str]:
@@ -623,6 +679,7 @@ class Launcher(tk.Tk):
         self.gateway_var = tk.StringVar(value="未启动")
         self.connection_var = tk.StringVar(value="尚未检测")
         self.expiry_var = tk.StringVar(value="未检测")
+        self.username_var = tk.StringVar(value="未识别")
         self.token_var = tk.StringVar()
         self.cookie_var = tk.StringVar()
         self.secret_values: dict[str, str] = {"token": "", "cookie": ""}
@@ -642,7 +699,7 @@ class Launcher(tk.Tk):
 
         state = ttk.LabelFrame(self, text="连接状态")
         state.pack(fill="x", **pad)
-        for row, (label, variable) in enumerate((("网页服务", self.status_var), ("AI 网关", self.gateway_var), ("ChatGPT 连接", self.connection_var), ("Token 到期", self.expiry_var))):
+        for row, (label, variable) in enumerate((("网页服务", self.status_var), ("AI 网关", self.gateway_var), ("ChatGPT 连接", self.connection_var), ("Token 到期", self.expiry_var), ("GPT 用户名", self.username_var))):
             ttk.Label(state, text=label, width=16).grid(row=row, column=0, sticky="w", padx=16, pady=6)
             ttk.Label(state, textvariable=variable, font=("Microsoft YaHei UI", 10, "bold")).grid(row=row, column=1, sticky="w", padx=10, pady=6)
 
@@ -696,6 +753,7 @@ class Launcher(tk.Tk):
         self.secret_values["cookie"] = values.get("CHATGPT_SESSION_COOKIE", "")
         self.token_var.set("已配置（点击编辑）" if self.secret_values["token"] else "")
         self.cookie_var.set("已配置（点击编辑）" if self.secret_values["cookie"] else "")
+        self.username_var.set(token_username(self.secret_values["token"]))
         self._log("已读取本机配置。")
 
     def open_proxy_workbench(self) -> None:
@@ -709,6 +767,7 @@ class Launcher(tk.Tk):
         self.log_text.configure(state="disabled")
 
     def save_config(self) -> None:
+        previous_cookie = self.secret_values["cookie"]
         token_input = self.token_var.get().strip()
         cookie_input = self.cookie_var.get().strip()
         token = token_input if "token" in self.secret_editing and token_input else self.secret_values["token"]
@@ -718,7 +777,29 @@ class Launcher(tk.Tk):
         self.token_var.set("已配置（点击编辑）" if token else "")
         self.cookie_var.set("已配置（点击编辑）" if cookie else "")
         save_env({"CHATGPT_ACCESS_TOKEN": token, "CHATGPT_SESSION_COOKIE": cookie})
-        self._log("配置已保存。重新启动网关后生效。")
+        self.username_var.set(token_username(token))
+        if cookie and cookie != previous_cookie:
+            control_token = read_env().get("CHATGPT_CONTROL_TOKEN", "")
+            threading.Thread(
+                target=self._push_session_cookie,
+                args=(cookie, control_token),
+                daemon=True,
+            ).start()
+            self._log("配置已保存，正在尝试让运行中的网关立即切换 Session Cookie。")
+        else:
+            self._log("配置已保存。")
+
+    def _push_session_cookie(self, cookie: str, control_token: str) -> None:
+        success, message = push_session_cookie(cookie, control_token)
+        if success:
+            # 网关换取新 Token 后会回写 .env；同步读回，避免用户名仍显示旧会话。
+            new_token = read_env().get("CHATGPT_ACCESS_TOKEN", "")
+            self.secret_values["token"] = new_token
+            self.after(0, lambda value=token_username(new_token): self.username_var.set(value))
+            self.after(0, lambda: self.token_var.set("已配置（点击编辑）"))
+            self.after(0, lambda: self._log(message))
+        else:
+            self.after(0, lambda: self._log(f"{message}；若网关未运行，请点击“停止”后再“启动”。"))
 
     def _current_secret(self, key: str) -> str:
         entry = self.secret_entries[key]
@@ -879,6 +960,7 @@ class Launcher(tk.Tk):
                         raise RuntimeError(str(data.get("error") or "Cookie 换取 Access Token 失败"))
                     new_token = read_env().get("CHATGPT_ACCESS_TOKEN", "")
                     self.secret_values["token"] = new_token
+                    self.after(0, lambda value=token_username(new_token): self.username_var.set(value))
                     refreshed_token = True
                     self.after(0, lambda: self.token_var.set("已配置（点击编辑）"))
                 # /health 只能证明本地网关有 Token；/v1/models 的 detected 标记才证明上游接受它。
@@ -900,6 +982,7 @@ class Launcher(tk.Tk):
                         raise RuntimeError(str(data.get("error") or "Cookie 换取 Access Token 失败"))
                     new_token = read_env().get("CHATGPT_ACCESS_TOKEN", "")
                     self.secret_values["token"] = new_token
+                    self.after(0, lambda value=token_username(new_token): self.username_var.set(value))
                     refreshed_token = True
                     self.after(0, lambda: self.token_var.set("已配置（点击编辑）"))
                     with urllib.request.urlopen(f"{GATEWAY_URL}/v1/models", timeout=8) as response:
@@ -946,6 +1029,7 @@ class Launcher(tk.Tk):
                 data = json.loads(response.read().decode("utf-8"))
             if data.get("ok") and data.get("has_token"):
                 self.secret_values["token"] = read_env().get("CHATGPT_ACCESS_TOKEN", "")
+                self.after(0, lambda value=token_username(self.secret_values["token"]): self.username_var.set(value))
                 self.token_var.set("已配置（点击编辑）")
                 self.after(0, lambda: (self.connection_var.set("已连接（Cookie 已换取 Token）"), self._log("Session Cookie 已成功换取新的 Access Token。")))
             else:

@@ -31,24 +31,6 @@ from .schemas import (
 
 AI_LOGGER = logging.getLogger("web_erp.http")
 
-DEPRECATED_PROMPT_LOADERS = {
-    "load_ai_visual_first_frame_prompt": {
-        "deprecated_since": "phase-1",
-        "replacement": "creative.visual.carousel.plan@visual-carousel-v1",
-        "new_callers_forbidden": True,
-        "allowed_read": "inventory/deprecation/audit only",
-        "removal_condition": "Phase 5 after carousel migration and zero generation callers",
-    },
-    "load_ai_visual_follow_up_prompt": {
-        "deprecated_since": "phase-1",
-        "replacement": "CarouselVisualGeneration policy",
-        "new_callers_forbidden": True,
-        "allowed_read": "inventory/deprecation/audit only",
-        "removal_condition": "Phase 5 after carousel migration and zero generation callers",
-    },
-}
-
-
 CREATIVE_TAG_KEYS = (
     "target_audiences",
     "secondary_target_audiences",
@@ -114,9 +96,12 @@ VISUAL_CREATIVE_ITEM_FIELDS = (
     "image_prompt",
 )
 VISUAL_CAROUSEL_ROUND_KEYS = (
+    "visual_target_audiences",
+    "visual_player_desires",
     "visual_product_selling_points",
     "visual_display_contents",
     "visual_motif",
+    "visual_dynamics",
 )
 VISUAL_BARE_DOMAIN_URL_PATTERN = re.compile(
     r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?::\d+)?(?:[/?#][^\s]*)?",
@@ -684,44 +669,6 @@ def _default_ai_visual_creative_prompt_path() -> Path:
 
 def _default_ai_visual_carousel_prompt_path() -> Path:
     return Path(__file__).resolve().parents[2] / "config" / "ai_visual_carousel_prompt_v1.txt"
-
-
-def _default_ai_visual_follow_up_prompt_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "ai_visual_follow_up_prompt_v1.txt"
-
-
-def _default_ai_visual_first_frame_prompt_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "config" / "ai_visual_first_frame_prompt_v1.txt"
-
-
-def load_ai_visual_first_frame_prompt(environ: Mapping[str, str] | None = None) -> str:
-    """加载展示类方案独立首帧提示词；不混入公开创意响应。"""
-
-    source = dict(environ if environ is not None else os.environ)
-    path = str(source.get("WEB_ERP_AI_VISUAL_FIRST_FRAME_PROMPT_PATH") or "").strip()
-    prompt_path = Path(path) if path else _default_ai_visual_first_frame_prompt_path()
-    try:
-        prompt = prompt_path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise AiCreativeConfigurationError("AI首帧提示词文件不存在或无法读取") from exc
-    if not prompt:
-        raise AiCreativeConfigurationError("AI首帧提示词为空")
-    return prompt
-
-
-def load_ai_visual_follow_up_prompt(environ: Mapping[str, str] | None = None) -> str:
-    """加载展示类后续画面提示词；不混入公开创意响应。"""
-
-    source = dict(environ if environ is not None else os.environ)
-    path = str(source.get("WEB_ERP_AI_VISUAL_FOLLOW_UP_PROMPT_PATH") or "").strip()
-    prompt_path = Path(path) if path else _default_ai_visual_follow_up_prompt_path()
-    try:
-        prompt = prompt_path.read_text(encoding="utf-8").strip()
-    except OSError as exc:
-        raise AiCreativeConfigurationError("AI后续画面提示词文件不存在或无法读取") from exc
-    if not prompt:
-        raise AiCreativeConfigurationError("AI后续画面提示词为空")
-    return prompt
 
 
 def load_ai_visual_creative_config(

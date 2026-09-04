@@ -22,6 +22,11 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn("selected-tag-summary", APP_JS)
         self.assertIn("target_audiences", APP_JS)
 
+    def test_optional_tag_groups_can_be_confirmed_without_a_selection(self):
+        self.assertIn("group.required && !groupSelectedValues(group).length", APP_JS)
+        self.assertIn('group.required ? "必选" : "可选"', APP_JS)
+        self.assertIn("state.tagUi.confirmed.has(chapter.key)", APP_JS)
+
     def test_selected_options_remain_in_table_with_highlight_and_plain_text_summary(self):
         self.assertIn("items.map((option) => optionButton", APP_JS)
         self.assertIn("selected: selected.has(option.label)", APP_JS)
@@ -36,11 +41,12 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn("nextProject", APP_JS)
         self.assertIn("previousProject", APP_JS)
 
-    def test_visual_carousel_uses_dedicated_yes_no_control(self):
-        self.assertIn("function renderCarouselChoice(group, draft)", APP_JS)
-        self.assertIn("data-carousel-choice", APP_JS)
+    def test_visual_carousel_uses_title_row_yes_no_controls_without_duplicate_body(self):
+        self.assertNotIn("function renderCarouselChoice(group, draft)", APP_JS)
+        self.assertNotIn("carousel-choice-field", APP_JS)
+        self.assertIn('data-carousel-choice="${option}"', APP_JS)
+        self.assertIn('${["是", "否"].map((option)', APP_JS)
         self.assertIn('value === "否"', APP_JS)
-        self.assertIn("renderCarouselChoice(group, draft)", APP_JS)
 
     def test_display_contents_stays_visible_until_product_selling_point_is_selected(self):
         self.assertIn('group.key === "visual_display_contents"', APP_JS)
@@ -79,6 +85,22 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn("round.mode = \"custom\"", APP_JS)
         self.assertIn('round.mode = "inherit"', APP_JS)
         self.assertNotIn("round.overrides[key] = selectWithReplacement", APP_JS)
+
+    def test_carousel_round_editor_offers_six_collapsible_positioning_groups(self):
+        for key in (
+            "visual_target_audiences",
+            "visual_player_desires",
+            "visual_product_selling_points",
+            "visual_display_contents",
+            "visual_motif",
+            "visual_dynamics",
+        ):
+            self.assertIn(f'field("{key}")', APP_JS)
+        self.assertIn("carousel-round-field-toggle", APP_JS)
+        self.assertIn('new Set(["visual_motif", "visual_dynamics"])', APP_JS)
+
+    def test_legacy_first_round_initializes_new_fields_from_top_level_tags(self):
+        self.assertIn("(index === 1 ? topLevel[field.key] : [])", APP_JS)
 
     def test_generation_button_shows_unlimited_elapsed_wait_time(self):
         self.assertIn("generationStartedAt", APP_JS)
@@ -135,6 +157,12 @@ class FrontendTagReportTests(unittest.TestCase):
         self.assertIn("const operation = item.operation || null", APP_JS)
         self.assertIn("state.operationIds.set(Number(item.id), operationId)", APP_JS)
         self.assertIn("if (!state.operationPollTimers.has(Number(item.id)))", APP_JS)
+
+    def test_history_polling_preserves_open_details_and_does_not_timestamp_image_urls(self):
+        self.assertIn('data-detail-key="visual:${item.id}"', APP_JS)
+        self.assertIn("querySelectorAll(\"details[open][data-detail-key]\")", APP_JS)
+        self.assertIn("openDetails.has(detail.dataset.detailKey)", APP_JS)
+        self.assertNotIn("?v=${Date.now()}", APP_JS)
 
     def test_workspace_drops_realtime_brief_sidebar(self):
         self.assertNotIn('id="briefSummary"', INDEX_HTML)

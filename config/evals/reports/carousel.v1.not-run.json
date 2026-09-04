@@ -1,0 +1,9 @@
+{
+  "schema_version": "evaluation-report.v1",
+  "use_case": "carousel.v1",
+  "generated_at": "2026-09-04",
+  "status": "not_run",
+  "results": {"baseline": {"status": "not_run"}, "candidate": {"status": "not_run"}, "repair_failure": {"status": "not_run"}},
+  "failure_classes": ["model_output_invalid", "provider_protocol_invalid", "image_generation_failed", "carousel_operation_failed"],
+  "notes": "真实模型质量、图片质量、供应商成功率和成本延迟尚未授权运行。"
+}

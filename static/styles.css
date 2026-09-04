@@ -131,12 +131,6 @@ input:focus, textarea:focus { border-color: #7ca38f; box-shadow: 0 0 0 3px rgba(
 .segmented { display: flex; gap: 8px; margin-top: 8px; }
 .segmented button { flex: 1; padding: 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: #fafbfa; }
 .segmented button.active { color: var(--green); border-color: #83a895; background: var(--mint); font-weight: 700; }
-.carousel-choice-field { display: flex; align-items: center; gap: 14px; }
-.carousel-choice-field > strong { color: var(--ink); font-size: 12px; }
-.carousel-choice-options { display: flex; gap: 7px; }
-.carousel-choice-option { min-width: 68px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: #fafbfa; }
-.carousel-choice-option.selected { color: var(--green); border-color: #83a895; background: var(--mint); font-weight: 700; }
-.carousel-choice-option span { margin-left: 5px; }
 .tag-controls { display: grid; gap: 13px; }
 .tag-empty-hint { margin: 8px 0; color: var(--muted); font-size: 11px; }
 .tag-group { padding: 12px; border: 1px solid #edf0ed; border-radius: 10px; background: #fbfcfb; }
@@ -308,10 +302,13 @@ input:focus, textarea:focus { border-color: #7ca38f; box-shadow: 0 0 0 3px rgba(
 .carousel-round-tabs button, .carousel-round-mode button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: #fff; font-size: 10px; cursor: pointer; }
 .carousel-round-tabs button.active, .carousel-round-mode button.active { border-color: #79b7a8; color: var(--green-2); background: var(--mint); }
 .carousel-round-fields { display: grid; gap: 13px; padding-top: 3px; }
-.carousel-round-field { display: grid; gap: 7px; }
-.carousel-round-field-heading { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-.carousel-round-field-heading strong { font-size: 11px; }
-.carousel-round-field-heading small { color: var(--muted); font-size: 10px; }
+.carousel-round-field { display: grid; gap: 7px; padding-bottom:8px; border-bottom:1px solid #e1ebe8; }
+.carousel-round-field:last-child { padding-bottom:0; border-bottom:0; }
+.carousel-round-field-toggle { width:100%; min-height:30px; display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:8px; padding:4px 2px; border:0; color:var(--ink); background:transparent; text-align:left; cursor:pointer; }
+.carousel-round-field-toggle strong { font-size:11px; }
+.carousel-round-field-toggle small { color:var(--muted); font-size:10px; font-weight:500; text-align:right; }
+.carousel-round-field-toggle span { color:var(--green-2); font-size:16px; line-height:1; transform:rotate(-90deg); transition:transform .16s ease; }
+.carousel-round-field.is-open .carousel-round-field-toggle span { transform:rotate(0); }
 .carousel-result, .resolved-tags { display: grid; gap: 5px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
 .carousel-result span { display: inline-block; margin-right: 5px; padding: 3px 6px; border-radius: 4px; color: var(--green-2); background: var(--mint); font-size: 10px; }
 .resolved-tags { color: var(--muted); font-size: 10px; }
@@ -538,6 +535,9 @@ body { min-width:320px; }
 .selected-tag-actions { display:flex; flex-wrap:wrap; gap:7px; }
 .report-edit-button,.report-confirm-button { min-height:25px; padding:3px 9px; border:1px solid #b8d9d1; border-radius:999px; color:var(--green-2); background:#fff; font-size:10px; font-weight:700; cursor:pointer; }
 .report-edit-button:hover,.report-confirm-button:hover { background:var(--mint); }
+.carousel-title-choices { display:flex; align-items:center; gap:6px; }
+.carousel-title-choice { min-width:34px; }
+.carousel-title-choice.selected { border-color:#83a895; background:var(--mint); }
 .creative-tag-reports { display:grid; gap:8px; }
 .creative-position-report { overflow:hidden; border:1px solid #dfe7e3; border-radius:6px; background:#fff; }
 .creative-position-report-title { min-height:34px; display:flex; align-items:center; gap:9px; padding:6px 9px; border-bottom:1px solid #dfe7e3; background:#f3f8f5; }

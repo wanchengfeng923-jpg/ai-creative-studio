@@ -15,9 +15,12 @@ class CarouselValidationError(ValueError):
 
 
 _ROUND_FIELDS = (
+    "visual_target_audiences",
+    "visual_player_desires",
     "visual_product_selling_points",
     "visual_display_contents",
     "visual_motif",
+    "visual_dynamics",
 )
 
 

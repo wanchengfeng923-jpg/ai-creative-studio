@@ -14,10 +14,36 @@
 
 ## 当前证据
 
-- 全量 deterministic unittest：220 项通过。
+- 全量 deterministic unittest：254 项通过。
 - `PromptRegistry` 在启动时校验路径、hash、变量、contract、生命周期和唯一 production caller。
 - 叙事、静态、轮播 production caller 均穿过各自 Module；图片任务使用 deterministic fake 验证排队、失败、重试和恢复。
 - 真实 AI 输出质量、事实准确性、机制人工评分、成本/延迟 baseline、真实图片质量和供应商成功率尚未验证。
+- 本地 `python -m creative_studio.evaluation_harness --validate-only` 会校验 3 套 fixture（共 30 个 case）和三份 `not_run` 报告；它不调用模型或图片供应商。
+
+## 离线硬约束 lint
+
+`creative_studio.evaluation_harness` 提供三层离线检查：
+
+- `lint_case_output(use_case, case, output)` 使用对应 canonical validator，并递归拒绝图片指令、供应商游标、路径和 raw response 等私有字段。
+- `evaluate_case_outputs(...)` 汇总一组 case 的硬约束通过率和失败分类；它只评价结构/边界，不替代人工创意评分。
+- `lint_evaluation_result(...)` 对 `complete`/`failed` 报告强制要求 `hard_constraint_pass_rate`、`calls`、`latency_ms`、合法失败分类和 `evidence_type`。
+
+失败分类使用固定枚举：`model_output_invalid`、`provider_protocol_invalid`、
+`image_generation_failed`、`carousel_operation_failed`；`aggregate_failure_classifications(...)`
+可跨结果聚合，未知分类或负数计数会使门禁失败。
+
+## 报告契约
+
+`config/evals/report-template.v1.json` 是版本化报告模板。每份报告必须保留
+`baseline`、`candidate` 和 `repair_failure` 三个结果槽位；未执行的结果使用 `status: "not_run"`，不得用
+deterministic fake 结果冒充真实供应商质量。非 `not_run` 结果至少记录硬约束通过率、实际调用次数、延迟和
+失败分类。稳定失败分类为 `model_output_invalid`、`provider_protocol_invalid`、
+`image_generation_failed` 和 `carousel_operation_failed`。
+
+deterministic fake 不写入 baseline/candidate/repair_failure。运行
+`python -m creative_studio.evaluation_harness --deterministic-fake-summary` 只输出
+`deterministic-contract-evidence.v1`，并明确 `evidence_type=deterministic_fake`、
+`quality_claim=contract_only`；这份输出不能被解释为真实模型质量报告。
 
 ## 真实评测前置条件
 

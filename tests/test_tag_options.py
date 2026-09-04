@@ -18,7 +18,7 @@ from creative_studio.app import load_tag_options
 class TagOptionsTests(unittest.TestCase):
     def test_config_contains_complete_narrative_and_visual_groups(self):
         config = load_tag_options()
-        self.assertEqual(config["version"], "tags-2026-09-03-v2")
+        self.assertEqual(config["version"], "tags-2026-09-04-v3")
         self.assertEqual(
             [group["key"] for group in config["narrative"]["groups"]],
             ["target_audiences", "art_style", "player_desires", "content_forms", "opening_hooks", "product_evidences"],
@@ -35,6 +35,26 @@ class TagOptionsTests(unittest.TestCase):
         self.assertEqual(len(next(group for group in config["visual"]["groups"] if group["key"] == "visual_target_audiences")["options"]), 34)
         self.assertEqual(len(next(group for group in config["visual"]["groups"] if group["key"] == "visual_art_style")["options"]), 35)
         self.assertIn("product_display", config["visual"]["relations"])
+
+    def test_only_target_audience_and_carousel_controls_are_required(self):
+        config = load_tag_options()
+        narrative_required = {
+            group["key"] for group in config["narrative"]["groups"] if group.get("required")
+        }
+        visual_required = {
+            group["key"] for group in config["visual"]["groups"] if group.get("required")
+        }
+
+        self.assertEqual(narrative_required, {"target_audiences"})
+        self.assertEqual(
+            visual_required,
+            {
+                "visual_target_audiences",
+                "visual_carousel",
+                "visual_carousel_count",
+                "visual_carousel_form",
+            },
+        )
 
     def test_narrative_art_style_is_in_unified_prompt_and_fingerprint(self):
         tags = normalize_creative_tags({"art_style": ["国风水墨"]})
@@ -96,9 +116,12 @@ class TagOptionsTests(unittest.TestCase):
                         "index": 1,
                         "mode": "base",
                         "overrides": {
+                            "visual_target_audiences": ["用户A"],
+                            "visual_player_desires": ["欲望A"],
                             "visual_product_selling_points": ["A"],
                             "visual_display_contents": [],
                             "visual_motif": ["M1"],
+                            "visual_dynamics": ["动态A"],
                         },
                     },
                     {
@@ -128,6 +151,9 @@ class TagOptionsTests(unittest.TestCase):
         )
         self.assertIn("count_mode", prompt)
         self.assertIn("round_index", prompt)
+        self.assertIn("visual_target_audiences=用户A", prompt)
+        self.assertIn("visual_player_desires=欲望A", prompt)
+        self.assertIn("visual_dynamics=动态A", prompt)
         self.assertIn("空白可适用标签由 AI 补全", prompt)
 
     def test_validate_visual_recommendations_accepts_nested_carousel_without_resolved_tags(self):

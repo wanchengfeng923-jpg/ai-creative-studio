@@ -187,7 +187,10 @@ class PublicResultMapperTests(unittest.TestCase):
                         "index": 1,
                         "mode": "base",
                         "overrides": {
+                            "visual_target_audiences": ["用户A"],
+                            "visual_player_desires": ["欲望A"],
                             "visual_product_selling_points": ["卖点A"],
+                            "visual_dynamics": ["动态A"],
                             "private_context": {"raw_response": "round secret"},
                         },
                         "image_prompt": "round prompt secret",
@@ -231,7 +234,10 @@ class PublicResultMapperTests(unittest.TestCase):
                         "index": 1,
                         "mode": "base",
                         "overrides": {
+                            "visual_target_audiences": ["用户A"],
+                            "visual_player_desires": ["欲望A"],
                             "visual_product_selling_points": ["卖点A"],
+                            "visual_dynamics": ["动态A"],
                         },
                     }
                 ],

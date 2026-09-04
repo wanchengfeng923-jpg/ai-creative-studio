@@ -1,4 +1,490 @@
-# 当前项目进度（2026-09-01）
+# 当前项目进度（2026-09-04）
+
+## 2026-09-04 AI v2 Task 0 冻结点与会话策略
+
+### 已完成
+
+- 建立 `.scratch/ai-v2-text-first-implementation/spec.md`，记录 `codex/tag-accordion-prototype` 分支、既有用户脏文件、三字段输入、文字/图片会话边界、重试对账、旧 AI 隔离、回滚和验收例子。
+- 新增 `docs/adr/0005-ai-v2-boundary-and-session-policy.md`，固定每批一个文字会话、每方案一个图片会话、轮播帧共享会话、孤儿任务恢复和“只有明确终态失败才创建新 attempt”的规则。
+- 在 AI v2 预览设计稿加入变更卡和 ADR 索引，并保留 Prompt 正文/真实评测/正式 caller 的单独审批门禁。
+
+### 验证
+
+- `git diff --check -- .scratch/ai-v2-text-first-implementation/spec.md docs/adr/0005-ai-v2-boundary-and-session-policy.md docs/superpowers/specs/2026-09-04-ai-v2-text-first-preview-design.md`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 1：建立 `ai_v2` 命名空间和零引用守卫；Task 2/3/6 在其通过后执行。
+
+## 2026-09-04 AI v2 Task 1 边界守卫
+
+### 已完成
+
+- 新增独立 `src/creative_studio/ai_v2/` 命名空间和 `boundary.py`，扫描 v2 源码/静态资源/配置目录的旧 AI import、旧 API 路由和旧表名。
+- 导出 `assert_ai_v2_boundary(root)` 与稳定 `AiV2BoundaryViolation`；实现不在导入时打开数据库或访问网络。
+- 新增临时文件 red/green 测试，覆盖完整包导入、裸旧模块导入、旧路由/表名和 `dataclasses/json/sqlite3/requests` 中立依赖。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_boundary -v`：2 项通过。
+- `python -m compileall -q src/creative_studio/ai_v2`：通过。
+- `git diff --check -- src/creative_studio/ai_v2 tests/test_ai_v2_boundary.py`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 2：三字段输入标准化与批次指纹。
+
+## 2026-09-04 AI v2 Task 2 三字段输入与 fingerprint
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/input_contract.py`，独立实现三字段 `AiV2Input`、空值/重复标签清理、任务长度和画幅枚举校验。
+- v2 顶层未知字段（含产品证据/参考文件）和缺失字段直接拒绝；标签组名称开放，轮播控制标签保持在 `creative_tags`。
+- 新增 `resolve_use_case()` 选择叙事/静态/轮播，新增稳定 SHA-256 `fingerprint()`，不引用旧 `normalize_creative_tags`。
+- 新增 6 项定向测试，覆盖空任务、类型错误、资料字段拒绝、轮播判定和标签顺序稳定性。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_input_contract -v`：6 项通过。
+- `python -m unittest tests.test_ai_v2_boundary -q`：2 项通过。
+- `python -m compileall -q src/creative_studio/ai_v2`：通过。
+- `git diff --check -- src/creative_studio/ai_v2 tests/test_ai_v2_input_contract.py tests/test_ai_v2_boundary.py`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 3：版本化 JSON Schema 与无依赖 schema runner。
+
+## 2026-09-04 AI v2 Task 3 版本化 JSON Schema
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/schema.py`，提供 `load_schema(schema_id, version)` 和无第三方依赖的 `validate_json()`，支持计划要求的 Schema 子集和稳定 JSON path/reason code。
+- 新增 `config/ai_v2/schemas/narrative-text-v1.json`、`static-text-v1.json`、`carousel-text-v1.json`；固定叙事 5×2×3、静态 3 案/单条图片 Prompt、轮播 3 案/2–5 帧。
+- 轮播 runner 额外校验帧索引连续性及 `frames`/`image_prompts` 数量和索引一致；所有对象默认拒绝额外字段。
+- 新增 5 项 schema 定向测试，覆盖缺字段、类型、数量、额外字段、轮播越序和 Prompt 对齐。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_schema -v`：5 项通过。
+- `python -m unittest tests.test_ai_v2_schema tests.test_ai_v2_boundary -q`：7 项通过。
+- `python -m compileall -q src/creative_studio/ai_v2`：通过；三份 schema JSON 解析通过。
+- `git diff --check -- src/creative_studio/ai_v2 config/ai_v2/schemas tests/test_ai_v2_schema.py`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 4：Prompt 专项设计与评测资产；Prompt 正文保持候选，不接生产 caller。
+
+## 2026-09-04 AI v2 Task 4 Prompt 设计与评测资产
+
+### 已完成
+
+- 新增 `docs/ai/ai-v2-prompt-design.md`，固定叙事/静态/轮播三种唯一任务、三字段数据区序列化、公开/内部一致性、单次调用失败策略和评测顺序。
+- 新增 `config/evals/ai_v2/prompt-cases.jsonl`，共 30 个脱敏 case，叙事/静态/轮播各 10 个，覆盖空标签、画幅、2/3/4/5 屏、额外字段、私有字段、重复、空描述和供应商失败语义。
+- 新增 `config/evals/ai_v2/expected-hard-constraints.json`，声明输入字段、三类输出数量、私有字段禁出、调用次数和失败策略。
+
+### 验证
+
+- JSONL/JSON 结构检查：30 cases、ID 唯一、每类 10 个、硬约束字段通过。
+- `python -m unittest tests.test_ai_v2_boundary tests.test_ai_v2_schema tests.test_ai_v2_input_contract -q`：13 项通过。
+- `git diff --check -- docs/ai/ai-v2-prompt-design.md config/evals/ai_v2`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 审批门禁
+
+- Prompt 正文和 production caller 尚未获用户单独审批；Task 5 不接 production，候选设计和评测资产可继续供 deterministic fake 使用。
+
+### 下一任务
+
+- 可安全执行 Task 6（文字/图片端口与会话策略）及其后置 Task 7/8；Task 5 等待 Prompt 审批。
+
+## 2026-09-04 AI v2 Task 6 模型端口与会话策略
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/model_ports.py`，定义 v2 私有 typed 文字/图片请求、会话游标、artifact、提交和对账结果。
+- 新增 `session.py` 稳定图片会话/逻辑帧 request key；新增 `fakes.py` deterministic text/image adapter，支持工作中、成功、终态失败和未知对账状态，不联网、不读凭据。
+- 新增 4 项会话测试，锁定每批一个文字会话、每方案一个图片会话、轮播同方案多帧复用会话和未知对账不新建会话。
+- 修复并验证 Python `Protocol` 导入兼容性；边界守卫从仓库根目录扫描通过。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_session -v`：4 项通过。
+- `python -m unittest tests.test_ai_v2_session tests.test_ai_v2_boundary -q`：6 项通过。
+- `python -c "...assert_ai_v2_boundary(Path('.'))..."`：`v2 boundary ok`。
+- `python -m compileall -q src/creative_studio/ai_v2`：通过。
+- `git diff --check -- src/creative_studio/ai_v2 tests/test_ai_v2_session.py`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 7：v2 SQLite 存储与 additive migration。
+
+## 2026-09-04 AI v2 Task 7 SQLite 存储与 additive migration
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/migrations.py`，只创建 `ai_v2_runs`、`ai_v2_schemes`、`ai_v2_frames`、`ai_v2_image_sessions`、`ai_v2_image_attempts`、`ai_v2_artifacts` 及索引。
+- 新增 `src/creative_studio/ai_v2/store.py`，提供冻结 `RunRecord`/`ImageAttempt`/`ImageSessionRecord`、`AiV2Store` 协议、两批限制、canonical 方案/帧保存、图片 session/attempt 幂等和原子 artifact/cursor 完成。
+- 失败运行记录保留；轮播越序、成功覆盖、旧 cursor/attempt 条件更新和重复 request key 均 fail-closed；本地 attempt 缺失但方案 session 存在时可恢复。
+- 新增 7 项临时 SQLite 测试，显式确认没有创建旧表或写入旧 AI 数据结构。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_store -v`：7 项通过。
+- `python -m unittest tests.test_ai_v2_boundary tests.test_ai_v2_input_contract tests.test_ai_v2_schema tests.test_ai_v2_session -q`：17 项通过。
+- `python -m compileall -q src/creative_studio/ai_v2`：通过。
+- `git diff --check -- src/creative_studio/ai_v2 tests/test_ai_v2_store.py`：通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 8：v2 公开投影；使用 v2 schema/store，不读取旧 `PublicResultMapper`。
+
+## 2026-09-04 AI v2 Task 8 公开投影
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/projection.py`，从空对象重建叙事、静态、轮播公开 DTO；未知字段和 `execution` 不会透传。
+- `public_image_state()` 只暴露稳定状态、attempt、可重试标记、安全错误码、operation id 和 `/api/v2/` 图片 URL；拒绝内部状态。
+- 新增 4 项递归隐私测试，覆盖 Prompt、execution、conversation cursor、gateway job id、本地路径、完整响应、堆栈和未知字段。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_projection -v`：4 项通过。
+- `python -m unittest tests.test_ai_v2_boundary tests.test_ai_v2_input_contract tests.test_ai_v2_schema tests.test_ai_v2_session tests.test_ai_v2_store -q`：24 项通过。
+- `python -c "...assert_ai_v2_boundary(Path('.'))..."`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 5 仅实现候选 Prompt registry/compiler（不建 production caller）；随后继续 Task 9 前置模块。
+
+## 2026-09-04 AI v2 Task 5 候选 Prompt registry/compiler
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/prompt_registry.py` 和 `prompting.py`，独立加载静态 v2 registry，校验原始 UTF-8 hash、三字段占位符、路径边界和生命周期。
+- 新增 `config/ai_v2/prompts/registry.json` 及三份候选模板；三项均为 `candidate`、`caller=null`、每批最多一次模型调用。
+- 编译器只做一次 `{{name}}` 字面替换，插入值中的 `$`、`${...}`、`{{...}}`、换行和 Unicode 不会二次解析；未知/缺失值 fail-closed。
+- 新增 3 项 registry/compiler 定向测试。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_prompt_registry -v`：3 项通过。
+- `python -m unittest tests.test_ai_v2_boundary tests.test_ai_v2_input_contract tests.test_ai_v2_schema tests.test_ai_v2_session tests.test_ai_v2_store tests.test_ai_v2_projection -q`：28 项通过。
+- `python -c "...assert_ai_v2_boundary(Path('.'))..."`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置；未创建 production caller。
+
+### 审批门禁
+
+- Prompt 正文仍为候选，用户尚未批准生产接入；后续用例仅可由 deterministic fake/候选 registry 测试驱动。
+
+### 下一任务
+
+- Task 9A：叙事文字用例（先红测试）；随后 Task 9B/9C。
+
+## 2026-09-04 AI v2 Task 9A 叙事文字用例
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/narrative.py`，独立使用候选 registry、typed text port、叙事 schema、v2 store 和公开投影。
+- 每批只调用一次文字模型；JSON/Schema 错误直接将当前 run 标记失败并返回稳定 `model_output_invalid`，不做隐藏格式修复。
+- 叙事成功固定 5 套、每套 2 钩子/每钩子 3 场景；空任务合法；失败重试和第二批都新建文字 session，不创建图片 session。
+- 调整 v2 store 允许失败批次同 `batch_index` 重试，同时按不同批次限制最多两批。
+- 新增 4 项叙事定向测试。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_narrative -v`：4 项通过。
+- v2 全套（boundary/input/schema/session/store/projection/prompt registry/narrative）：35 项通过。
+- 根目录 `assert_ai_v2_boundary(Path('.'))`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 9B：静态文字用例和按需首图入口。
+
+## 2026-09-04 AI v2 Task 9B 静态文字与按需首图
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/static_visual.py`，独立完成三案文字生成、schema 校验、pending 公开投影和按需单图入口。
+- 首次点击只创建方案唯一图片 session 和一条 attempt；重复点击复用；成功 artifact 锁定不可重生成。
+- 终态失败重试先对账，明确失败后在原 session 内递增 attempt 并继续，不调用第二个 session；未知状态不盲目扩张。
+- 补充 v2 store 的方案/帧/attempt 状态读取 seam；新增 4 项静态定向测试。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_static_visual -v`：4 项通过。
+- v2 全套（含 narrative/static/store/session/projection/prompt/schema/input/boundary）：39 项通过。
+- 根目录 `assert_ai_v2_boundary(Path('.'))`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 9C：轮播文字用例和逐帧图片入口。
+
+## 2026-09-04 AI v2 Task 9C 轮播文字与逐帧图片
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/carousel_visual.py`，独立完成轮播一次规划、固定/AI 帧数校验、三案路线保存和公开投影。
+- 固定屏数支持 2/3/4/5，缺数量或不匹配直接失败；后续帧不再调用文字模型。
+- `request_frame()` 严格按序：首帧首次点击创建方案唯一图片 session，后续帧复用 cursor 并携带上一张成功 artifact 的真实 MIME；重复点击幂等，终态失败重试先对账再在原 session 内新 attempt。
+- 新增 6 项轮播定向测试。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_carousel_visual -v`：6 项通过。
+- v2 全套（boundary/input/schema/session/store/projection/prompt/narrative/static/carousel）：45 项通过。
+- 根目录 `assert_ai_v2_boundary(Path('.'))`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 10：图片状态机与幂等规则。
+
+## 2026-09-04 AI v2 Task 10 图片状态机与幂等规则
+
+### 已完成
+
+- 新增 `src/creative_studio/ai_v2/image_state.py`，提供纯函数 `can_start_static`、`can_start_frame`、`transition` 和 `stable_image_key`。
+- 图片状态只允许 pending/generating/success/failed；成功再启动返回 `image_already_successful`，其他非法迁移返回 `invalid_image_transition`。
+- 轮播必须满足当前帧 pending/failed、所有前序 success；成功图片在逻辑帧键内锁定。
+- 新增 4 项状态机测试，覆盖成功/失败重试、越序阻断、稳定键和稳定错误码。
+
+### 验证
+
+- `PYTHONPATH=D:\code\ai_creative_studio\src python -m unittest tests.test_ai_v2_image_state -v`：4 项通过。
+- v2 全套定向回归：49 项通过。
+- 根目录 `assert_ai_v2_boundary(Path('.'))`：`v2 boundary ok`；compileall 和 diff check 通过。
+- 未调用真实文字/图片 AI，未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置。
+
+### 下一任务
+
+- Task 11：v2 图片 Adapter、worker 与供应商会话对账。
+
+## 2026-09-04 AI v2 文字优先独立预览
+
+### 本次完成
+
+- 用户批准 `docs/superpowers/specs/2026-09-04-ai-v2-text-first-preview-design.md` 用于纯前端预览；规格新增旧 AI 冻结、新 AI 零引用、零回退、零双写/双读、零兼容串联和入口级单向切换硬不变量。
+- 新增 `.scratch/ai-v2-text-first-preview/index.html` 自包含预览；顶层仍只有叙事类和展示类，展示类内部再切换静态与轮播。
+- 使用固定假数据呈现叙事 5 套、静态 3 套、轮播 3 套；叙事不含图片，展示类默认只显示文字，图片由用户按需触发。
+- 纯 reducer 实现静态一次生成、成功锁定、失败重试，以及轮播逐张解锁、失败阻断和成功后继续；DOM 层不参与状态决策。
+- 预览不加载生产 JavaScript/CSS、旧 AI 资源或远程资源，不调用生产 API，不读写数据库，也未修改正式页面。
+
+### 验证
+
+- 内联 JavaScript 语法检查通过；结构标签数量平衡。
+- 静态隔离检查确认 `fetch`、XHR、WebSocket、外链脚本/样式/图片和生产模块引用均为 0。
+- reducer 定向行为检查通过：静态成功锁定、轮播越序拒绝、失败不解锁后续、失败重试成功后解锁下一张。
+- 假数据数量检查通过：叙事 5 套、静态 3 套、轮播 3 套。
+- 浏览器工具受安全策略限制，不能打开本地 `file://` 页面；本次未完成 `1280x720`、`390x844` 视觉截图、真实点击和控制台检查，需由用户打开预览后确认。
+- 未调用真实文字 AI、图片 AI、生产接口或数据库；未修改 `chat2api/.env`、真实运行数据或 `launcher.py`。
+
+## 2026-09-04 修复视觉结果轮询闪烁与详情收回
+
+### 本次完成
+
+- 定位到图片状态轮询每 2 秒重建结果卡片，导致原生 `details` 展开状态丢失；同时 `Date.now()` 图片缓存参数使同一图片被浏览器反复当作新资源加载。
+- 轮询重绘前记录已展开的方案详情，重绘后按稳定方案 ID 恢复展开状态。
+- 图片地址改为稳定 URL；图片状态从排队/生成变为成功时仍会正常加载，后续轮询不再强制刷新同一图片。
+
+### 验证
+
+- 新增前端回归契约测试；定向测试通过。
+- 全量 deterministic unittest `263` 项、Node 语法、Python compileall 和 `git diff --check` 均通过。
+- 未调用真实 AI 或图片请求；未修改真实数据库、上传文件或 `chat2api/.env`。
+
+## 2026-09-04 静态方案卡片收敛
+
+### 本次完成
+
+- 不轮播静态方案改为与轮播方案一致的简洁默认展示：首屏仅显示标题和创意摘要。
+- 详细定位、证据、画面、文案、素材计划、风险和评审信息继续保留在“查看方案细节”中。
+
+### 验证
+
+- Node 语法、静态前端定向测试和 `git diff --check` 通过。
+- 8775 服务已重启并确认加载紧凑版静态卡片。
+
+## 2026-09-04 叙事类钩子字段兼容修复
+
+### 本次完成
+
+- 修正 `NarrativeResult.v1` 校验：模型在钩子对象中附带 `rationale`、类型等非契约元数据时，不再误报“钩子字段结构无效”；canonical 结果仍只保留 `text` 和 `scenes`。
+- 保持钩子必需字段、文本类型、场景数量和长度校验不变，缺失或非法内容仍会进入有限修复/失败路径。
+
+### 验证
+
+- 新增叙事回归测试，证明附加钩子元数据会被丢弃且不会触发多余模型重试。
+- 定向叙事测试通过；全量 deterministic unittest `262` 项、Node 语法、Python compileall 和 `git diff --check` 均通过。
+- 未发起真实 AI 或图片请求；未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+
+## 2026-09-04 启动器显示 GPT 用户名
+
+- 在连接状态的 Token 到期信息下增加“GPT 用户名”。
+- 用户名从 Access Token 的 `https://api.openai.com/profile` claims 本地解析，优先显示 `name`，其次使用 `username`/`email`；无有效字段时显示“未识别”。
+- Session Cookie 换取新 Token 后同步刷新该显示值。
+- 定向启动器测试 29 项通过，未读取或发送额外凭据。
+- 修复 Session Cookie 热更新后启动器用户名未同步的问题：成功换取新 Token 后立即回读 `.env` 并刷新用户名。
+
+## 2026-09-04 Session Cookie 热更新修复
+
+### 本次完成
+
+- 修复启动器保存 Session Cookie 只写入 `chat2api/.env`、运行中网关继续使用旧会话的问题。
+- 网关在线且 Cookie 发生变化时，启动器后台调用受控 `/v1/session` 立即换取新 Access Token；网关未运行或热更新失败时给出明确的重启提示。
+- 新增请求构造、成功响应和凭据脱敏回归测试。
+
+### 验证
+
+- `python -m unittest tests.test_launcher_proxy -q`：28 项通过。
+- `python -m py_compile launcher.py`、`git diff --check` 通过。
+- 未主动调用真实 `/v1/session`，未修改当前真实凭据、数据库或图片。
+
+## 2026-09-04 首次生成结果立即展示修复
+
+### 本次完成
+
+- 修复历史接口与生成服务使用不同指纹规则的问题：历史读取现在复用生成服务的 canonical snapshot，包含 PromptRegistry 元数据，刚生成批次不会再被归入“旧定位”。
+- 前端生成接口返回后立即渲染已校验的文字方案，随后继续刷新图片状态；图片慢加载不阻塞文字首帧。
+- 修复自动保存与生成并发时的竞态：生成会等待正在进行的项目保存完成，避免快照和历史查询落在不同定位。
+- 增加本次生成批次的前端短期 pin：历史刷新遇到并发定位漂移时，仍先展示生成接口返回的文字方案，直到用户主动修改定位或切换项目。
+- 新增生产入口回归测试，覆盖生成后立即读取 history 的当前批次归类。
+
+### 验证
+
+- `python -m unittest discover -s tests -q`：261 项通过。
+- `python -m creative_studio.release_gate`：unittest、Node、compileall、governance、evaluation、backup-dry-run、diff-check 全部通过。
+- 8775 服务已重启，`/api/health` 返回成功；未修改真实数据库、图片、上传文件或凭据。
+
+## 2026-09-04 图片任务 401 修复
+
+### 本次完成
+
+- 定位图片立即失败原因：网页服务进程未继承 `chat2api/.env` 中的 `CHATGPT_CONTROL_TOKEN`，向 `/v1/images/jobs` 提交时收到 401。
+- 按正式启动器方式重启网页服务，将现有控制令牌仅注入进程环境；未读取、输出或修改凭据文件。
+
+### 验证
+
+- 使用当前令牌访问网关受保护图片任务路由，返回 404（鉴权通过后表示任务不存在），不再返回 401。
+- 网页 `/api/health` 正常；未发起额外真实图片生成请求。
+
+## 2026-09-04 创意说明改为选填
+
+### 本次完成
+
+- 移除生成服务对 `task_description` 的统一非空拦截；展示类“创意说明”和叙事类“任务描述”现在都允许留空。
+- 空白输入继续统一裁剪为空字符串，并照常进入生成快照、指纹和提示词；项目、额度、轮播配置等其他生成校验保持不变。
+- 新增展示类与叙事类服务回归测试，并扩展隔离浏览器验收以覆盖两种空说明生成流程。
+
+### 验证
+
+- 两项定向服务测试已按 TDD 从失败转为通过，分别覆盖展示类和叙事类空白说明的快照归一化及适配器调用。
+- 使用隔离 API 夹具和本机 Chrome 验证展示类、叙事类空说明均可发起生成，且不出现“请先填写创意说明”；`1280x720`、`390x844` 均无横向溢出，页面异常为零。
+- Node 语法、Python compileall、标签 JSON 解析和 evaluation fixture 校验通过。
+- 完整 unittest 共运行 `255` 项，其中 `11` 项在加载 PromptRegistry 时因工作区既有的 `config/ai_visual_static_creative_prompt_v1.txt` 与注册哈希不一致而报错；该无关提示词改动未在本次任务中覆盖。全局 `git diff --check` 同样只报告该文件末尾新增空行。
+- 隔离浏览器仅使用本地 API 夹具；未访问真实数据库、账号、AI 或图片网关。
+
+## 2026-09-04 Phase 5+ 后续门禁补齐
+
+### 本次完成
+
+- 修正全量收口设计文档中的过时事实：`LegacyCreativeGenerationAdapter` 不再由服务默认构造，轮播生产路径不再调用 `complete_visual_generation()`；二者仅作为兼容/历史 seam 保留。
+- 扩展 `evaluation_harness`：增加 canonical case output lint、报告结果硬约束 lint、固定失败分类聚合，以及带 `evidence_type=deterministic_fake` / `quality_claim=contract_only` 标识的独立证据输出。
+- 强化备份恢复：manifest 路径/重复项/SHA-256/大小 fail-closed 校验；恢复先写同级 staging 目录，失败自动清理；恢复成功后验证 `project_files` 上传引用和成功图片引用，返回 `references_verified=true`。
+- 强化参考资料边界：repository 和 filesystem adapter 都拒绝跨项目路径；prompt 注入统一使用 basename，并清理 URL、绝对路径和私有字段赋值；新增生产生成入口端到端隐私回归。
+- 新增 14 项 deterministic unittest，当前全量为 `254` 项通过；release gate、评测 schema/lint、backup dry-run、Node syntax、compileall 和 `git diff --check` 均通过。
+
+### 本次验证
+
+- `python -m unittest discover -s tests -q`：254 项通过。
+- `python -m creative_studio.release_gate`：unittest、Node、compileall、governance、evaluation、backup-dry-run、diff-check 全部 `ok`。
+- `python -m creative_studio.evaluation_harness --validate-only`：3 套 fixture、30 个 case、3 份 not-run 报告通过。
+- `python -m creative_studio.evaluation_harness --deterministic-fake-summary`：输出独立的 `deterministic-contract-evidence.v1`，明确仅代表 contract/privacy 证据。
+- 所有备份/恢复测试使用临时 SQLite 和临时目录；真实运行库本次仍只执行 dry-run，没有执行 scrub `--apply`、恢复覆盖或供应商请求。
+
+### 仍需单独变更卡
+
+- 真实 AI/图片供应商质量评测、带认证浏览器验收、多进程竞态/压力、自动备份调度、真实库 scrub 或恢复覆盖、端口/防火墙/HTTPS/Windows 服务和 `chat2api/.env` 凭据操作。
+
+## 2026-09-04 Phase 5+ 全量收口切片
+
+### 已完成
+
+- 新增 [`docs/superpowers/specs/2026-09-04-ai-studio-complete-roadmap-design.md`](docs/superpowers/specs/2026-09-04-ai-studio-complete-roadmap-design.md)、`.scratch/phase-5-completion/spec.md` 和实施计划，覆盖 P5 canonical seam、P6 参考资料、P7 质量/观测、P8 备份恢复、P9 发布回滚。
+- `generation_models.py` 新增 `GenerationRun`、`ReferenceAsset`、`ReferenceAssetContent`、`RunStorePort`、`ReferenceAssetPort` 和 `ObservabilityPort`；SQLite 以 additive migration 保存参考资料 digest/MIME/提取状态/受控摘要。
+- 生成服务改用 `RunStorePort` reserve/complete/fail seam；轮播生产路径不再调用 `complete_visual_generation()`，旧 adapter 不再在服务构造时默认实例化。
+- 上传文件记录 SHA-256、MIME 和受控摘要；prompt 只注入名称+摘要，运行 fingerprint/context 包含参考资料 metadata。
+- 新增离线评测 harness、脱敏结构化观测和 `creative_studio.backup` 备份/恢复 CLI；备份 manifest 包含 SHA-256，恢复只能落到新目录。
+- 新增发布 gate、发布/回滚 runbook，更新 operations、README、代码地图和 CHANGELOG。
+
+### 验证
+
+- `python -m unittest discover -s tests -q`：`240` 项通过。
+- `python -m creative_studio.release_gate`：unittest、Node syntax、compileall、registry governance、评测 schema 和 backup dry-run 全部通过。
+- 未写入真实数据库、图片、上传目录或 `chat2api/.env`；备份只读扫描真实运行库和图片目录，未执行真实库 scrub `--apply`。
+
+### 未完成/需单独授权
+
+- 自动调度备份、真实库历史 scrub/恢复覆盖、真实 AI/图片供应商质量报告、带认证浏览器、多进程竞态和正式多人内网部署仍未验证。
+- 旧 adapter、旧 schema、retired prompt 文件继续保留为历史/兼容读取 seam，待完整观察周期和删除变更卡后清理。
+
+## 2026-09-04 逐轮创意定位扩展与折叠
+
+### 已完成
+
+- 逐轮覆盖字段由产品卖点、展示内容、视觉母题三组扩展为主目标用户、玩家欲望、产品卖点、展示内容、视觉母题、动态方案六组；不包含美术表现风格、语音钩子和轮播流程控件。
+- 每组沿用正式标签配置的选项与数量上限；第 1 轮可从全局主选/辅助选择初始化，旧项目缺少新增覆盖字段时也会使用全局选择补齐初始值。
+- 六组改为按轮次独立保存状态的折叠面板；视觉母题、动态方案默认展开，其余四组默认收起。
+- 同步扩展轮播归一化、继承展开、提示词上下文和浏览器公开投影白名单，新增字段会实际进入最终生成链路。
+
+### 验证
+
+- 前端、轮播归一化、提示词和公开投影定向测试按 TDD 从失败转为通过，相关 `55` 项、完整 deterministic unittest `238` 项通过；Node 语法、Python compileall、标签 JSON 解析和 `git diff --check` 通过。
+- 使用隔离 API 夹具和本机 Chrome 验证六组顺序、默认展开、选择后保持展开、每轮独立折叠状态及零页面异常；`1280x720`、`390x844` 均无横向溢出。
+- 未访问真实数据库、账号、AI 或图片网关。
+
+## 2026-09-04 “是否轮播”标题行精简
+
+### 已完成
+
+- 删除“是否轮播”标题下方重复的“是 / 否”选择行，将原“确认”按钮改为标题行内同尺寸的“是”和“否”按钮。
+- 选中态继续使用青绿色样式；轮播开关保持必选，选择“是”继续显示数量和形式，选择“否”继续清空数量、形式和逐轮配置。
+- 未修改数据库、API、标签目录或 AI 契约。
+
+### 验证
+
+- 定向前端测试按 TDD 从失败转为通过；完整 deterministic unittest `227` 项通过，Node 语法、Python compileall、标签 JSON 解析和 `git diff --check` 通过。
+- 使用隔离 API 夹具和本机 Chrome 验证“是 / 否”标题行、条件显示及清理联动，并检查 `1280x720`、`390x844` 均无横向溢出。
+- 未访问真实数据库、账号、AI 或图片网关。
+
+## 2026-09-04 Phase 5 治理证据补齐
+
+### 已完成
+
+- 新增 `phase5_governance` 静态审计：retired 首帧/后续 prompt loader 在 `src` 中没有运行时调用点；PromptRegistry 三个 production caller 的唯一性由测试锁定。
+- 新增 [`docs/ai/phase5-caller-audit.md`](docs/ai/phase5-caller-audit.md)，逐项记录旧 adapter、schema、loader 和持久化入口的 production/test/history/dead 分类及删除条件；仍有兼容用途的项未删除。
+- 根据零 caller 审计移除 `load_ai_visual_first_frame_prompt()`、`load_ai_visual_follow_up_prompt()` 及其旧路径 helper；retired registry 条目和提示词文件暂保留为历史 inventory。
+- 完成真实运行库只读 scrub 与临时副本演练：真实库仍为 `changed_rows=2`、`private_field_occurrences=6`；临时副本 apply 后 fixed-point 为 `changed_rows=0`、`private_field_occurrences=0`，从 backup 恢复后重新 dry-run 仍可重复得到待 scrub 统计。
+- 新增 `config/evals/reports/` 下 narrative/static/carousel 三份版本化 `not_run` 报告，明确未执行真实模型、图片网关和供应商质量评测。
+- 新增 `config/evals/report-template.v1.json`，固定 baseline/candidate/repair_failure 三槽位、`not_run` 状态和供应商失败分类；新增 fixture 数量/唯一 ID 与报告 schema 测试。
+- 扩展临时 projection scrub 测试，证明 backup 恢复后可再次 apply，并在最终 dry-run 达到 fixed point；未读取或写入真实运行库。
+
+### 验证
+
+- `python -m unittest tests.test_phase5_governance tests.test_projection_scrub -v`：8 项通过。
+- 临时 scrub/backup/restore 命令演练完成；真实库命令仅使用只读模式。
+
+### 未验证
+
+- 真实 AI/图片供应商、认证浏览器、多进程竞态和真实运行库 scrub/恢复仍未验证；旧 adapter、旧 schema 和 `complete_visual_generation()` 仍按 handoff 条件保留。
 
 ## 2026-09-04 普通创意标签改为可选
 
@@ -11,12 +497,13 @@
 
 ### 验证
 
-- 定向规则测试已按 TDD 从失败转为通过；完整 deterministic unittest、Node 语法、Python compileall、JSON 解析和 `git diff --check` 待本次收尾执行。
+- 定向规则测试已按 TDD 从失败转为通过；标签与前端定向测试 `32` 项、完整 deterministic unittest `226` 项通过，Node 语法、Python compileall、JSON 解析和 `git diff --check` 通过。
+- 使用隔离 API 夹具和本机 Chrome 在 `1280x720`、`390x844` 实际验证空选确认、必选拦截、重新修改和横向溢出；截图保存在 `.scratch/optional-tag-selection/`。
 - 未修改真实数据库、图片、上传文件、`chat2api/.env` 或监听配置；未调用真实 AI 或图片网关。
 
 ### 未验证
 
-- 带认证浏览器中的桌面和移动端人工交互尚待检查。
+- 未使用真实账号和真实数据库执行带认证浏览器流程。
 
 ## 2026-09-04 Phase 4 轮播后台状态机与 Phase 5 治理收口
 
@@ -1609,3 +2096,74 @@
 - 停止网页服务并释放 `8775` 监听端口。
 - 删除 Windows 防火墙规则 `AI创意工作台网页 8775（局域网）`。
 - 启动器恢复为 `127.0.0.1:8775`，后续启动不会再次自动开放内网。
+
+# 2026-09-04 AI v2 会话与重试规则复审
+
+### 本次完成
+
+- 复核 [`AI v2 文字优先与按需生图实施设计草案`](docs/superpowers/specs/2026-09-04-ai-v2-text-first-preview-design.md) 和 [`AI v2 正式实施计划`](docs/superpowers/plans/2026-09-04-ai-v2-text-first-implementation.md)，确认没有把图片任务拆成“每张图片一个会话”。
+- 明确一批文字只创建一个文字会话；用户点击某个展示方案的图片按钮时才创建该方案唯一的图片会话。三个方案都生成图片时为 1 个文字会话 + 3 个图片会话；轮播同一方案的全部帧共享一个图片会话。
+- 将“每次点击只推进一张”写成硬约束：不预取、不自动推进、不在后台生成用户尚未点击的后续帧。
+- 补充网页超时、连接断开或 5xx 的非终态语义：这些情况只表示本地结果未知，重试前必须先查本地 attempt 并对账供应商会话。
+- 补充对账决策：供应商已成功则原 attempt 原子完成，仍在工作则重新挂接，明确终态失败才在原图片会话内创建同一帧的新 attempt；未知或不可用不创建新 attempt，更不创建第二个图片会话。
+- 修正实施计划的并行波次表：Task 2/3/6 可并行，Task 4 在输入与 Schema 契约后进行，Task 13 可在 Task 8 后用冻结 DTO 夹具与 Task 12 并行。
+
+### 验证
+
+- 使用全文检索核对设计稿、实施计划中的会话数量、重试、对账、状态机和隔离表述；已修正任务依赖表与会话锁定键的歧义。
+- 本次只修改设计文档、实施计划和进度记录；未修改生产前端、后端、数据库、Prompt、真实 AI 链路、`chat2api/.env` 或运行数据。
+- 未执行真实 AI/图片请求；未开始 Task 0-17 的代码实施。
+
+# 2026-09-04 AI v2 Task 11 图片 Adapter 与 worker
+
+### 本次完成
+
+- 新增 `src/creative_studio/ai_v2/adapters/image_gateway.py`，仅将 typed 图片请求翻译为 v2 网关协议，透传 `image_session_key`、`request_key`、游标和上一帧引用摘要；供应商不支持稳定键对账或响应不可判定时统一返回 `unknown`。
+- 新增 `src/creative_studio/ai_v2/image_worker.py`，实现已有图片会话内继续、失败重试前对账、未知状态不新建 attempt、明确终态失败后在原会话创建新 attempt，以及成功图片的原子落库。
+- 为 worker 增加按 attempt 解析既有图片会话的 store 查询方法；未引入旧图片任务模块或旧数据库表。
+
+### 验证
+
+- `python -m unittest tests.test_ai_v2_image_worker -v`：3 passed。
+- 未调用真实 AI/图片网关，未修改真实数据、图片、上传文件或 `chat2api/.env`。
+
+# 2026-09-04 AI v2 Task 12/13 独立应用 API 与前端
+
+### 本次完成
+
+- 新增 `ai_v2.application` 与 `ai_v2.http_api`：独立选择叙事/静态/轮播用例，处理三字段输入、历史/运行/图片状态查询和稳定错误投影；未调用旧 `CreativeGenerationService`。
+- 新增 `static/ai-v2/` 独立页面、脚本和样式，支持文字结果、静态按需首图、轮播逐帧按钮和 attempt 轮询；不读取 `execution` 或会话字段。
+- 新增 API 与前端 contract tests；未修改旧 `static/index.html`、旧 `static/app.js` 或旧生产路由。
+
+### 验证
+
+- `python -m unittest tests.test_ai_v2_api tests.test_ai_v2_frontend_contract -v`：5 passed。
+- `node --check static/ai-v2/app.js`：通过。
+- `git diff --check`：通过（仅现有工作树换行提示）。
+
+# 2026-09-04 AI v2 Task 14 契约、隐私与发布门禁
+
+### 本次完成
+
+- 新增 v2 集成测试，覆盖输入到文字 DTO、按需图片 artifact 和旧表零创建。
+- 新增隐私测试，递归检查公开投影不含 `execution`、Prompt、会话游标、供应商 job id、本地路径、完整响应或堆栈。
+- 新增 `creative_studio.ai_v2.release_gate` 和评测报告格式，明确 `evidence_type=deterministic_fake`、`quality_claim=contract_only`，真实模型质量标记 `not-run`。
+
+### 验证
+
+- v2 release gate：59 项测试通过，compileall、Node v2 语法、diff-check、boundary 全部通过。
+- 未执行真实模型质量评测；未调用真实 AI/图片网关。
+
+# 2026-09-04 AI v2 当前交接
+
+### 状态
+
+- Task 0-10、Task 11、Task 12 的独立 Facade/HTTP 适配与 Task 13 独立前端、Task 14 deterministic gate 已完成。
+- Task 12 的正式 `app.py` `/api/v2` production 挂载未执行；Task 15 采用功能按默认策略延后；Task 16/17 因用户审批和观察周期未执行。
+- Prompt registry 仍为 candidate-only，production caller 保持为空；旧 AI、旧页面和旧入口保持冻结。
+
+### 最终验证
+
+- 全量 unittest：322 passed。
+- v2 unittest：59 passed。
+- `node --check static/ai-v2/app.js`、`compileall src chat2api`、v2 release gate、`git diff --check`：全部通过。

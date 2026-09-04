@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Any, Mapping
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Protocol, Sequence
 
 
 class GenerationError(RuntimeError):
@@ -58,6 +58,104 @@ class GenerationQueueTimeoutError(GenerationError):
     error_code = "generation_queue_timeout"
     phase = "model_request"
     retryable = True
+
+
+class ReferenceAssetError(GenerationError):
+    """参考资料无法安全读取或已与登记摘要不一致。"""
+
+    error_code = "reference_asset_invalid"
+    phase = "reference_asset"
+
+
+@dataclass(frozen=True)
+class ReferenceAsset:
+    """项目参考资料的非敏感 metadata；绝不包含本地绝对路径。"""
+
+    asset_id: int
+    project_id: int
+    original_name: str
+    sha256: str
+    mime_type: str
+    size_bytes: int
+    extraction_status: str = "pending"
+    safe_summary: str = ""
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class ReferenceAssetContent:
+    """供 prompt compiler 使用的受控资料内容。"""
+
+    asset: ReferenceAsset
+    text: str = ""
+    truncated: bool = False
+
+
+class ReferenceAssetPort(Protocol):
+    """参考资料读取 seam；实现必须检查项目归属和文件路径。"""
+
+    def list_for_project(self, project_id: int) -> tuple[ReferenceAsset, ...]: ...
+
+    def read(self, project_id: int, asset_id: int, *, max_bytes: int = 64_000) -> ReferenceAssetContent: ...
+
+
+@dataclass(frozen=True)
+class GenerationRun:
+    """一次生成请求的权威、可追溯运行记录。"""
+
+    run_id: int
+    project_id: int
+    kind: str
+    batch_index: int
+    status: str
+    schema_version: str
+    input_fingerprint: str
+    request_id: str
+    context: Mapping[str, Any]
+    conversation_id: str = ""
+    assistant_message_id: str = ""
+    usage: Mapping[str, Any] = field(default_factory=dict)
+    error: Mapping[str, Any] = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+    prompt_id: str = ""
+    prompt_version: str = ""
+    prompt_hash: str = ""
+    input_schema_version: str = ""
+    output_schema_version: str = ""
+    model: str = ""
+    provider: str = ""
+    tag_catalog_version: str = ""
+    reference_version: str = ""
+
+
+class RunStorePort(Protocol):
+    """生成运行的业务持久化 seam。"""
+
+    def reserve_run(
+        self,
+        project_id: int,
+        kind: str,
+        schema_version: str,
+        fingerprint: str,
+        *,
+        context: Mapping[str, Any] | None = None,
+        request_id: str = "",
+    ) -> GenerationRun: ...
+
+    def get_run(self, run_id: int) -> GenerationRun | None: ...
+
+    def complete_run(self, run_id: int, result: Any, *, aspect_ratio: str = "16:9") -> Sequence[int]: ...
+
+    def complete_static_run(self, run_id: int, result: Any, *, aspect_ratio: str = "16:9") -> Sequence[int]: ...
+
+    def fail_run(self, run_id: int, failure: Mapping[str, Any]) -> None: ...
+
+
+class ObservabilityPort(Protocol):
+    """只记录脱敏 trace/metrics 的可替换接口。"""
+
+    def record(self, event: Mapping[str, Any]) -> None: ...
 
 
 @dataclass(frozen=True)
@@ -114,6 +212,7 @@ class CreativeInputSnapshot:
     carousel_config: Mapping[str, Any] | None
     carousel_enabled: bool
     reference_file_names: tuple[str, ...]
+    reference_assets: tuple[ReferenceAsset, ...] = ()
 
 
 @dataclass(frozen=True)

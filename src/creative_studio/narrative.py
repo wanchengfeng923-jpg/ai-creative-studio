@@ -8,7 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from .model_client import ModelClient, ModelRequest, ModelResponseFormatError
 from .model_ports import TextModelPort
-from .prompting import compile_prompt, prompt_variable_names
+from .prompting import compile_prompt, parse_json_object_text, prompt_variable_names
 
 
 class NarrativeOutputError(ValueError):
@@ -32,6 +32,7 @@ class NarrativeInput:
     creative_tags: Mapping[str, Sequence[str]] = field(default_factory=dict)
     game_info: str = ""
     reference_file_names: tuple[str, ...] = ()
+    reference_context: tuple[str, ...] = ()
     batch_index: int = 0
     previous_items: tuple[str, ...] = ()
 
@@ -91,8 +92,10 @@ def validate_narrative_result(value: Any) -> NarrativeResult:
         hook_texts: set[str] = set()
         for hook_index, raw_hook in enumerate(hooks):
             hook_path = f"{path}.hooks[{hook_index}]"
-            if not isinstance(raw_hook, Mapping) or set(raw_hook) != {"text", "scenes"}:
+            if not isinstance(raw_hook, Mapping) or not {"text", "scenes"}.issubset(raw_hook):
                 raise NarrativeOutputError("钩子字段结构无效", field_path=hook_path)
+            # Models sometimes attach harmless rationale/type metadata to a hook.
+            # Keep only the v1 contract fields before persisting the canonical result.
             hook_text = _text(raw_hook.get("text"), f"{hook_path}.text")
             if hook_text in hook_texts:
                 raise NarrativeOutputError("同一故事的两个钩子必须不同", field_path=f"{hook_path}.text")
@@ -143,7 +146,7 @@ class NarrativeGeneration:
 
     def _prompt(self, data: NarrativeInput, *, repair: str = "") -> str:
         tags = "；".join(f"{key}={','.join(values)}" for key, values in (data.creative_tags or {}).items())
-        references = "、".join(data.reference_file_names) or "（无参考文件）"
+        references = "、".join(data.reference_context or data.reference_file_names) or "（无参考文件）"
         values = {
             "task_type": data.task_type,
             "task_description": data.task_description,
@@ -175,7 +178,7 @@ class NarrativeGeneration:
                     conversation_id=conversation_id,
                     parent_message_id=parent_message_id,
                 ))
-                result = validate_narrative_result(json.loads(response.content))
+                result = validate_narrative_result(parse_json_object_text(response.content))
                 self.last_response = response
                 return result
             except ModelResponseFormatError as exc:

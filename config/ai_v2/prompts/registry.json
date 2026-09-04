@@ -1,0 +1,38 @@
+{
+  "version": "ai-v2-prompt-registry-v1",
+  "prompts": [
+    {
+      "id": "creative.ai_v2.narrative",
+      "version": "v1",
+      "path": "narrative-text-v1.txt",
+      "template_sha256": "f56b1249c7e4746326f000b77f79e9d4b557c213c2f95217b1a01e70ef4275c1",
+      "input_schema": "AiV2Input.v1",
+      "output_schema": "narrative-text-v1",
+      "max_model_calls": 1,
+      "lifecycle": "candidate",
+      "caller": null
+    },
+    {
+      "id": "creative.ai_v2.static",
+      "version": "v1",
+      "path": "static-text-v1.txt",
+      "template_sha256": "7fd48193c80ef46a197d349235138a697d822d8e89108abada6b6ae3cefb7003",
+      "input_schema": "AiV2Input.v1",
+      "output_schema": "static-text-v1",
+      "max_model_calls": 1,
+      "lifecycle": "candidate",
+      "caller": null
+    },
+    {
+      "id": "creative.ai_v2.carousel",
+      "version": "v1",
+      "path": "carousel-text-v1.txt",
+      "template_sha256": "2130af9e46c63bda01dca5997675e9012067fdaa2b28cd3ea1d22a31999794d7",
+      "input_schema": "AiV2Input.v1",
+      "output_schema": "carousel-text-v1",
+      "max_model_calls": 1,
+      "lifecycle": "candidate",
+      "caller": null
+    }
+  ]
+}

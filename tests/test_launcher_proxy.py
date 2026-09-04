@@ -1,3 +1,4 @@
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -14,6 +15,9 @@ from launcher import (
     find_local_clash_endpoint,
     format_connection_error,
     gateway_upstream_verified,
+    build_session_update_request,
+    push_session_cookie,
+    token_username,
     should_refresh_from_cookie,
     should_refresh_session,
     mask_proxy_url,
@@ -48,6 +52,37 @@ class _FakeProcess:
 
 
 class LauncherProxyTests(unittest.TestCase):
+
+    def test_session_update_request_contains_cookie_and_control_header(self):
+        request = build_session_update_request("new-cookie", "control-secret")
+
+        self.assertEqual(request.get_header("X-control-token"), "control-secret")
+        self.assertEqual(json.loads(request.data.decode("utf-8")), {"session_cookie": "new-cookie"})
+
+    def test_push_session_cookie_reports_gateway_success(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"ok": true, "has_token": true}'
+
+        with patch("launcher.urllib.request.urlopen", return_value=Response()):
+            self.assertEqual(push_session_cookie("new-cookie", "control-secret"), (True, "网关已立即切换到新 Session Cookie"))
+
+    def test_token_username_reads_web_profile_name_without_exposing_token(self):
+        import base64
+
+        def part(value):
+            raw = base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+            return raw
+
+        token = ".".join((part({"alg": "none"}), part({"https://api.openai.com/profile": {"name": "Alice"}}), "sig"))
+        self.assertEqual(token_username(token), "Alice")
+        self.assertEqual(token_username("invalid"), "未识别")
 
     def test_parse_connect_target_accepts_host_and_port(self):
         self.assertEqual(parse_connect_target("api.ipify.org:443"), ("api.ipify.org", 443))

@@ -119,6 +119,49 @@ class CarouselTests(unittest.TestCase):
         self.assertEqual(rounds[1]["visual_product_selling_points"], None)
         self.assertEqual(rounds[1]["visual_motif"], ["母题B"])
 
+    def test_rounds_preserve_all_supported_positioning_overrides(self):
+        config = normalize_visual_carousel_config(
+            {
+                "visual_carousel": ["是"],
+                "visual_carousel_count": ["2屏"],
+                "visual_carousel_rounds": [
+                    {
+                        "index": 1,
+                        "mode": "base",
+                        "overrides": {
+                            "visual_target_audiences": ["用户A"],
+                            "visual_player_desires": ["欲望A"],
+                            "visual_product_selling_points": ["卖点A"],
+                            "visual_display_contents": ["内容A"],
+                            "visual_motif": ["母题A"],
+                            "visual_dynamics": ["动态A"],
+                            "visual_art_style": ["不应保留"],
+                            "visual_voice_hook": ["不应保留"],
+                        },
+                    }
+                ],
+            },
+            require_enabled=True,
+        )
+
+        rounds = expand_visual_carousel_rounds(config)
+
+        self.assertEqual(
+            rounds[0],
+            {
+                "index": 1,
+                "visual_target_audiences": ["用户A"],
+                "visual_player_desires": ["欲望A"],
+                "visual_product_selling_points": ["卖点A"],
+                "visual_display_contents": ["内容A"],
+                "visual_motif": ["母题A"],
+                "visual_dynamics": ["动态A"],
+                "mode": "base",
+            },
+        )
+        self.assertNotIn("visual_art_style", rounds[0])
+        self.assertNotIn("visual_voice_hook", rounds[0])
+
     def test_ai_count_has_no_predefined_rounds(self):
         config = normalize_visual_carousel_config(
             {

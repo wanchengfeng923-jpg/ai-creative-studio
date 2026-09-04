@@ -151,10 +151,12 @@ static/app.js
 
 ### 5.3 当前输入和 prompt 编译
 
+> 2026-09-04 规则更新：下文关于 `task_description` 必须非空的描述已废止；展示类与叙事类均允许空字符串进入生成快照和提示词。
+
 `CreativeGenerationService._build_snapshot()` 从项目读取并归一化：
 
 - `task_type`：最多 100 个字符的任务类型；
-- `task_description`：必须非空，最多 1000 个字符；
+- `task_description`：最多 1000 个字符；可为空（2026-09-04 更新）；
 - `creative_tags`：按 `VISUAL_TAG_KEYS` 保留展示类标签，顺序在 fingerprint 中排序；
 - `product_evidence_summary`：项目产品资料摘要；
 - `aspect_ratio`：当前项目值，通常为 `16:9` 或 `9:16`；
@@ -250,7 +252,7 @@ model: gpt-5-6-mini
 
 输入规则：
 
-- `task_description` 在生成入口仍必须非空；其他 brief 文本可为空，空标签由 prompt 明确写成“未选择标签”。
+- `task_description` 可为空；空值以空字符串进入 prompt，空标签由 prompt 明确写成“未选择标签”（2026-09-04 更新）。
 - `creative_tags` 只保留 `VISUAL_TAG_KEYS`，去重、裁剪、稳定排序；`visual_carousel*` 不参与静态输出 contract 的业务含义。
 - `aspect_ratio` 只允许现有项目支持的 `16:9` 或 `9:16`；不要在本阶段添加任意尺寸枚举。
 - 用户输入中的 `{{foo}}`、`${task_type}`、URL 和换行按 prompt 编译器及 validator 规则处理；模板变量不能二次解释用户文本。

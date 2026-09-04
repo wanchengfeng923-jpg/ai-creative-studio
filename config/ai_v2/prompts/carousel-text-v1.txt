@@ -1,0 +1,12 @@
+AI_V2_CANDIDATE_CAROUSEL
+
+TASK_DESCRIPTION:
+{{task_description}}
+
+ASPECT_RATIO:
+{{aspect_ratio}}
+
+CREATIVE_TAGS_JSON:
+{{creative_tags}}
+
+Return only the carousel-text-v1 JSON contract with three concepts, two to five ordered frames, and matching image prompts.

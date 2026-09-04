@@ -1,5 +1,5 @@
 {
-  "version": "tags-2026-09-03-v2",
+  "version": "tags-2026-09-04-v3",
   "sources": [
     "叙事类标签_重制版.xlsx",
     "展示类标签.xlsx"
@@ -10,6 +10,7 @@
         "key": "target_audiences",
         "secondary_key": "secondary_target_audiences",
         "label": "目标人群",
+        "required": true,
         "main_max": 1,
         "secondary_max": 2,
         "options": [
@@ -222,6 +223,7 @@
       {
         "key": "art_style",
         "label": "美术风格",
+        "required": false,
         "main_max": 1,
         "secondary_max": 0,
         "options": [
@@ -285,6 +287,7 @@
         "key": "player_desires",
         "secondary_key": "secondary_player_desires",
         "label": "玩家欲望",
+        "required": false,
         "main_max": 3,
         "secondary_max": 0,
         "options": [
@@ -450,6 +453,7 @@
         "key": "content_forms",
         "secondary_key": "secondary_content_forms",
         "label": "内容形式",
+        "required": false,
         "main_max": 3,
         "secondary_max": 0,
         "options": [
@@ -531,6 +535,7 @@
         "key": "opening_hooks",
         "secondary_key": "secondary_opening_hooks",
         "label": "开局钩子",
+        "required": false,
         "main_max": 1,
         "secondary_max": 0,
         "options": [
@@ -678,6 +683,7 @@
         "key": "product_evidences",
         "secondary_key": "secondary_product_evidences",
         "label": "产品证据",
+        "required": false,
         "main_max": 4,
         "secondary_max": 0,
         "options": [
@@ -901,6 +907,7 @@
         "key": "visual_target_audiences",
         "secondary_key": "visual_secondary_target_audiences",
         "label": "主目标用户",
+        "required": true,
         "type": "primary_secondary",
         "main_max": 1,
         "secondary_max": 2,
@@ -1115,6 +1122,7 @@
         "key": "visual_player_desires",
         "secondary_key": "visual_secondary_player_desires",
         "label": "玩家欲望",
+        "required": false,
         "type": "primary_secondary",
         "main_max": 1,
         "secondary_max": 1,
@@ -1237,6 +1245,7 @@
         "key": "visual_product_selling_points",
         "secondary_key": "visual_secondary_product_selling_points",
         "label": "产品卖点",
+        "required": false,
         "type": "primary_secondary",
         "main_max": 1,
         "secondary_max": 1,
@@ -1415,6 +1424,7 @@
         "key": "visual_display_contents",
         "secondary_key": "visual_secondary_display_contents",
         "label": "展示内容",
+        "required": false,
         "type": "primary_secondary",
         "main_max": 1,
         "secondary_max": 2,
@@ -1594,6 +1604,7 @@
       {
         "key": "visual_art_style",
         "label": "美术表现风格",
+        "required": false,
         "type": "style_cascade",
         "main_max": 1,
         "secondary_max": 0,
@@ -2705,6 +2716,7 @@
       {
         "key": "visual_motif",
         "label": "视觉母题",
+        "required": false,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,
@@ -2910,6 +2922,7 @@
       {
         "key": "visual_dynamics",
         "label": "动态方案",
+        "required": false,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,
@@ -2982,6 +2995,7 @@
       {
         "key": "visual_voice_hook",
         "label": "语音钩子",
+        "required": false,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,
@@ -3208,6 +3222,7 @@
       {
         "key": "visual_carousel",
         "label": "是否轮播",
+        "required": true,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,
@@ -3231,6 +3246,7 @@
       {
         "key": "visual_carousel_count",
         "label": "轮播数量",
+        "required": true,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,
@@ -3282,6 +3298,7 @@
       {
         "key": "visual_carousel_form",
         "label": "轮播形式",
+        "required": true,
         "type": "single",
         "main_max": 1,
         "secondary_max": 0,

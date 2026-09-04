@@ -493,7 +493,7 @@ failed -> blocked (达到策略上限)
 
 完成门禁：`rg` 找不到旧生产调用者；每个 prompt registry 项有唯一 caller；文档互相不矛盾；全套测试、编译、前端检查和 `git diff --check` 通过。
 
-当前状态（2026-09-04）：Phase 5 的代码删除、真实历史 scrub、自动备份、恢复演练和真实质量报告尚未完成。三个新 Module 已接入 deterministic production harness，但尚无完整生产观察周期；旧 adapter、旧 schema 和 retired prompt 仍按删除条件保留。默认运行库只读 scrub dry-run 发现 `changed_rows=2`、`private_field_occurrences=6`，不得在没有独立备份/恢复变更卡和用户确认时直接 apply。
+当前状态（2026-09-04）：Phase 5+ 已完成 canonical seam、参考资料 metadata、脱敏评测/观测、临时备份恢复工具和发布 gate。`GenerationRun`/`RunStorePort` 已接入三个生成分支，轮播旧完成入口无生产 caller；registry governance、254 项 deterministic unittest、Node/compileall/diff gate 均通过。评测 harness 已增加结果硬约束 lint、失败分类聚合和 deterministic fake 独立证据输出；备份恢复已增加 manifest 严格校验、失败清理、项目文件/成功图片引用 smoke 和只读 retention plan。旧 adapter、旧 schema 和 retired prompt 文件仍按保留期和历史读取条件保留；真实历史 scrub、自动调度备份、真实质量报告、认证浏览器和多人生产竞态仍未验证。默认运行库只读 scrub dry-run 发现 `changed_rows=2`、`private_field_occurrences=6`，不得在没有独立备份/恢复变更卡和用户确认时直接 apply。
 
 ## 7. 测试和评测体系
 

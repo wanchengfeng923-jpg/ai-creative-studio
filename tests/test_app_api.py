@@ -162,6 +162,41 @@ class AppApiTests(unittest.TestCase):
         self.assertEqual(response["batches"][0]["created_at"], fixed_time)
         self.assertEqual(self._private_fields_in(response), set())
 
+    def test_history_after_production_generate_keeps_batch_current_with_registry_fingerprint(self) -> None:
+        from creative_studio.app import create_application
+
+        class Auth:
+            cookie_secure = False
+
+            def authenticate_session(self, *args):
+                return SimpleNamespace(user={"id": 1, "role": "admin", "must_change_password": False})
+
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            application = create_application(
+                database_path=root / "studio.db",
+                images_dir=root / "images",
+                uploads_dir=root / "uploads",
+                model_client=FakeModelClient(),
+                image_runner=FakeImageRunner(),
+                environment={},
+            )
+            project = application.repository.create_project("测试项目", "叙事类")
+            application.repository.update_project(project["id"], {"task_description": "叙事说明"})
+            application.auth = Auth()
+
+            response, status = self._call_route(
+                application,
+                "_post",
+                f"/api/projects/{project['id']}/generate",
+            )
+            history = application.history(project["id"])
+
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(response["success"])
+        self.assertEqual(len(history["batches"]), 1)
+        self.assertEqual(history["stale_batches"], [])
+
     def test_select_scheme_public_result_does_not_include_conversation_cursor(self) -> None:
         class Service:
             def select_scheme(self, item_id):

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI v2 创意工作台</title>
+  <link rel="stylesheet" href="/ai-v2/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar"><h1>AI v2 创意工作台</h1><span id="status" role="status"></span></header>
+    <form id="input-form" class="input-panel">
+      <label>任务说明<textarea id="task-description" maxlength="500" rows="3" required></textarea></label>
+      <label>画面比例<select id="aspect-ratio"><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
+      <fieldset><legend>创意标签</legend><div id="tag-groups"></div></fieldset>
+      <button type="submit">生成文字方案</button>
+    </form>
+    <section id="results" aria-live="polite"></section>
+  </main>
+  <script type="module" src="/ai-v2/app.js"></script>
+</body>
+</html>
+

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from dataclasses import replace
 from pathlib import Path
@@ -42,6 +43,9 @@ from .generation_models import (
     GenerationNotFoundError,
     GenerationQueueTimeoutError,
     GenerationOutcome,
+    ReferenceAssetPort,
+    RunStorePort,
+    ObservabilityPort,
     error_details,
 )
 from .model_client import ModelClient, ModelRequest, ModelResponse, ModelResponseFormatError
@@ -94,6 +98,17 @@ def _fingerprint(snapshot: CreativeInputSnapshot, prompt_spec: Any | None = None
         "task_description": snapshot.task_description,
         "product_evidence_summary": snapshot.product_evidence_summary,
         "aspect_ratio": snapshot.aspect_ratio,
+        "reference_assets": [
+            {
+                "name": asset.original_name,
+                "sha256": asset.sha256,
+                "mime_type": asset.mime_type,
+                "size_bytes": asset.size_bytes,
+                "extraction_status": asset.extraction_status,
+                "safe_summary": asset.safe_summary,
+            }
+            for asset in snapshot.reference_assets
+        ],
     }
     if snapshot.kind == "visual":
         value["visual_carousel"] = snapshot.carousel_config
@@ -165,9 +180,17 @@ class CreativeGenerationService:
         pending_timeout_seconds: int = 15 * 60,
         environment: Mapping[str, str] | None = None,
         prompt_registry: PromptRegistry | None = None,
+        run_store: RunStorePort | None = None,
+        reference_asset_port: ReferenceAssetPort | None = None,
+        observability: ObservabilityPort | None = None,
     ) -> None:
         self.repository = repository
-        self.adapter = adapter or LegacyCreativeGenerationAdapter()
+        # Legacy is an explicit compatibility seam. Production composition uses
+        # model_client; no legacy object is constructed during service setup.
+        self.adapter = adapter
+        self.run_store = run_store or repository
+        self.reference_asset_port = reference_asset_port
+        self.observability = observability
         self.model_client = model_client
         self.image_runner = image_runner
         self.pending_timeout_seconds = max(1, int(pending_timeout_seconds))
@@ -188,63 +211,74 @@ class CreativeGenerationService:
         project = self.repository.get_project(int(request.project_id))
         if project is None:
             raise GenerationNotFoundError("项目不存在")
-        if not str(project.get("task_description") or "").strip():
-            raise GenerationInputError("请先填写创意说明")
         snapshot = self._build_snapshot(project)
         self._recover_pending_generations()
         request_id = uuid.uuid4().hex
         context_json = self._build_context_json(snapshot, request_id)
-        reservation = self.repository.reserve_generation(
+        reservation = self.run_store.reserve_run(
             snapshot.project_id,
             snapshot.kind,
             snapshot.schema_version,
             snapshot.fingerprint,
-            context_json=context_json,
+            context=context_json,
             request_id=request_id,
         )
         context = GenerationContext(
-            reservation_id=int(reservation["id"]),
-            batch_index=int(reservation["batch_index"]),
+            reservation_id=int(reservation.run_id),
+            batch_index=int(reservation.batch_index),
             schema_version=snapshot.schema_version,
             request_id=request_id,
             context_json=context_json,
-            conversation_id=str(reservation.get("conversation_id") or ""),
-            parent_message_id=str(reservation.get("parent_message_id") or ""),
+            conversation_id=str(reservation.conversation_id or ""),
+            parent_message_id=str(reservation.assistant_message_id or ""),
         )
         try:
             if self.model_client is not None:
                 result = self._generate_with_model_client(snapshot, context)
-            else:
+            elif self.adapter is not None:
                 result = self.adapter.generate(snapshot, context)
+            else:
+                raise AiCreativeConfigurationError("AI模型客户端未配置")
             item_ids: tuple[int, ...] = ()
             if snapshot.kind == "visual":
                 # Explicit model_client=None is the documented legacy adapter seam;
                 # it must not persist the old visual shape as StaticVisualResult.v1.
                 if snapshot.carousel_enabled or self.prompt_registry is None or self.model_client is None:
-                    item_ids = tuple(
-                        self.repository.complete_visual_generation(
-                            context.reservation_id,
-                            result,
-                            snapshot.aspect_ratio,
-                        )
-                    )
+                    item_ids = tuple(self.run_store.complete_run(context.reservation_id, result, aspect_ratio=snapshot.aspect_ratio))
                     self._enqueue_visual_image_jobs(item_ids)
                 else:
                     item_ids = tuple(
-                        self.repository.complete_static_generation(
+                        self.run_store.complete_static_run(
                             context.reservation_id,
                             result,
-                            snapshot.aspect_ratio,
+                            aspect_ratio=snapshot.aspect_ratio,
                         )
                     )
                     self._enqueue_static_image_jobs(item_ids)
             else:
-                self.repository.complete_narrative_generation(context.reservation_id, result)
+                self.run_store.complete_run(context.reservation_id, result, aspect_ratio=snapshot.aspect_ratio)
             history = self.repository.generation_history(
                 snapshot.project_id,
                 snapshot.kind,
                 snapshot.fingerprint,
             )
+            if self.observability is not None:
+                self.observability.record({
+                    "event": "generation_finished",
+                    "run_id": context.reservation_id,
+                    "request_id": context.request_id,
+                    "project_id": snapshot.project_id,
+                    "kind": snapshot.kind,
+                    "status": "success",
+                    "stage": "persist",
+                    "provider": getattr(result, "provider", ""),
+                    "model": getattr(result, "model", ""),
+                    "latency_ms": getattr(result, "latency_ms", None),
+                    "input_tokens": getattr(result, "input_tokens", None),
+                    "output_tokens": getattr(result, "output_tokens", None),
+                    "total_tokens": getattr(result, "total_tokens", None),
+                    "usage_source": getattr(result, "usage_source", ""),
+                })
             return GenerationOutcome(
                 history=history,
                 snapshot=snapshot,
@@ -262,16 +296,30 @@ class CreativeGenerationService:
                 if details.error_code != "generation_failed"
                 else "生成失败，请重试"
             )
-            self.repository.fail_generation(
+            self.run_store.fail_run(
                 context.reservation_id,
-                public_error,
-                error_code=details.error_code,
-                phase=details.phase,
-                field_path=details.field_path,
-                retryable=details.retryable,
-                trace_id=details.trace_id,
-                detail=f"{exc.__class__.__module__}.{exc.__class__.__name__}: {exc}",
+                {
+                    "message": public_error,
+                    "error_code": details.error_code,
+                    "phase": details.phase,
+                    "field_path": details.field_path,
+                    "retryable": details.retryable,
+                    "trace_id": details.trace_id,
+                    "detail": f"{exc.__class__.__module__}.{exc.__class__.__name__}: {exc}",
+                },
             )
+            if self.observability is not None:
+                self.observability.record({
+                    "event": "generation_failed",
+                    "run_id": context.reservation_id,
+                    "request_id": context.request_id,
+                    "project_id": snapshot.project_id,
+                    "kind": snapshot.kind,
+                    "status": "failed",
+                    "stage": details.phase,
+                    "error_code": details.error_code,
+                    "retryable": details.retryable,
+                })
             raise
 
     def select_scheme(self, scheme_id: int) -> dict[str, Any]:
@@ -416,6 +464,7 @@ class CreativeGenerationService:
                 reference_file_names=snapshot.reference_file_names,
                 carousel_config=snapshot.carousel_config if snapshot.carousel_enabled else {},
                 tag_catalog=_load_tag_options(),
+                reference_context=self._reference_context(snapshot),
             )
             request = carousel_module.build_request(
                 prompt_input,
@@ -472,6 +521,7 @@ class CreativeGenerationService:
                     creative_tags=snapshot.creative_tags,
                     game_info=load_ai_creative_game_info(self.environment).content,
                     reference_file_names=snapshot.reference_file_names,
+                    reference_context=self._reference_context(snapshot),
                     batch_index=context.batch_index,
                     previous_items=previous_items,
                 ),
@@ -516,6 +566,26 @@ class CreativeGenerationService:
         if snapshot.carousel_enabled:
             return self.prompt_registry.get("creative.visual.carousel.plan", "visual-carousel-v1")
         return self.prompt_registry.get("creative.visual.static.generate", "static-v1")
+
+    @staticmethod
+    def _reference_context(snapshot: CreativeInputSnapshot) -> tuple[str, ...]:
+        """将资料限制为名称和受控摘要，不带路径或二进制正文。"""
+
+        private_field_pattern = re.compile(
+            r"(?i)\b(?:image_prompt|image_generation_instruction|stored_name|gateway_job_id|conversation_id|assistant_message_id)\s*[:=]\s*[^\s，。；、）)]+"
+        )
+        url_pattern = re.compile(r"(?i)(?:https?://|www\.)[^\s，。；、）)]+")
+        path_pattern = re.compile(r"(?<![\w])(?:[A-Za-z]:[\\/]|/)[^\s，。；、）)]+")
+        result: list[str] = []
+        for asset in snapshot.reference_assets:
+            name = Path(str(asset.original_name or "")).name.strip() or "（未命名参考文件）"
+            name = re.sub(r"[\x00\r\n\t]+", " ", name)[:160]
+            summary = " ".join(str(asset.safe_summary or "").split())
+            summary = url_pattern.sub("[已省略链接]", summary)
+            summary = path_pattern.sub("[已省略路径]", summary)
+            summary = private_field_pattern.sub("[已省略私有字段]", summary)[:800]
+            result.append(f"{name}（摘要：{summary}）" if summary else name)
+        return tuple(result)
 
     def _request_and_validate(self, request: ModelRequest, validator):
         """调用模型并对格式错误执行一次有限修复重试。"""
@@ -586,7 +656,11 @@ class CreativeGenerationService:
                         ),
                         field_path="creative_tags.visual_carousel_count",
                     )
-        reference_file_names = tuple(self.repository.reference_file_names(int(project["id"])))
+        if self.reference_asset_port is not None:
+            reference_assets = tuple(self.reference_asset_port.list_for_project(int(project["id"])))
+        else:
+            reference_assets = tuple(self.repository.list_reference_assets(int(project["id"])))
+        reference_file_names = tuple(asset.original_name for asset in reference_assets)
         snapshot = CreativeInputSnapshot(
             project_id=int(project["id"]),
             kind=kind,
@@ -605,11 +679,13 @@ class CreativeGenerationService:
             carousel_config=carousel_config,
             carousel_enabled=carousel_enabled,
             reference_file_names=reference_file_names,
+            reference_assets=reference_assets,
         )
         return replace(snapshot, fingerprint=_fingerprint(snapshot, self._prompt_spec(snapshot)))
 
     def _build_context_json(self, snapshot: CreativeInputSnapshot, request_id: str) -> dict[str, Any]:
-        return {
+        spec = self._prompt_spec(snapshot)
+        context = {
             "project_id": snapshot.project_id,
             "kind": snapshot.kind,
             "schema_version": snapshot.schema_version,
@@ -627,8 +703,38 @@ class CreativeGenerationService:
             ),
             "carousel_enabled": snapshot.carousel_enabled,
             "reference_file_names": list(snapshot.reference_file_names),
+            "reference_assets": [
+                {
+                    "asset_id": asset.asset_id,
+                    "name": asset.original_name,
+                    "sha256": asset.sha256,
+                    "mime_type": asset.mime_type,
+                    "size_bytes": asset.size_bytes,
+                    "extraction_status": asset.extraction_status,
+                    "safe_summary": asset.safe_summary,
+                }
+                for asset in snapshot.reference_assets
+            ],
             "request_id": request_id,
         }
+        if spec is not None:
+            context.update({
+                "prompt_id": spec.id,
+                "prompt_version": spec.version,
+                "prompt_hash": spec.template_sha256,
+                "input_schema_version": spec.input_schema,
+                "output_schema_version": spec.output_schema,
+                "model": spec.model,
+                "provider": spec.provider,
+            })
+        try:
+            context["tag_catalog_version"] = str(_load_tag_options().get("version") or "")
+        except AiCreativeConfigurationError:
+            context["tag_catalog_version"] = ""
+        context["reference_version"] = hashlib.sha256(
+            json.dumps(context["reference_assets"], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return context
 
     def _enqueue_visual_image_jobs(self, item_ids: tuple[int, ...]) -> None:
         if self.image_runner is not None and item_ids:
@@ -659,6 +765,7 @@ class CreativeGenerationService:
                     aspect_ratio=snapshot.aspect_ratio,
                     product_evidence_summary=snapshot.product_evidence_summary,
                     reference_file_names=snapshot.reference_file_names,
+                    reference_context=self._reference_context(snapshot),
                 ),
                 conversation_id=context.conversation_id,
                 parent_message_id=context.parent_message_id,

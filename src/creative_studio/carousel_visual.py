@@ -22,6 +22,7 @@ class CarouselPromptInput:
     reference_file_names: tuple[str, ...]
     carousel_config: Mapping[str, Any]
     tag_catalog: Mapping[str, Any]
+    reference_context: tuple[str, ...] = ()
 
 
 class CarouselVisualGeneration:
@@ -47,7 +48,7 @@ class CarouselVisualGeneration:
             task_description=prompt_input.task_description,
             aspect_ratio=prompt_input.aspect_ratio,
             product_evidence_summary=prompt_input.product_evidence_summary,
-            reference_file_names=prompt_input.reference_file_names,
+            reference_file_names=prompt_input.reference_context or prompt_input.reference_file_names,
             carousel_config=prompt_input.carousel_config,
             tag_catalog=prompt_input.tag_catalog,
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 
@@ -55,9 +56,12 @@ PUBLIC_CREATIVE_TAG_KEYS = (
     "visual_carousel_form",
 )
 PUBLIC_CAROUSEL_ROUND_OVERRIDE_KEYS = (
+    "visual_target_audiences",
+    "visual_player_desires",
     "visual_product_selling_points",
     "visual_display_contents",
     "visual_motif",
+    "visual_dynamics",
 )
 
 
@@ -79,6 +83,15 @@ def _text(value: Any) -> str:
 
 def _text_list(value: Any) -> list[str]:
     return [item for item in _list(value) if isinstance(item, str)]
+
+
+def _public_file_name(value: Any) -> str:
+    """Expose only a display name, never a historical local path."""
+
+    if not isinstance(value, str):
+        return ""
+    name = Path(value.replace("\\", "/")).name
+    return " ".join(name.replace("\x00", "").split())[:255]
 
 
 def _legacy_carousel_frame_list(value: Any) -> list[str | int]:
@@ -463,8 +476,11 @@ class PublicResultMapper:
         public["reference_files"] = [
             {
                 "id": _optional_int(item.get("id")) or 0,
-                "original_name": _text(item.get("original_name")),
+                "original_name": _public_file_name(item.get("original_name")),
                 "size_bytes": _optional_int(item.get("size_bytes")) or 0,
+                "sha256": _text(item.get("sha256")),
+                "mime_type": _text(item.get("mime_type")),
+                "extraction_status": _text(item.get("extraction_status") or "pending"),
                 "created_at": _text(item.get("created_at")),
             }
             for item in (_mapping(raw) for raw in _list(source.get("reference_files")))
