@@ -21,6 +21,22 @@ def _static_result() -> str:
     })
 
 
+def _narrative_result() -> str:
+    return json.dumps({
+        "schema_version": "narrative-text-v1",
+        "items": [
+            {
+                "story": f"故事 {i}",
+                "hooks": [
+                    {"text": "钩子一", "scenes": ["场景一", "场景二", "场景三"]},
+                    {"text": "钩子二", "scenes": ["场景四", "场景五", "场景六"]},
+                ],
+            }
+            for i in range(5)
+        ],
+    })
+
+
 class AiV2ApiTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -80,6 +96,40 @@ class AiV2ApiTests(unittest.TestCase):
         self.assertIn(status, {200, 202})
         self.assertEqual(status2, status)
         self.assertEqual(first["attempt_id"], second["attempt_id"])
+
+    def test_narrative_history_does_not_assume_image_frames(self) -> None:
+        application = AiV2Application(
+            self.store,
+            text_model=DeterministicTextModel([_narrative_result()]),
+            image_model=DeterministicImageModel(),
+            project_provider=lambda project_id: {"id": project_id, "script_type": "叙事类"},
+        )
+        api = AiV2HttpApi(application)
+        body = {"task_description": "x", "aspect_ratio": "16:9", "creative_tags": {}}
+        status, generated = api.dispatch("POST", "/api/v2/projects/1/generate", body)
+        self.assertEqual(status, 200)
+        status, history = api.dispatch("GET", "/api/v2/projects/1/history", None)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(history["runs"][0]["items"]), 5)
+        status, current = api.dispatch("GET", f"/api/v2/runs/{generated['run_id']}", None)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(current["items"]), 5)
+
+    def test_repeated_generation_automatically_uses_second_batch(self) -> None:
+        application = AiV2Application(
+            self.store,
+            text_model=DeterministicTextModel([_static_result(), _static_result()]),
+            image_model=DeterministicImageModel(),
+            project_provider=lambda project_id: {"id": project_id, "script_type": "展示类"},
+        )
+        api = AiV2HttpApi(application)
+        body = {"task_description": "x", "aspect_ratio": "16:9", "creative_tags": {}}
+        first_status, first = api.dispatch("POST", "/api/v2/projects/1/generate", body)
+        second_status, second = api.dispatch("POST", "/api/v2/projects/1/generate", body)
+        self.assertEqual(first_status, 200)
+        self.assertEqual(second_status, 200)
+        self.assertEqual(first["batch_index"], 1)
+        self.assertEqual(second["batch_index"], 2)
 
 
 if __name__ == "__main__":

@@ -117,6 +117,9 @@ class AiV2CarouselVisualTests(unittest.TestCase):
         self.assertIsNotNone(image_model.continue_calls[0].request.reference_artifact)
         self.assertEqual(image_model.continue_calls[0].request.reference_artifact.mime_type, "image/jpeg")
 
+        refreshed = use_case._public_run(1, 1)
+        self.assertEqual(refreshed["items"][0]["frames"][0]["image_state"]["status"], "success")
+
     def test_terminal_failure_retry_reuses_session_and_creates_no_second_session(self) -> None:
         failed = ImageSubmission("terminal_failure", "job-1", ImageSessionCursor("fake", "c", "m1", 1), None, "provider_rejected")
         image_model = DeterministicImageModel(

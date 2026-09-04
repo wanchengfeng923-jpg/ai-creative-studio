@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -125,6 +126,54 @@ class AiV2StaticVisualTests(unittest.TestCase):
             image_model.start_calls[0].request_key,
             image_model.continue_calls[0].request.request_key,
         )
+
+    def test_concurrent_first_click_starts_one_provider_session(self) -> None:
+        class BlockingImageModel(DeterministicImageModel):
+            def __init__(self) -> None:
+                super().__init__()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def start_image_session(self, request):  # type: ignore[no-untyped-def]
+                self.start_calls.append(request)
+                self.started.set()
+                self.release.wait(timeout=3)
+                return ImageSubmission(
+                    "success",
+                    "job",
+                    ImageSessionCursor("fake", "conversation", "message", 1),
+                    image_artifact(b"png", "image/png"),
+                    None,
+                )
+
+        image_model = BlockingImageModel()
+        text_model = DeterministicTextModel([_result()])
+        self._use_case(text_model, image_model).generate(1, _input(), 1)
+        scheme_id = self.store.list_schemes(1)[0]["scheme_id"]
+        other_store = SqliteAiV2Store(self.store.database)
+        other_use_case = StaticTextUseCase(self.registry, DeterministicTextModel([]), other_store, image_model=image_model)
+        outcomes: list[object] = []
+
+        def request(use_case: StaticTextUseCase) -> None:
+            try:
+                outcomes.append(use_case.request_image(scheme_id))
+            except Exception as exc:  # noqa: BLE001 - assert the concurrent loser below.
+                outcomes.append(exc)
+
+        first = threading.Thread(target=request, args=(self._use_case(DeterministicTextModel([]), image_model),))
+        first.start()
+        self.assertTrue(image_model.started.wait(timeout=2))
+        second = threading.Thread(target=request, args=(other_use_case,))
+        second.start()
+        second.join(timeout=2)
+        image_model.release.set()
+        first.join(timeout=3)
+        other_store.close()
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(len(image_model.start_calls), 1)
+        self.assertEqual(self.store.count_image_sessions(scheme_id), 1)
+        self.assertEqual(sum(isinstance(outcome, Exception) for outcome in outcomes), 1)
 
 
 if __name__ == "__main__":

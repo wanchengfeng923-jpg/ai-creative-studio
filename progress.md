@@ -2214,3 +2214,21 @@
 - v2 unittest：84 passed。
 - `node --check static/app.js static/ai-v2/app.js`、`compileall`、v2 release gate、boundary、`git diff --check`：通过。
 - 未调用真实 AI/图片供应商，未修改 `chat2api/.env` 或真实运行数据。
+
+# 2026-09-05 AI v2 并发与导入隔离收尾
+
+### 已完成
+
+- 包级初始化改为无副作用；导入 `creative_studio.ai_v2` 不再加载退休的旧 AI 模块、配置或网络依赖。
+- v2 文字批次保留使用 `BEGIN IMMEDIATE`，并发同批只允许一个成功，另一个稳定返回冲突。
+- 图片方案首建先原子占用本地会话占位，再调用供应商；并发首击不会创建第二个供应商会话，首次未知结果释放占位但保留稳定请求键。
+- 图片 attempt 增加原子 claim；并发 worker 轮询不会重复提交同一 attempt。
+- 旧 attempt 不能覆盖更新 attempt；失败、成功、对账状态更新均拒绝过期 attempt；同 revision 不同游标被拒绝。
+- 叙事历史读取不再假设图片帧；轮播历史保留逐帧公开 `image_state`；重复生成自动使用第二批。
+- 应用 v2 lazy composition 增加锁，避免并发首次请求构造多个 v2 store/adapter。
+
+### 验证
+
+- 定向 v2 回归：37 项通过；网关首次未知、worker 并发、状态机、叙事历史、轮播状态和两批生成均覆盖。
+- 最终全量和发布门禁将在本条记录后重新执行；真实 AI/图片供应商仍不调用。
+- `launcher.py` 既有 `WEB_BIND_HOST="0.0.0.0"` 属于高风险网络配置，按用户已有提交和安全边界未擅自修改，最终报告列为待审批项。

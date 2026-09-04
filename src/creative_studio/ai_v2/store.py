@@ -19,6 +19,10 @@ class AiV2StoreConflict(RuntimeError):
 
 class AiV2Store(Protocol):
     def reserve_run(self, project_id: int, use_case: str, input_fingerprint: str, batch_index: int) -> "RunRecord": ...
+    def claim_image_session(self, scheme_id: int, session_key: str) -> tuple["ImageSessionRecord", bool]: ...
+    def initialize_image_session(self, session_id: int, cursor: ImageSessionCursor | None, provider_job_id: str | None = None) -> "ImageSessionRecord": ...
+    def release_image_session_claim(self, session_id: int) -> None: ...
+    def claim_image_attempt(self, attempt_id: int) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -91,7 +95,8 @@ class SqliteAiV2Store:
     def reserve_run(self, project_id: int, use_case: str, input_fingerprint: str, batch_index: int, *, aspect_ratio: str = "16:9") -> RunRecord:
         if batch_index not in (1, 2):
             raise AiV2StoreConflict("only two v2 batches are allowed")
-        with self.connection:
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
             existing = self.connection.execute(
                 "SELECT COUNT(DISTINCT batch_index) FROM ai_v2_runs WHERE project_id=? AND use_case=? AND input_fingerprint=? AND status <> 'failed'",
                 (project_id, use_case, input_fingerprint),
@@ -106,6 +111,10 @@ class SqliteAiV2Store:
                 "INSERT INTO ai_v2_runs(project_id, use_case, batch_index, input_fingerprint, aspect_ratio) VALUES (?, ?, ?, ?, ?)",
                 (project_id, use_case, batch_index, input_fingerprint, aspect_ratio),
             )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
         return RunRecord(cursor.lastrowid, project_id, use_case, batch_index, input_fingerprint, aspect_ratio)  # type: ignore[arg-type]
 
     def fail_run(self, run_id: int, error_code: str) -> None:
@@ -325,6 +334,77 @@ class SqliteAiV2Store:
                 raise
         return ImageSessionRecord(inserted.lastrowid, scheme_id, session_key, cursor, provider_job_id)  # type: ignore[arg-type]
 
+    def claim_image_session(self, scheme_id: int, session_key: str) -> tuple[ImageSessionRecord, bool]:
+        """原子地占用方案图片会话，避免并发首击重复创建供应商会话。"""
+
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.connection.execute(
+                "SELECT session_id, scheme_id, session_key, provider, conversation_id, parent_message_id, revision, provider_job_id FROM ai_v2_image_sessions WHERE scheme_id=? AND session_key=?",
+                (scheme_id, session_key),
+            ).fetchone()
+            if row is not None:
+                self.connection.commit()
+                return (
+                    ImageSessionRecord(row["session_id"], row["scheme_id"], row["session_key"], _cursor_from_row(row), row["provider_job_id"]),
+                    False,
+                )
+            inserted = self.connection.execute(
+                "INSERT INTO ai_v2_image_sessions(scheme_id, session_key, provider, revision) VALUES (?, ?, 'pending', 0)",
+                (scheme_id, session_key),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return ImageSessionRecord(inserted.lastrowid, scheme_id, session_key, None, None), True  # type: ignore[arg-type]
+
+    def initialize_image_session(
+        self,
+        session_id: int,
+        cursor: ImageSessionCursor | None,
+        provider_job_id: str | None = None,
+    ) -> ImageSessionRecord:
+        """写入首个供应商游标；已初始化的会话保持原值并可安全复用。"""
+
+        provider, conversation_id, parent_message_id, revision = _cursor_columns(cursor)
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.connection.execute(
+                "SELECT session_id, scheme_id, session_key, provider, conversation_id, parent_message_id, revision, provider_job_id FROM ai_v2_image_sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise AiV2StoreConflict("image session not found")
+            if row["conversation_id"] is None and row["parent_message_id"] is None and row["provider"] == "pending":
+                self.connection.execute(
+                    "UPDATE ai_v2_image_sessions SET provider=?, conversation_id=?, parent_message_id=?, revision=?, provider_job_id=? WHERE session_id=?",
+                    (provider or "unknown", conversation_id, parent_message_id, revision, provider_job_id, session_id),
+                )
+                row = self.connection.execute(
+                    "SELECT session_id, scheme_id, session_key, provider, conversation_id, parent_message_id, revision, provider_job_id FROM ai_v2_image_sessions WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return ImageSessionRecord(row["session_id"], row["scheme_id"], row["session_key"], _cursor_from_row(row), row["provider_job_id"])
+
+    def release_image_session_claim(self, session_id: int) -> None:
+        """供应商首建结果未知时释放本地占位，不留下不可恢复的空会话。"""
+
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            self.connection.execute(
+                "DELETE FROM ai_v2_image_sessions WHERE session_id=? AND provider='pending' AND conversation_id IS NULL AND parent_message_id IS NULL",
+                (session_id,),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
     def find_image_session(self, scheme_id: int, session_key: str) -> ImageSessionRecord | None:
         row = self.connection.execute(
             "SELECT session_id, scheme_id, session_key, provider, conversation_id, parent_message_id, revision, provider_job_id FROM ai_v2_image_sessions WHERE scheme_id=? AND session_key=?",
@@ -394,10 +474,45 @@ class SqliteAiV2Store:
             raise
         return ImageAttempt(inserted.lastrowid, scheme_id, frame_index, request_key, attempt_no, "pending", session["session_id"], None)  # type: ignore[arg-type]
 
+    def claim_image_attempt(self, attempt_id: int) -> bool:
+        """将待处理 attempt 原子标记为 generating，避免并发 worker 重复提交。"""
+
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            attempt = self.connection.execute(
+                "SELECT scheme_id, frame_index, status FROM ai_v2_image_attempts WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
+            if attempt is None:
+                raise AiV2StoreConflict("attempt not found")
+            self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
+            if attempt["status"] == "pending":
+                self.connection.execute(
+                    "UPDATE ai_v2_image_attempts SET status='generating' WHERE attempt_id=? AND status='pending'",
+                    (attempt_id,),
+                )
+                self.connection.commit()
+                return True
+            self.connection.commit()
+            return False
+        except Exception:
+            self.connection.rollback()
+            raise
+
     def _update_session_cursor(self, session_id: int, cursor: ImageSessionCursor, provider_job_id: str | None = None) -> None:
-        current = self.connection.execute("SELECT revision FROM ai_v2_image_sessions WHERE session_id=?", (session_id,)).fetchone()
+        current = self.connection.execute(
+            "SELECT provider, conversation_id, parent_message_id, revision FROM ai_v2_image_sessions WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
         if current is None or cursor.revision < current["revision"]:
             raise AiV2StoreConflict("stale image session cursor")
+        if cursor.revision == current["revision"] and current["conversation_id"] is not None:
+            if (current["provider"], current["conversation_id"], current["parent_message_id"]) != (
+                cursor.provider,
+                cursor.conversation_id,
+                cursor.parent_message_id,
+            ):
+                raise AiV2StoreConflict("conflicting image session cursor")
         self.connection.execute(
             "UPDATE ai_v2_image_sessions SET provider=?, conversation_id=?, parent_message_id=?, revision=?, provider_job_id=COALESCE(?, provider_job_id) WHERE session_id=?",
             (cursor.provider, cursor.conversation_id, cursor.parent_message_id, cursor.revision, provider_job_id, session_id),
@@ -407,11 +522,12 @@ class SqliteAiV2Store:
         self.connection.execute("BEGIN IMMEDIATE")
         try:
             attempt = self.connection.execute(
-                "SELECT scheme_id, frame_index, image_session_id, status FROM ai_v2_image_attempts WHERE attempt_id=?",
+                "SELECT scheme_id, frame_index, image_session_id, status, attempt_no FROM ai_v2_image_attempts WHERE attempt_id=?",
                 (attempt_id,),
             ).fetchone()
             if attempt is None or attempt["status"] == "success":
                 raise AiV2StoreConflict("attempt is missing or already successful")
+            self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
             frame = self.connection.execute(
                 "SELECT status FROM ai_v2_frames WHERE scheme_id=? AND frame_index=?",
                 (attempt["scheme_id"], attempt["frame_index"]),
@@ -439,10 +555,12 @@ class SqliteAiV2Store:
             raise
 
     def fail_image_attempt(self, attempt_id: int, error_code: str, retryable: bool) -> None:
-        with self.connection:
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
             attempt = self.connection.execute("SELECT scheme_id, frame_index, status FROM ai_v2_image_attempts WHERE attempt_id=?", (attempt_id,)).fetchone()
             if attempt is None or attempt["status"] == "success":
                 raise AiV2StoreConflict("attempt is missing or successful")
+            self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
             self.connection.execute(
                 "UPDATE ai_v2_image_attempts SET status='failed', error_code=?, retryable=? WHERE attempt_id=?",
                 (error_code, int(retryable), attempt_id),
@@ -451,6 +569,18 @@ class SqliteAiV2Store:
                 "UPDATE ai_v2_frames SET status='failed' WHERE scheme_id=? AND frame_index=? AND status <> 'success'",
                 (attempt["scheme_id"], attempt["frame_index"]),
             )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+    def _assert_latest_attempt(self, attempt_id: int, scheme_id: int, frame_index: int) -> None:
+        latest = self.connection.execute(
+            "SELECT attempt_id FROM ai_v2_image_attempts WHERE scheme_id=? AND frame_index=? ORDER BY attempt_no DESC LIMIT 1",
+            (scheme_id, frame_index),
+        ).fetchone()
+        if latest is None or latest["attempt_id"] != attempt_id:
+            raise AiV2StoreConflict("image attempt was superseded")
 
     def reconcile_image_attempt(self, attempt_id: int, result: ReconcileResult) -> None:
         attempt = self.connection.execute(
@@ -465,23 +595,35 @@ class SqliteAiV2Store:
             self.complete_image_attempt_atomic(attempt_id, result.artifact, result.cursor)
             return
         if result.state == "working" and result.cursor is not None:
-            with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
                 self._update_session_cursor(attempt["image_session_id"], result.cursor, result.provider_job_id)
                 self.connection.execute(
                     "UPDATE ai_v2_image_attempts SET status='generating', provider_job_id=? WHERE attempt_id=? AND status <> 'success'",
                     (result.provider_job_id, attempt_id),
                 )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
             return
         if result.state == "terminal_failure":
             self.fail_image_attempt(attempt_id, result.error_code or "image_generation_failed", True)
             return
         if result.state == "unknown":
-            with self.connection:
+            self.connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
                 if result.provider_job_id:
                     self.connection.execute(
                         "UPDATE ai_v2_image_attempts SET provider_job_id=? WHERE attempt_id=? AND status <> 'success'",
                         (result.provider_job_id, attempt_id),
                     )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
 
 
 __all__ = [

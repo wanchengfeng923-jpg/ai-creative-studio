@@ -3,11 +3,36 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+import os
+import subprocess
+import sys
 
 from creative_studio.ai_v2.boundary import AiV2BoundaryViolation, assert_ai_v2_boundary
 
 
 class AiV2BoundaryTests(unittest.TestCase):
+    def test_importing_v2_does_not_load_legacy_ai_modules(self) -> None:
+        source_root = Path(__file__).resolve().parents[1] / "src"
+        script = (
+            "import sys\n"
+            "import creative_studio.ai_v2.input_contract\n"
+            "legacy = {'creative_studio.ai_creative', 'creative_studio.model_client', "
+            "'creative_studio.prompt_registry', 'creative_studio.generation_service'}\n"
+            "loaded = sorted(legacy.intersection(sys.modules))\n"
+            "if loaded:\n"
+            "    raise SystemExit(','.join(loaded))\n"
+        )
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = str(source_root)
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
     def test_rejects_old_ai_imports_routes_and_tables_with_file_details(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

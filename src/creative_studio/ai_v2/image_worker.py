@@ -28,7 +28,18 @@ class ImageWorker:
         if attempt is None:
             raise AiV2StoreConflict("image attempt is missing")
 
+        claimed = False
+        if attempt.status == "pending":
+            if not self.store.claim_image_attempt(attempt.attempt_id):
+                return
+            claimed = True
+            attempt = self.store.find_image_attempt(state["scheme_id"], state["frame_index"], state["request_key"])
+            if attempt is None:
+                raise AiV2StoreConflict("image attempt disappeared after claim")
+
         provider_job_id = attempt.provider_job_id or session.provider_job_id
+        if attempt.status == "generating" and not provider_job_id and not claimed:
+            return
         if attempt.status in {"pending", "generating"} and provider_job_id:
             result = self.image_model.reconcile(ReconcileRequest(
                 session_key,

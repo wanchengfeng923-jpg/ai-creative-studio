@@ -70,6 +70,8 @@ def public_scheme(scheme: Mapping[str, Any]) -> dict[str, Any]:
     canonical = scheme.get("canonical")
     source = canonical if isinstance(canonical, Mapping) else scheme
     use_case = str(scheme.get("use_case") or source.get("use_case") or "").strip().lower()
+    if use_case == "carousel" and isinstance(scheme.get("frames"), Sequence):
+        source = {**source, "frames": scheme["frames"]}
     result: dict[str, Any] = {}
     for key in ("scheme_id", "item_index", "scheme_index"):
         value = scheme.get(key)

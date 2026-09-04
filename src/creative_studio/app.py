@@ -9,6 +9,7 @@ import mimetypes
 import os
 import re
 import sys
+import threading
 import traceback
 import uuid
 from http.cookies import SimpleCookie
@@ -58,18 +59,23 @@ class StudioApplication:
         self._ai_v2_application = ai_v2_application
         self._ai_v2_factory = ai_v2_factory
         self._ai_v2_api: AiV2HttpApi | None = None
+        self._ai_v2_lock = threading.Lock()
 
     @property
     def ai_v2_application(self) -> AiV2Application | None:
         if self._ai_v2_application is None and self._ai_v2_factory is not None:
-            self._ai_v2_application = self._ai_v2_factory()
+            with self._ai_v2_lock:
+                if self._ai_v2_application is None:
+                    self._ai_v2_application = self._ai_v2_factory()
         return self._ai_v2_application
 
     @property
     def ai_v2_api(self) -> AiV2HttpApi | None:
         application = self.ai_v2_application
         if application is not None and self._ai_v2_api is None:
-            self._ai_v2_api = AiV2HttpApi(application)
+            with self._ai_v2_lock:
+                if self._ai_v2_api is None:
+                    self._ai_v2_api = AiV2HttpApi(application)
         return self._ai_v2_api
 
 def create_application(

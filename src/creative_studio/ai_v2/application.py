@@ -10,7 +10,7 @@ from typing import Any
 
 from .carousel_visual import CarouselTextUseCase, CarouselTextUseCaseError
 from .image_worker import ImageWorker
-from .input_contract import AiV2Input, InputContractError, normalize_input, resolve_use_case
+from .input_contract import AiV2Input, InputContractError, fingerprint, normalize_input, resolve_use_case
 from .model_ports import (
     ImageArtifact,
     ImageContinuation,
@@ -166,6 +166,17 @@ class AiV2Application:
     def generate(self, project_id: int, body: Mapping[str, Any], batch_index: int = 1) -> dict[str, Any]:
         input_value = self._input(body)
         use_case = self._use_case(project_id, input_value)
+        if batch_index == 1:
+            input_fingerprint = fingerprint(input_value, use_case, prompt_version="v1")
+            prior_batches = [
+                int(run["batch_index"])
+                for run in self.store.list_public_runs(project_id)
+                if run["use_case"] == use_case
+                and run["input_fingerprint"] == input_fingerprint
+                and run["status"] != "failed"
+            ]
+            if prior_batches:
+                batch_index = max(prior_batches) + 1
         try:
             if use_case == "narrative":
                 return self.narrative.generate(project_id, input_value, batch_index)
@@ -252,9 +263,13 @@ class AiV2Application:
         for scheme in self.store.list_schemes(int(run["run_id"])):
             item = dict(scheme)
             item["use_case"] = run["use_case"]
+            frames_for_scheme = self.store.list_frames(int(scheme["scheme_id"]))
+            if run["use_case"] == "narrative":
+                schemes.append(item)
+                continue
             if run["use_case"] == "carousel":
                 frames = []
-                for frame in self.store.list_frames(int(scheme["scheme_id"])):
+                for frame in frames_for_scheme:
                     current = dict(frame)
                     key = f"{scheme['scheme_version']}:frame:{frame['frame_index']}"
                     attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), int(frame["frame_index"]), key)
@@ -262,7 +277,7 @@ class AiV2Application:
                     frames.append(current)
                 item["frames"] = frames
             else:
-                frame = self.store.list_frames(int(scheme["scheme_id"]))[0]
+                frame = frames_for_scheme[0]
                 key = f"{scheme['scheme_version']}:frame:1"
                 attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), 1, key)
                 item["image_state"] = self.store.read_image_attempt_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}

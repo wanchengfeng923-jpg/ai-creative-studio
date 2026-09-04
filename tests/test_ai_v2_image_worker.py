@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -100,6 +101,51 @@ class AiV2ImageWorkerTests(unittest.TestCase):
         self.assertEqual(len(image_model.reconcile_calls), 1)
         self.assertEqual(self.store.find_image_attempt(scheme["scheme_id"], 1, scheme["scheme_version"] + ":frame:1").attempt_no, 1)  # type: ignore[union-attr]
         self.assertEqual(self.store.count_image_sessions(scheme["scheme_id"]), 1)
+
+    def test_concurrent_worker_poll_claims_pending_attempt_once(self) -> None:
+        run = self.store.reserve_run(1, "static", "fp", 1)
+        self.store.save_text_result(run.run_id, json.loads(_static_json()), __import__("creative_studio.ai_v2.model_ports", fromlist=["TextSession"]).TextSession("t", "c", "m"))
+        scheme = self.store.list_schemes(run.run_id)[0]
+        self.store.ensure_image_session(scheme["scheme_id"], "session", ImageSessionCursor("fake", "c", "m", 0))
+        attempt = self.store.reserve_image_attempt(scheme["scheme_id"], 1, scheme["scheme_version"] + ":frame:1")
+
+        class BlockingImageModel(DeterministicImageModel):
+            def __init__(self) -> None:
+                super().__init__()
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def continue_image_session(self, request):  # type: ignore[no-untyped-def]
+                self.continue_calls.append(request)
+                self.started.set()
+                self.release.wait(timeout=3)
+                return ImageSubmission("working", "job", request.cursor, None, None)
+
+        image_model = BlockingImageModel()
+        worker_one = ImageWorker(self.store, image_model)
+        other_store = SqliteAiV2Store(self.store.database)
+        worker_two = ImageWorker(other_store, image_model)
+        errors: list[Exception] = []
+
+        def run_worker(worker: ImageWorker) -> None:
+            try:
+                worker.submit(attempt.attempt_id)
+            except Exception as exc:  # noqa: BLE001 - no worker failure expected.
+                errors.append(exc)
+
+        first = threading.Thread(target=run_worker, args=(worker_one,))
+        first.start()
+        self.assertTrue(image_model.started.wait(timeout=2))
+        second = threading.Thread(target=run_worker, args=(worker_two,))
+        second.start()
+        second.join(timeout=2)
+        image_model.release.set()
+        first.join(timeout=3)
+        other_store.close()
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(len(image_model.continue_calls), 1)
+        self.assertFalse(errors)
 
 
 if __name__ == "__main__":

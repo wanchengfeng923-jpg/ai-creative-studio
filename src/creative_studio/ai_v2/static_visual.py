@@ -146,25 +146,31 @@ class StaticTextUseCase:
             attempt = None
 
         if session is None:
-            submission = self.image_model.start_image_session(ImageRequest(
-                scheme["scheme_version"],
-                1,
-                frame["execution_prompt"],
-                session_key,
-                request_key,
-                scheme["aspect_ratio"],
-                None,
-                provider_request_id=f"{request_key}:attempt:1",
-            ))
-            if submission.state == "unknown":
-                raise StaticTextUseCaseError(
-                    submission.error_code or "provider_state_unknown",
-                    "image provider state is unknown",
-                )
-            session = self.store.ensure_image_session(scheme_id, session_key, submission.cursor, submission.provider_job_id)
-            attempt = self.store.reserve_image_attempt(scheme_id, 1, request_key)
-            self._apply_submission(attempt, submission)
-            return self._view(attempt.attempt_id)
+            session, owns_session = self.store.claim_image_session(scheme_id, session_key)
+            if not owns_session:
+                if session.cursor is None:
+                    raise StaticTextUseCaseError("provider_state_unknown", "image session is still initializing")
+            else:
+                submission = self.image_model.start_image_session(ImageRequest(
+                    scheme["scheme_version"],
+                    1,
+                    frame["execution_prompt"],
+                    session_key,
+                    request_key,
+                    scheme["aspect_ratio"],
+                    None,
+                    provider_request_id=f"{request_key}:attempt:1",
+                ))
+                if submission.state == "unknown":
+                    self.store.release_image_session_claim(session.session_id)
+                    raise StaticTextUseCaseError(
+                        submission.error_code or "provider_state_unknown",
+                        "image provider state is unknown",
+                    )
+                session = self.store.initialize_image_session(session.session_id, submission.cursor, submission.provider_job_id)
+                attempt = self.store.reserve_image_attempt(scheme_id, 1, request_key)
+                self._apply_submission(attempt, submission)
+                return self._view(attempt.attempt_id)
 
         if attempt is None:
             orphan = ReconcileResult("terminal_failure", session.provider_job_id, session.cursor, None, None)

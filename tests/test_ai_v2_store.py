@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
 from creative_studio.ai_v2.fakes import image_artifact
 from creative_studio.ai_v2.model_ports import ImageSessionCursor, ReconcileResult, TextSession
-from creative_studio.ai_v2.store import AiV2StoreConflict, SqliteAiV2Store
+from creative_studio.ai_v2.store import AiV2StoreConflict, RunRecord, SqliteAiV2Store
 
 
 def _static_result() -> dict[str, object]:
@@ -84,6 +85,31 @@ class AiV2StoreTests(unittest.TestCase):
             self.store.reserve_run(1, "static", "same", 3)
         self.assertEqual(self.store.count_runs(1, "same"), 2)
 
+    def test_concurrent_reservation_of_same_batch_has_one_stable_conflict(self) -> None:
+        other_store = SqliteAiV2Store(self.database)
+        barrier = threading.Barrier(2)
+        outcomes: list[object] = []
+
+        def reserve(store: SqliteAiV2Store) -> None:
+            barrier.wait()
+            try:
+                outcomes.append(store.reserve_run(1, "static", "same", 1))
+            except Exception as exc:  # noqa: BLE001 - assert the exact failure below.
+                outcomes.append(exc)
+
+        first = threading.Thread(target=reserve, args=(self.store,))
+        second = threading.Thread(target=reserve, args=(other_store,))
+        first.start()
+        second.start()
+        first.join(timeout=5)
+        second.join(timeout=5)
+        other_store.close()
+
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(sum(isinstance(outcome, Exception) for outcome in outcomes), 1)
+        self.assertIsInstance(next(outcome for outcome in outcomes if isinstance(outcome, Exception)), AiV2StoreConflict)
+        self.assertEqual(sum(isinstance(outcome, RunRecord) for outcome in outcomes), 1)
+
     def test_rejects_repeating_an_existing_batch_index(self) -> None:
         self.store.reserve_run(1, "static", "same", 1)
         with self.assertRaises(AiV2StoreConflict):
@@ -142,6 +168,25 @@ class AiV2StoreTests(unittest.TestCase):
         self.assertEqual(self.store.find_image_session(scheme_id, "run:scheme").cursor.parent_message_id, "m2")  # type: ignore[union-attr]
         self.assertEqual(self.store.find_image_attempt(scheme_id, 1, "scheme:frame:1").status, "success")  # type: ignore[union-attr]
 
+    def test_stale_attempt_cannot_complete_or_fail_after_retry_is_reserved(self) -> None:
+        run = self.store.reserve_run(1, "static", "fp", 1)
+        self.store.save_text_result(run.run_id, _static_result(), TextSession("s", "c", "m"))
+        scheme_id = self.store.list_schemes(run.run_id)[0]["scheme_id"]
+        self.store.ensure_image_session(scheme_id, "run:scheme", ImageSessionCursor("p", "c", "m", 0))
+        first = self.store.reserve_image_attempt(scheme_id, 1, "scheme:frame:1")
+        self.store.fail_image_attempt(first.attempt_id, "provider_rejected", True)
+        retry = self.store.reserve_image_attempt(scheme_id, 1, "scheme:frame:1")
+
+        with self.assertRaises(AiV2StoreConflict):
+            self.store.complete_image_attempt_atomic(
+                first.attempt_id,
+                image_artifact(b"old", "image/png"),
+                ImageSessionCursor("p", "c", "old", 1),
+            )
+        with self.assertRaises(AiV2StoreConflict):
+            self.store.fail_image_attempt(first.attempt_id, "late_failure", True)
+        self.assertEqual(self.store.find_image_attempt(scheme_id, 1, "scheme:frame:1").attempt_id, retry.attempt_id)  # type: ignore[union-attr]
+
     def test_existing_image_session_can_recover_missing_local_attempt(self) -> None:
         run = self.store.reserve_run(1, "static", "fp", 1)
         self.store.save_text_result(run.run_id, _static_result(), TextSession("s", "c", "m"))
@@ -150,6 +195,18 @@ class AiV2StoreTests(unittest.TestCase):
         recovered = self.store.reserve_image_attempt(scheme_id, 1, "scheme:frame:1")
         self.assertEqual(recovered.image_session_id, session.session_id)
         self.assertEqual(recovered.attempt_no, 1)
+
+    def test_equal_revision_with_different_cursor_is_rejected(self) -> None:
+        run = self.store.reserve_run(1, "static", "fp", 1)
+        self.store.save_text_result(run.run_id, _static_result(), TextSession("s", "c", "m"))
+        scheme_id = self.store.list_schemes(run.run_id)[0]["scheme_id"]
+        self.store.ensure_image_session(scheme_id, "run:scheme", ImageSessionCursor("p", "c", "m", 1))
+        attempt = self.store.reserve_image_attempt(scheme_id, 1, "scheme:frame:1")
+        with self.assertRaises(AiV2StoreConflict):
+            self.store.reconcile_image_attempt(
+                attempt.attempt_id,
+                ReconcileResult("working", "job", ImageSessionCursor("p", "c", "other", 1), None, None),
+            )
 
 
 if __name__ == "__main__":
