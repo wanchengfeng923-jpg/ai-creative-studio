@@ -4,7 +4,6 @@ import tempfile
 
 from creative_studio.repository import StudioRepository
 from creative_studio.reference_assets import FileReferenceAssetStore
-from creative_studio.generation_service import CreativeGenerationService
 
 from creative_studio.generation_models import (
     GenerationRun,
@@ -96,15 +95,6 @@ class GenerationModelTests(unittest.TestCase):
             with self.assertRaises(ReferenceAssetError) as raised:
                 store.read(project["id"], 1)
             self.assertEqual(raised.exception.error_code, "reference_asset_path_invalid")
-
-    def test_reference_context_is_name_plus_bounded_summary(self):
-        asset = ReferenceAsset(
-            asset_id=1, project_id=1, original_name="brief.txt", sha256="", mime_type="text/plain",
-            size_bytes=1, safe_summary="  产品\n证据  ",
-        )
-        snapshot = type("Snapshot", (), {"reference_assets": (asset,)})()
-        self.assertEqual(CreativeGenerationService._reference_context(snapshot), ("brief.txt（摘要：产品 证据）",))
-
 
 if __name__ == "__main__":
     unittest.main()

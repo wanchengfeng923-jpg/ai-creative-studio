@@ -6,6 +6,7 @@ import subprocess
 import sys
 import textwrap
 import unittest
+from pathlib import Path
 from typing import Any
 
 from creative_studio.public_projection import PublicResultMapper
@@ -280,6 +281,10 @@ class PublicResultMapperTests(unittest.TestCase):
         for seed in ("1", "2", "3", "4"):
             environment = os.environ.copy()
             environment["PYTHONHASHSEED"] = seed
+            src_path = str(Path(__file__).resolve().parents[1] / "src")
+            environment["PYTHONPATH"] = os.pathsep.join(
+                part for part in (src_path, environment.get("PYTHONPATH", "")) if part
+            )
             completed = subprocess.run(
                 [sys.executable, "-c", script],
                 check=True,

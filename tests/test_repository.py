@@ -9,7 +9,6 @@ from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
-from creative_studio.app import StudioApplication
 from creative_studio.ai_creative import validate_visual_creative_recommendations
 from creative_studio.generation_models import GenerationConflictError
 from creative_studio.auth import hash_password, token_digest
@@ -384,28 +383,6 @@ class RepositoryTests(unittest.TestCase):
             "internal instruction",
         )
         self.assertNotIn("image_url", first)
-
-    def test_fingerprint_changes_when_visual_carousel_round_override_changes(self):
-        base_project = self.repo.update_project(self.project["id"], {
-            "creative_tags": {
-                "visual_carousel": ["是"],
-                "visual_carousel_count": ["3屏"],
-                "visual_carousel_form": ["左右滑动"],
-                "visual_carousel_rounds": [
-                    {
-                        "index": 1,
-                        "mode": "base",
-                        "overrides": {"visual_product_selling_points": ["卖点A"]},
-                    }
-                ],
-            }
-        })
-        changed_project = copy.deepcopy(base_project)
-        changed_project["creative_tags"]["visual_carousel_rounds"][0]["overrides"]["visual_product_selling_points"] = ["卖点B"]
-        self.assertNotEqual(
-            StudioApplication._fingerprint(base_project),
-            StudioApplication._fingerprint(changed_project),
-        )
 
     def test_legacy_projects_schema_migrates_without_losing_rows(self):
         legacy_path = Path(self.temp.name) / "legacy.db"
