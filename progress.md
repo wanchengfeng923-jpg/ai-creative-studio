@@ -2232,3 +2232,17 @@
 - 定向 v2 回归：37 项通过；网关首次未知、worker 并发、状态机、叙事历史、轮播状态和两批生成均覆盖。
 - 最终全量和发布门禁将在本条记录后重新执行；真实 AI/图片供应商仍不调用。
 - `launcher.py` 既有 `WEB_BIND_HOST="0.0.0.0"` 属于高风险网络配置，按用户已有提交和安全边界未擅自修改，最终报告列为待审批项。
+
+# 2026-09-05 Prompt 审批门禁与监听边界收尾
+
+### 已完成
+
+- v2 三项 Prompt registry 恢复为 `candidate` 且 `caller=null`，与 Prompt 设计文档和审批要求一致。
+- 默认组合根改用 deterministic candidate text/image models；只有显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 才构造 gateway adapter，默认不会连接或调用真实 AI。
+- 启动器网页监听恢复为 `127.0.0.1`，关闭既有的全接口监听风险；运维文档同步更新。
+
+### 验证
+
+- 审批门禁定向测试、live opt-in 测试和 loopback 监听测试通过。
+- 全量 unittest：213 项通过；v2 unittest：95 项通过。
+- 未设置 live 开关，未调用真实 AI/图片供应商，未修改 `chat2api/.env` 或真实运行数据。

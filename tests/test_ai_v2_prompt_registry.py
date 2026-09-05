@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
 import tempfile
 import unittest
@@ -15,7 +14,7 @@ from creative_studio.ai_v2.prompt_registry import (
 
 
 class AiV2PromptRegistryTests(unittest.TestCase):
-    def test_default_registry_has_production_application_caller(self) -> None:
+    def test_default_registry_keeps_prompts_candidate_until_explicit_approval(self) -> None:
         registry = AiV2PromptRegistry()
         prompt_ids = (
             "creative.ai_v2.narrative",
@@ -25,13 +24,9 @@ class AiV2PromptRegistryTests(unittest.TestCase):
         callers = []
         for prompt_id in prompt_ids:
             spec = registry.get(prompt_id, "v1")
-            self.assertEqual(spec.lifecycle, "production")
+            self.assertEqual(spec.lifecycle, "candidate")
             self.assertEqual(spec.max_model_calls, 1)
-            callers.append(spec.caller)
-            module_name, class_name, method_name = spec.caller.rsplit(".", 2)  # type: ignore[union-attr]
-            method = getattr(getattr(importlib.import_module(module_name), class_name), method_name)
-            self.assertTrue(callable(method))
-        self.assertEqual(len(set(callers)), 3)
+            self.assertIsNone(spec.caller)
 
     def test_missing_file_and_hash_mismatch_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

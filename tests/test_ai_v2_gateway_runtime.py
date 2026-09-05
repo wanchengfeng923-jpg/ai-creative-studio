@@ -13,7 +13,7 @@ from unittest.mock import patch
 from creative_studio.ai_v2.adapters.image_gateway import ImageGatewayAdapter
 from creative_studio.ai_v2.adapters.text_gateway import TextGatewayAdapter
 from creative_studio.ai_v2.adapters.text_gateway import TextGatewayError
-from creative_studio.ai_v2.application import AiV2Application
+from creative_studio.ai_v2.application import AiV2Application, CandidateImageModel, CandidateTextModel
 from creative_studio.ai_v2.fakes import DeterministicImageModel, DeterministicTextModel, image_artifact
 from creative_studio.ai_v2.http_api import AiV2HttpApi
 from creative_studio.ai_v2.model_ports import (
@@ -27,7 +27,7 @@ from creative_studio.ai_v2.model_ports import (
 )
 from creative_studio.ai_v2.store import SqliteAiV2Store
 from creative_studio.app import StudioHandler, create_application
-from launcher import Launcher
+from launcher import Launcher, WEB_BIND_HOST
 
 
 class _Transport:
@@ -281,7 +281,7 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
             self.assertEqual(store.count_image_sessions(scheme_id), 1)
             store.close()
 
-    def test_composition_root_defaults_to_gateway_adapters(self) -> None:
+    def test_composition_root_defaults_to_candidate_models_until_prompt_approval(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             application = create_application(
@@ -291,9 +291,26 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
                 environment={"CREATIVE_STUDIO_AI_GATEWAY_URL": "http://127.0.0.1:8780"},
             )
             ai_v2 = application.ai_v2_application
+            self.assertIsInstance(ai_v2.static.text_model, CandidateTextModel)  # type: ignore[union-attr]
+            self.assertIsInstance(ai_v2.static.image_model, CandidateImageModel)  # type: ignore[union-attr]
+            ai_v2.store.close()  # type: ignore[union-attr]
+
+    def test_composition_root_constructs_gateway_only_with_explicit_live_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = create_application(
+                database_path=root / "studio.db",
+                images_dir=root / "images",
+                uploads_dir=root / "uploads",
+                environment={"CREATIVE_STUDIO_AI_V2_LIVE": "1"},
+            )
+            ai_v2 = application.ai_v2_application
             self.assertIsInstance(ai_v2.static.text_model, TextGatewayAdapter)  # type: ignore[union-attr]
             self.assertIsInstance(ai_v2.static.image_model, ImageGatewayAdapter)  # type: ignore[union-attr]
             ai_v2.store.close()  # type: ignore[union-attr]
+
+    def test_launcher_defaults_to_loopback_web_binding(self) -> None:
+        self.assertEqual(WEB_BIND_HOST, "127.0.0.1")
 
     def test_composition_root_does_not_construct_legacy_ai_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

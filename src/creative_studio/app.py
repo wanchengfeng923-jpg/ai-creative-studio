@@ -120,15 +120,23 @@ def create_application(
             control_token=control_token,
             timeout_seconds=timeout_seconds,
         )
-        text_model = ai_v2_text_model if ai_v2_text_model is not None else TextGatewayAdapter(
-            transport,
-            base_url=gateway_url,
-            model=model,
-        )
-        image_model = ai_v2_image_model if ai_v2_image_model is not None else ImageGatewayAdapter(
-            transport,
-            base_url=gateway_url,
-        )
+        live_enabled = str(source.get("CREATIVE_STUDIO_AI_V2_LIVE") or "0").strip() == "1"
+        if ai_v2_text_model is not None:
+            text_model = ai_v2_text_model
+        elif live_enabled:
+            text_model = TextGatewayAdapter(transport, base_url=gateway_url, model=model)
+        else:
+            from .ai_v2.application import CandidateTextModel
+
+            text_model = CandidateTextModel()
+        if ai_v2_image_model is not None:
+            image_model = ai_v2_image_model
+        elif live_enabled:
+            image_model = ImageGatewayAdapter(transport, base_url=gateway_url)
+        else:
+            from .ai_v2.application import CandidateImageModel
+
+            image_model = CandidateImageModel()
         return AiV2Application(
             SqliteAiV2Store(database_path),
             text_model=text_model,

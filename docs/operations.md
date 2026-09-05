@@ -4,7 +4,7 @@
 
 当前默认只允许本机访问：网页服务监听 `127.0.0.1:8775`，AI 网关监听 `127.0.0.1:8780`。网页已有登录和项目归属控制，备份工具和临时恢复演练已具备，但仍不具备正式多人部署所需的自动调度、外部限流和公网安全能力。此前的局域网共享已撤回；再次开放局域网或公网必须单独走高风险变更卡，不得只修改监听地址。
 
-注意：当前工作树中 `launcher.py` 的 `WEB_BIND_HOST = "0.0.0.0"` 是用户已有未提交修改，不能视为本手册默认，也不能在本路线中擅自回退或继续扩大暴露范围；启动前应由负责人确认监听边界。
+网页默认只绑定 `127.0.0.1`。如需局域网或公网访问，必须另开高风险变更卡并同时完成认证、HTTPS、限流、防火墙和回滚评审；不得只修改监听地址。
 
 ## 启动
 
@@ -92,6 +92,8 @@ python -m creative_studio.backup --retention-root .scratch --keep-latest 7
 旧版生成链路（`generation_service.py`、`image_jobs.py`、`/api/projects/*/generate` 和 `/api/visual-items/*`）已退休，生产入口不再构造或调用这些模块；历史运维说明仅保留为审计记录。
 
 AI v2 入口使用 `/api/v2`：请求只接受 `task_description`、`aspect_ratio`、`creative_tags` 三个业务字段。文字生成同步返回，静态方案首次点击才创建图片会话，轮播每次点击只推进一帧；公开响应不包含 Prompt、execution、会话游标、供应商 job id 或本地路径。
+
+当前 v2 Prompt registry 保持 `candidate`，本地组合根默认使用 deterministic candidate text/image models，不会连接真实 AI gateway。Prompt 正文评审和真实供应商冒烟完成后，且仅在独立审批变更中，才可设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 构造 gateway adapter；未设置时不会发起真实请求。
 
 非轮播展示生成从旧 `StaticVisualGeneration` 进入 `StaticVisualResult.v1` 校验；一批固定三案，成功后为每案创建一个首图任务。`generation_service.py` 通过
 `StaticVisualImageRequest` 把画幅、私有指令和稳定 request id 交给图片队列。canonical 正文写入

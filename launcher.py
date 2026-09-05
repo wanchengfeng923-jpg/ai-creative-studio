@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent
 ENV_PATH = ROOT / "chat2api" / ".env"
 WEB_URL = "http://127.0.0.1:8775/"
 GATEWAY_URL = "http://127.0.0.1:8780"
-WEB_BIND_HOST = "0.0.0.0"
+WEB_BIND_HOST = "127.0.0.1"
 
 
 def _terminate_process(process: subprocess.Popen[bytes], timeout: float = 3.0) -> None:

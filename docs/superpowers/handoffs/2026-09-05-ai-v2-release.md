@@ -27,4 +27,8 @@ v2 只写 `ai_v2_*` 表和 v2 artifact；不会写旧 `generations`、`visual_it
 
 ## 既有高风险配置
 
-`launcher.py` 当前提交中的 `WEB_BIND_HOST="0.0.0.0"` 会让网页监听所有接口。项目安全文档要求默认回环且网络绑定需单独审批；本次没有擅自回退或改写该既有配置，验收前需负责人明确批准或另开回滚变更。
+`launcher.py` 已恢复 `WEB_BIND_HOST="127.0.0.1"`，网页默认只监听回环。任何局域网或公网开放仍需单独高风险变更卡。
+
+## Prompt 审批门禁
+
+v2 registry 当前三项均为 `candidate` 且 `caller=null`。默认组合根使用 deterministic candidate models；只有显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 才构造 live gateway adapters。此次未设置该开关、未发起真实 AI/图片请求，也未宣称模型质量通过。
