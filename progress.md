@@ -2246,3 +2246,100 @@
 - 审批门禁定向测试、live opt-in 测试和 loopback 监听测试通过。
 - 全量 unittest：213 项通过；v2 unittest：95 项通过。
 - 未设置 live 开关，未调用真实 AI/图片供应商，未修改 `chat2api/.env` 或真实运行数据。
+
+# 2026-09-05 真实环境受控验收
+
+### 已完成
+
+- 真实 gateway 诊断确认旧远端 SOCKS5 代理握手失败；未修改 `chat2api/.env`。
+- 通过进程级本机代理完成真实 v2 文字矩阵：static 3 案、narrative 5 案、carousel 3 案均通过 v2 schema 和公开 DTO 投影。
+- 发现并修复候选 Prompt 缺少显式 v2 JSON 字段骨架的问题；新增候选 Prompt 契约测试并同步 registry hash，生命周期仍为 `candidate`、caller 仍为空。
+- 在临时图片/job 目录完成一次真实静态图片生成，状态从 generating 到 success；仓库图片目录和真实数据库未写入。
+
+### 约束与环境
+
+- 真实请求仅使用临时 gateway 进程、本机代理和临时 SQLite/图片目录；测试后 gateway、临时目录均已清理。
+- 远端 `.env` SOCKS5 代理仍不可用；本机 `127.0.0.1:7897` 可用，属于运行环境配置问题而非 v2 代码问题。
+
+### 最终验证计数
+
+- 全量 unittest：214 项通过；v2 unittest：96 项通过。
+- `node --check static\\ai-v2\\app.js`、`node --check static\\app.js`、`compileall`、release gate、`git diff --check`：全部通过。
+
+# 2026-09-05 前端浏览器冒烟复核
+
+### 已验证
+
+- 在临时 SQLite/目录的 deterministic Web 服务中完成登录、项目创建、标签加载、文字方案生成和单次图片生成。
+- 文字结果显示 3 个候选展示方案；首个图片按钮点击后进入完成态并锁定，未预取或自动推进其他方案。
+- 浏览器页面当前具备完整可用交互骨架，可以进入视觉层和信息架构设计；候选文案仍属于 deterministic 占位输出，Prompt 仍未接入 production caller。
+
+### 验证边界
+
+- 临时服务已停止，临时数据库、job 和图片目录未写入仓库真实数据。
+- 本次未调用真实 AI/图片供应商，未修改 `chat2api/.env`，未执行正式入口切换。
+- 重新执行全量 unittest：214 项通过；v2 unittest：96 项通过；前端语法、compileall、release gate、`git diff --check`：全部通过。
+
+# 2026-09-05 Task 13 网页可用性设计第一轮
+
+### 已完成
+
+- v2 标签分组改为可折叠详情组，必选分组默认展开，其余分组收起，选项使用有界滚动区域。
+- v2 结果卡片增加核心创意、广告文案、画面描述、故事梗概和开场钩子的字段标题。
+- v2 图片操作区增加状态说明，结果网格改为响应式 `auto-fit` 布局，并补充键盘焦点样式。
+- 保持原有 v2 输入契约、按需单图生成、图片完成后锁定和旧 AI 隔离不变。
+
+### 验证
+
+- 先写失败契约测试，再完成实现；前端定向测试：3 项通过。
+- 全量 unittest：215 项通过；v2 unittest：97 项通过。
+- `node --check static\\ai-v2\\app.js`、`node --check static\\app.js`、`compileall`、release gate、`git diff --check`：全部通过。
+- 临时预览服务已停止，`127.0.0.1:18875` 当前无监听进程；未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+
+# 2026-09-05 主页面 v2 交互接入
+
+### 已完成
+
+- 保留现有主页面的顶部导航、项目侧栏、创意定位步骤条和结果区域，不再要求用户跳转到独立 `/ai-v2/` 页面。
+- 主页面结果卡片接入 v2 图片会话入口：每个方案显示“生成参考图”，失败显示“重试参考图”，成功后锁定为完成态。
+- 图片请求只在用户点击对应方案时发起；生成中只轮询该方案的 attempt，不再把未点击的 pending 卡片当作后台任务自动刷新。
+- 文字生成完成提示改为明确引导用户点击卡片生成图片，旧的“后台自动完成”提示已移除。
+
+### 验证
+
+- 前端契约测试：4 项通过；全量 unittest：216 项通过；v2 unittest：98 项通过。
+- `node --check static\\app.js`、`node --check static\\ai-v2\\app.js`、`compileall`、release gate、`git diff --check`：全部通过。
+- 没有切换根路由到独立页面；未调用真实 AI/图片供应商，未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+
+# 2026-09-05 AI v2 主页面接入后续交接
+
+- 新增 `docs/superpowers/handoffs/2026-09-05-ai-v2-main-page-followup-handoff.md`，记录主页面接入后的真实状态、P0-P4 后续顺序、Prompt 审批门禁、浏览器验收步骤、回滚方式和未验证边界。
+- 明确正式用户流程继续使用根页面 `/`；独立 `/ai-v2/` 不是正式入口，是否清理需单独变更。
+- 下一会话应先运行全量门禁和临时数据浏览器验收，再决定是否继续 Prompt 评测或申请 live caller；不得把 deterministic 结果写成生产质量结论。
+
+# 2026-09-05 AI v2 主页面验收与候选 Prompt contract 评测
+
+### 已完成
+
+- 使用临时 SQLite、图片和上传目录在根页面完成 deterministic 浏览器验收；正式入口保持 `/`，没有跳转 `/ai-v2/`。
+- 文字生成后出现 3 张方案卡；未点击前只有 1 个文字 run 和 3 个方案，图片 session、attempt、artifact 均为 0。
+- 只点击第一张卡后恰好创建 1 个图片 session、1 个 attempt、1 个 artifact；其余两张保持 pending，旧 `generations`、`visual_items`、`adoptions` 均未写入。
+- 受控失败重试先对账并复用同一图片 session 和 `request_key`：第一次 attempt 失败，第二次成功，session revision 从 1 递增到 2。
+- 修复静态参考图成功后历史 DTO 缺少 `image_url`，导致按钮完成但画面仍等待的问题；新增集成回归测试，刷新后可以恢复真实参考图。
+- `1280x720` 与 `390x844` 均无横向溢出，浏览器控制台无 warning/error；临时服务和目录已清理。
+- 新增可重复执行的 v2 候选 contract 评测：30 个脱敏 case 定义完整，29 个可自动判定的 contract outcome 全部符合预期，23 个成功公开 DTO 私有字段泄露数为 0，7 个坏输出归类为 `model_output_invalid`。
+- 评测运行使用 30 次进程内 deterministic 文字调用、0 次图片调用，没有隐藏格式修复或重试；三份候选 Prompt 的 hash、输入/输出 schema、生命周期和 caller 与 registry 对齐。
+- 新增 `docs/ai/ai-v2-prompt-approval.md` 和 `config/evals/ai_v2/reports/candidate-contract-evidence.v1.json`；Prompt 仍为 `candidate`，三项 `caller` 仍为 `null`。
+
+### 验证
+
+- TDD RED：新增 release gate 报告测试先因缺少 `build_candidate_contract_evidence` 失败；实现后同一测试通过。图片历史回归测试也先复现缺少 `image_url`，修复后通过。
+- 全量 unittest：218 项通过；v2 release gate：100 项通过，contract、compileall、Node、diff-check、boundary 全部为 `ok`。
+- `node --check static\\app.js`、`node --check static\\ai-v2\\app.js`、`python -m compileall -q src chat2api`、`git diff --check`：全部通过。
+- 已提交候选报告与运行时重建结果逐字段一致。
+
+### 未做与后续门禁
+
+- 本轮后续执行未发送真实 AI/图片请求，未修改真实数据库、图片、上传文件、`chat2api/.env`、监听地址或入口发布配置。
+- `narrative-07` 的机制重复和全部真实模型质量仍为 `not-run`；deterministic 证据只支持 contract 审查，不构成 Prompt 质量或 production 发布批准。
+- 独立 `/ai-v2/` 页面是否清理、受控真实模型评测、production caller 和正式发布继续留在单独审批变更中。

@@ -12,6 +12,14 @@
 
 这些 fixture 只包含脱敏输入、硬约束和评测维度，不包含真实模型输出。每次 prompt 或 contract 变更至少运行对应的 fixture 测试和全量 deterministic unittest。
 
+### AI v2 候选评测集
+
+AI v2 使用独立的 `config/evals/ai_v2/prompt-cases.jsonl`，固定 30 个脱敏 case，叙事、静态、轮播各 10 个。候选 Prompt 和审批边界见 `docs/ai/ai-v2-prompt-approval.md`，可复核报告见 `config/evals/ai_v2/reports/candidate-contract-evidence.v1.json`。
+
+当前 deterministic contract 证据为：30 个 case 定义完整；29 个可自动判定的文字 contract outcome 全部符合预期；7 个坏输出归类为 `model_output_invalid`；23 个成功公开 DTO 的递归私有字段扫描泄露数为 0；30 次文字调用均来自进程内 deterministic fake，每 case 1 次，图片调用为 0。`narrative-07` 的机制重复判断和全部真实模型质量继续为 `not-run`。
+
+三份 v2 registry 项的候选文件 hash、`AiV2Input.v1`、对应 `*-text-v1` schema、`max_model_calls=1` 均已对齐；生命周期继续为 `candidate`，`caller` 继续为 `null`。这些事实只支持 contract 审查，不支持 production 接入或质量通过结论。
+
 ## 当前证据
 
 - 全量 deterministic unittest：254 项通过。

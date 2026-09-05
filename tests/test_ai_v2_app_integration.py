@@ -210,6 +210,67 @@ class AiV2AppIntegrationTests(unittest.TestCase):
         self.assertEqual(len(response["items"]), 3)
         self.assertEqual(len(image.start_calls), 0)
 
+    def test_history_exposes_image_url_after_static_artifact_completes(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            cursor = ImageSessionCursor("fake", "conversation", "message", 1)
+            artifact = image_artifact(b"png-bytes", "image/png")
+            image = DeterministicImageModel(
+                start_submissions={
+                    "v2-run-1-scheme-1:frame:1": ImageSubmission(
+                        "success", None, cursor, artifact, None
+                    ),
+                },
+            )
+            application = create_application(
+                database_path=root / "studio.db",
+                images_dir=root / "images",
+                uploads_dir=root / "uploads",
+                ai_v2_text_model=DeterministicTextModel([_static_text()]),
+                ai_v2_image_model=image,
+                environment={},
+            )
+            application.auth.init_admin("admin", "correct horse battery staple")
+            project = application.repository.create_project("v2", "展示类", 1)
+            admin = {"id": 1, "role": "admin", "must_change_password": False}
+            generated, generated_status = self._call(
+                application,
+                "do_POST",
+                f"/api/v2/projects/{project['id']}/generate",
+                {"task_description": "说明", "aspect_ratio": "16:9", "creative_tags": {}},
+                user=admin,
+            )
+            scheme_id = generated["items"][0]["scheme_id"]
+            completed, completed_status = self._call(
+                application,
+                "do_POST",
+                f"/api/v2/schemes/{scheme_id}/image",
+                {},
+                user=admin,
+            )
+            history, history_status = self._call(
+                application,
+                "do_GET",
+                f"/api/v2/projects/{project['id']}/history",
+                {},
+                user=admin,
+            )
+            application.ai_v2_application.store.close()
+
+        self.assertEqual(generated_status, HTTPStatus.OK)
+        self.assertEqual(completed_status, HTTPStatus.OK)
+        self.assertEqual(completed["status"], "success")
+        self.assertEqual(history_status, HTTPStatus.OK)
+        self.assertEqual(
+            history["runs"][0]["items"][0]["image_state"],
+            {
+                "status": "success",
+                "attempt_id": 1,
+                "attempt_no": 1,
+                "image_url": "/api/v2/image-attempts/1/image",
+            },
+        )
+
     def test_v2_resource_routes_enforce_project_ownership_and_preserve_image_mime(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

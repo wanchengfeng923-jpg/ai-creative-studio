@@ -8,16 +8,48 @@
 </head>
 <body>
   <main class="shell">
-    <header class="topbar"><h1>AI v2 创意工作台</h1><span id="status" role="status"></span></header>
-    <form id="input-form" class="input-panel">
-      <label>任务说明<textarea id="task-description" maxlength="500" rows="3" required></textarea></label>
-      <label>画面比例<select id="aspect-ratio"><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
-      <fieldset><legend>创意标签</legend><div id="tag-groups"></div></fieldset>
-      <button type="submit">生成文字方案</button>
-    </form>
+    <header class="topbar">
+      <div><p class="eyebrow">AI V2 / TEXT FIRST</p><h1>创意工作台</h1></div>
+      <span id="status" role="status"></span>
+    </header>
+
+    <section id="login-panel" class="panel auth-panel">
+      <div class="panel-heading"><div><p class="eyebrow">LOCAL WORKSPACE</p><h2>登录继续</h2></div></div>
+      <form id="login-form" class="form-grid">
+        <label>用户名<input id="login-username" name="username" autocomplete="username" required maxlength="64"></label>
+        <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit">登录</button>
+      </form>
+      <p id="login-message" class="muted">使用本机工作台账号登录。</p>
+    </section>
+
+    <section id="workspace" hidden>
+      <section class="panel project-panel">
+        <div class="panel-heading"><div><p class="eyebrow">PROJECT</p><h2>选择工作项目</h2></div></div>
+        <div class="project-grid">
+          <label>当前项目<select id="project-select" required></select></label>
+          <label>项目名称<input id="project-name" maxlength="80" placeholder="例如：春季新品视觉"></label>
+          <label>项目类型<select id="project-kind"><option value="展示类">展示类</option><option value="叙事类">叙事类</option></select></label>
+          <button id="create-project" type="button">新建项目</button>
+        </div>
+        <p id="project-message" class="muted"></p>
+      </section>
+
+      <form id="input-form" class="panel input-panel">
+        <div class="panel-heading"><div><p class="eyebrow">BRIEF</p><h2>创意输入</h2></div></div>
+        <label>任务说明<textarea id="task-description" maxlength="500" rows="4" required placeholder="描述目标、卖点和希望用户感受到的内容"></textarea></label>
+        <label>画面比例<select id="aspect-ratio"><option value="16:9">16:9</option><option value="9:16">9:16</option></select></label>
+        <fieldset>
+          <legend>创意标签</legend>
+          <p class="field-hint">展开需要的分组，必选分组至少选择一项。</p>
+          <div id="tag-groups"></div>
+        </fieldset>
+        <button id="generate-button" type="submit">生成文字方案</button>
+      </form>
+    </section>
+
     <section id="results" aria-live="polite"></section>
   </main>
   <script type="module" src="/ai-v2/app.js"></script>
 </body>
 </html>
-

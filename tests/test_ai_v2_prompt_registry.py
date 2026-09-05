@@ -14,6 +14,42 @@ from creative_studio.ai_v2.prompt_registry import (
 
 
 class AiV2PromptRegistryTests(unittest.TestCase):
+    def test_candidate_prompts_spell_out_their_exact_output_contracts(self) -> None:
+        registry = AiV2PromptRegistry()
+        required_markers = {
+            "creative.ai_v2.narrative": (
+                '"schema_version": "narrative-text-v1"',
+                '"items"',
+                '"story"',
+                '"hooks"',
+                '"scenes"',
+            ),
+            "creative.ai_v2.static": (
+                '"schema_version": "static-text-v1"',
+                '"items"',
+                '"title"',
+                '"core_idea"',
+                '"ad_copy"',
+                '"image_description"',
+                '"execution"',
+                '"image_prompt"',
+            ),
+            "creative.ai_v2.carousel": (
+                '"schema_version": "carousel-text-v1"',
+                '"items"',
+                '"title"',
+                '"core_idea"',
+                '"ad_copy"',
+                '"frames"',
+                '"continuity_rules"',
+                '"image_prompts"',
+            ),
+        }
+        for prompt_id, markers in required_markers.items():
+            prompt = registry.get(prompt_id, "v1").template_text
+            for marker in markers:
+                self.assertIn(marker, prompt, prompt_id)
+
     def test_default_registry_keeps_prompts_candidate_until_explicit_approval(self) -> None:
         registry = AiV2PromptRegistry()
         prompt_ids = (

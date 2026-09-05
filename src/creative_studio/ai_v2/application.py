@@ -258,6 +258,12 @@ class AiV2Application:
         return artifact
 
     def _public_run_with_details(self, run: Mapping[str, Any]) -> dict[str, Any]:
+        def image_state(attempt_id: int) -> dict[str, Any]:
+            state = self.store.read_image_attempt_state(attempt_id)
+            if isinstance(state.get("artifact_id"), int):
+                state["image_url"] = f"/api/v2/image-attempts/{attempt_id}/image"
+            return state
+
         enriched = dict(run)
         schemes = []
         for scheme in self.store.list_schemes(int(run["run_id"])):
@@ -273,14 +279,14 @@ class AiV2Application:
                     current = dict(frame)
                     key = f"{scheme['scheme_version']}:frame:{frame['frame_index']}"
                     attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), int(frame["frame_index"]), key)
-                    current["image_state"] = self.store.read_image_attempt_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
+                    current["image_state"] = image_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
                     frames.append(current)
                 item["frames"] = frames
             else:
                 frame = frames_for_scheme[0]
                 key = f"{scheme['scheme_version']}:frame:1"
                 attempt = self.store.find_image_attempt(int(scheme["scheme_id"]), 1, key)
-                item["image_state"] = self.store.read_image_attempt_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
+                item["image_state"] = image_state(attempt.attempt_id) if attempt else {"status": frame["status"], "attempt_no": 0}
             schemes.append(item)
         enriched["schemes"] = schemes
         return public_run(enriched)

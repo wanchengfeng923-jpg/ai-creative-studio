@@ -737,7 +737,7 @@
           </details>
           <div class="keywords">${(item.keywords || []).map((key) => `<span>${esc(key)}</span>`).join("")}</div>
           <div class="card-actions">
-            ${item.image_status === "failed" ? `<button data-retry-item="${item.id}">重新生成此图</button>` : ""}
+            ${imageActionMarkup(item)}
             ${frames.length > 1 ? `<button data-continue-scheme="${item.id}" ${state.continuingSchemes.has(item.id) ? "disabled" : ""}>${state.continuingSchemes.has(item.id) ? "继续生成中…" : "继续生成"}</button>` : ""}
             <button data-adopt-visual="${item.id}">${isAdopted("visual", String(item.id)) ? "已采用" : "采用此方案"}</button>
           </div>
@@ -753,6 +753,7 @@
       state.carouselIndexes.set(itemId, (current + delta + count) % count);
       renderHistory();
     }));
+    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button)));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
     els.resultsGrid.querySelectorAll("[data-continue-scheme]").forEach((button) => button.addEventListener("click", () => continueScheme(Number(button.dataset.continueScheme))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
@@ -789,12 +790,13 @@
             <div class="review"><b>评审</b><p>${esc((item.review || {}).stop_reason)}</p><p>${esc((item.review || {}).why_make_next)}</p><p>${esc((item.review || {}).first_validation)}</p></div>
           </details>
           <div class="card-actions">
-            ${item.image_status === "failed" ? `<button data-retry-item="${item.id}">重新生成此图</button>` : ""}
+            ${imageActionMarkup(item)}
             <button data-adopt-visual="${item.id}">${isAdopted("visual", String(item.id)) ? "已采用" : "采用此方案"}</button>
           </div>
         </div></article>`;
     }).join("");
     els.resultsGrid.querySelectorAll("[data-image-url]").forEach((image) => image.addEventListener("click", () => openImage(image.dataset.imageUrl)));
+    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button)));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
   }
@@ -808,9 +810,17 @@
       ? `<img src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="${esc(item.title)} 第${esc(frame.frame_index)}张画面">`
       : frame.image_status === "failed"
         ? `<div class="image-state">生成失败<br><small>${esc(frame.image_error || "可重试")}</small></div>`
-        : `<div class="image-state"><i></i>${frame.image_status === "generating" ? "AI参考图生成中" : "AI参考图排队中"}</div>`;
+        : `<div class="image-state${frame.image_status === "generating" ? " is-generating" : " is-pending"}">${frame.image_status === "generating" ? "AI参考图生成中" : "点击下方按钮生成参考图"}</div>`;
     const controls = frames.length > 1 ? `<button class="carousel-arrow prev" data-carousel-prev="${esc(item.id)}" aria-label="上一张">‹</button><span class="carousel-index">第${esc(frame.frame_index)}张 / ${frames.length}张</span><button class="carousel-arrow next" data-carousel-next="${esc(item.id)}" aria-label="下一张">›</button>` : "";
     return `<div class="image-frame${portrait} carousel-viewer">${image}${controls ? `<div class="carousel-controls">${controls}</div>` : ""}</div>`;
+  }
+
+  function imageActionMarkup(item) {
+    const status = item.image_status || "pending";
+    if (status === "success") return '<button class="image-action complete" type="button" disabled>参考图已完成</button>';
+    if (status === "generating") return '<button class="image-action" type="button" disabled>参考图生成中…</button>';
+    const label = status === "failed" ? "重试参考图" : "生成参考图";
+    return `<button class="image-action" type="button" data-generate-image="${esc(item.id)}">${label}</button>`;
   }
 
   function renderNarrativeBatch(batch) {
@@ -906,7 +916,7 @@
       }
       await loadHistory(true);
       await loadProjects();
-      toast("方案已生成，参考图会继续在后台完成");
+      toast("方案已生成，请点击卡片按钮生成参考图");
     } catch (error) {
       toast(error.message, true);
       await loadHistory(false).catch(() => {});
@@ -917,11 +927,51 @@
   }
 
   async function retryImage(itemId) {
+    await generateSchemeImage(itemId);
+  }
+
+  async function generateSchemeImage(itemId, button = null) {
+    if (state.operationIds.has(itemId)) return;
+    if (button) { button.disabled = true; button.textContent = "提交中…"; }
     try {
-      await api(V2_GENERATION_ENDPOINTS.schemeImage(itemId), { method: "POST" });
-      toast("已重新生成这张参考图");
+      const payload = await api(V2_GENERATION_ENDPOINTS.schemeImage(itemId), { method: "POST" });
+      const attempt = payload.attempt || payload;
+      const attemptId = Number(payload.attempt_id || attempt.attempt_id || attempt.id || 0);
       await loadHistory(false);
-    } catch (error) { toast(error.message, true); }
+      if (attemptId && !["success", "completed"].includes(String(payload.status || attempt.status || "").toLowerCase())) {
+        state.operationIds.set(itemId, attemptId);
+        state.operationStatus.set(itemId, attempt);
+        pollImageAttempt(itemId, attemptId);
+        toast("参考图生成中");
+      } else {
+        toast("参考图已完成");
+      }
+    } catch (error) {
+      if (button) { button.disabled = false; button.textContent = "重试参考图"; }
+      toast(error.message, true);
+    }
+  }
+
+  async function pollImageAttempt(itemId, attemptId) {
+    try {
+      const payload = await api(V2_GENERATION_ENDPOINTS.imageAttempt(attemptId));
+      const attempt = payload.attempt || payload;
+      state.operationStatus.set(itemId, attempt);
+      await loadHistory(false);
+      const status = String(attempt.status || "").toLowerCase();
+      if (["success", "completed", "failed", "blocked", "error"].includes(status)) {
+        state.operationIds.delete(itemId);
+        state.operationStatus.delete(itemId);
+        state.operationPollTimers.delete(itemId);
+        toast(status === "success" || status === "completed" ? "参考图已完成" : "参考图生成失败，请重试", status !== "success" && status !== "completed");
+        return;
+      }
+      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId), 1200);
+      state.operationPollTimers.set(itemId, timer);
+    } catch (_) {
+      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId), 2000);
+      state.operationPollTimers.set(itemId, timer);
+    }
   }
 
   async function continueScheme(itemId) {
@@ -985,16 +1035,7 @@
       }, 1500);
       return;
     }
-    const batch = state.history?.batches?.[state.activeBatch];
-    if (state.history?.recommendation_kind !== "visual" || !batch) return;
-    if (batch.items.some((item) => {
-      const frames = Array.isArray(item.frames) ? item.frames : (item.carousel?.frames || []);
-      return [item.image_status, ...frames.map((frame) => frame.image_status)].some((status) => ["queued", "pending", "generating"].includes(status));
-    })) {
-      state.pollTimer = setTimeout(async () => {
-        try { await loadHistory(false); } catch (_) { schedulePolling(); }
-      }, 2000);
-    }
+    return;
   }
 
   function scheduleOperationPolling(itemId, operationId) {

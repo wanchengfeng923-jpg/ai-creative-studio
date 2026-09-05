@@ -1,0 +1,81 @@
+{
+  "cases": {
+    "by_use_case": {
+      "carousel": 10,
+      "narrative": 10,
+      "static": 10
+    },
+    "contract_outcomes_evaluated": 29,
+    "contract_outcomes_passed": 29,
+    "definition_complete": 30,
+    "quality_cases_not_run": [
+      "narrative-07"
+    ],
+    "total": 30
+  },
+  "evidence_type": "deterministic_fake",
+  "failure_classification": {
+    "carousel_operation_failed": 0,
+    "image_generation_failed": 0,
+    "model_output_invalid": 7,
+    "provider_protocol_invalid": 0
+  },
+  "model_calls": {
+    "declared_max_per_case": 1,
+    "declared_total_budget": 30,
+    "image_model_calls": 0,
+    "text_model_calls": 30
+  },
+  "privacy": {
+    "leak_count": 0,
+    "public_payloads_scanned": 23
+  },
+  "prompt_registry": [
+    {
+      "caller": null,
+      "hash_matches": true,
+      "lifecycle": "candidate",
+      "max_model_calls": 1,
+      "output_schema": "carousel-text-v1",
+      "prompt_id": "creative.ai_v2.carousel",
+      "schema_matches": true,
+      "template_sha256": "ed85430d70935166cf37d149c77eee1e7f44001fdcdf883764cfd558a81db46b",
+      "version": "v1"
+    },
+    {
+      "caller": null,
+      "hash_matches": true,
+      "lifecycle": "candidate",
+      "max_model_calls": 1,
+      "output_schema": "narrative-text-v1",
+      "prompt_id": "creative.ai_v2.narrative",
+      "schema_matches": true,
+      "template_sha256": "33f55fb7d3c0c90903a3c879efe3de6a15ccdc4ec83a262a94aa131967392851",
+      "version": "v1"
+    },
+    {
+      "caller": null,
+      "hash_matches": true,
+      "lifecycle": "candidate",
+      "max_model_calls": 1,
+      "output_schema": "static-text-v1",
+      "prompt_id": "creative.ai_v2.static",
+      "schema_matches": true,
+      "template_sha256": "1eed12efce5e04e505f1e4d4134d8e85ca2c528ad4931cc220278c1736e63f2d",
+      "version": "v1"
+    }
+  ],
+  "quality_claim": "contract_only",
+  "real_model_quality": "not-run",
+  "retry_count": {
+    "hidden_format_repairs": 0,
+    "image_retries": 0,
+    "text_retries": 0
+  },
+  "schema_validation": {
+    "expected_outcome_pass_rate": 1.0,
+    "invalid_payloads_rejected": 7,
+    "valid_payloads_accepted": 23
+  },
+  "schema_version": "ai-v2-candidate-contract-evidence.v1"
+}

@@ -9,4 +9,18 @@ ASPECT_RATIO:
 CREATIVE_TAGS_JSON:
 {{creative_tags}}
 
-Return only the static-text-v1 JSON contract with three concepts and one private image execution instruction per concept.
+Return one JSON object and nothing else. Do not use a legacy concepts/version shape.
+The object must have exactly this shape:
+{
+  "schema_version": "static-text-v1",
+  "items": [
+    {
+      "title": "string",
+      "core_idea": "string",
+      "ad_copy": "string",
+      "image_description": "string",
+      "execution": {"image_prompt": "string"}
+    }
+  ]
+}
+Generate exactly 3 items. Every item must contain all five keys shown above, and execution.image_prompt is a private image-generation instruction. Keep all fields as non-empty strings.
