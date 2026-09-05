@@ -4,7 +4,7 @@
 
 1. 阅读 `AGENTS.md`、`progress.md`、代码地图、`docs/operations.md` 和总纲；确认当前工作树中的用户修改。
 2. 停止网页/网关后，在临时目录完成数据库、图片、上传文件备份和 restore smoke。
-3. 运行 `python -m creative_studio.release_gate`，保存输出和 commit hash。
+3. 运行 `python -m creative_studio.ai_v2.release_gate`，保存输出和 commit hash。
 4. 检查 registry active caller、评测报告 schema/lint、迁移版本和备份 manifest；恢复 smoke 必须返回 `verified=true` 与 `references_verified=true`，并记录只读 retention plan。
 
 ## 发布中

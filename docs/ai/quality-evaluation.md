@@ -1,60 +1,53 @@
-# AI 用例评测状态
+# AI v2 评测状态
 
-本文档记录当前仓库内可复现的评测资产和仍未验证的质量门禁。它不把 deterministic fake 的契约通过误写成真实模型质量结论。
+本文记录当前仓库内可复现的 AI v2 评测资产和仍未验证的质量门禁。旧 AI v1 fixture、报告模板和评测 harness 已随旧实现删除；相关历史结论仍保留在 ADR、计划、handoff 和 progress 中。
 
-## 固定评测集
+## 固定候选集
 
-| 用例 | 评测集 | 样例数 | 当前可验证内容 |
-|---|---|---:|---|
-| 叙事 | `config/evals/narrative.v1.json` | 10 | 数量、结构、事实边界、注入防护和第二批去重约束 |
-| 静态展示 | `config/evals/static.v1.json` | 10 | 三案结构、证据状态、机制差异、私有字段和 repair 失败 |
-| 轮播 | `config/evals/carousel.v1.json` | 10 | 2/3/4/5 帧、路线连续性、私有首帧指令和失败状态 |
+AI v2 使用 `config/evals/ai_v2/prompt-cases.jsonl` 的 30 个脱敏 case，叙事、静态、轮播各 10 个。硬约束定义位于 `config/evals/ai_v2/expected-hard-constraints.json`，候选 Prompt 和审批边界见 `docs/ai/ai-v2-prompt-approval.md`。
 
-这些 fixture 只包含脱敏输入、硬约束和评测维度，不包含真实模型输出。每次 prompt 或 contract 变更至少运行对应的 fixture 测试和全量 deterministic unittest。
+可重复执行：
 
-### AI v2 候选评测集
+```powershell
+$env:PYTHONPATH = "D:\code\ai_creative_studio\src"
+python -m creative_studio.ai_v2.release_gate
+```
 
-AI v2 使用独立的 `config/evals/ai_v2/prompt-cases.jsonl`，固定 30 个脱敏 case，叙事、静态、轮播各 10 个。候选 Prompt 和审批边界见 `docs/ai/ai-v2-prompt-approval.md`，可复核报告见 `config/evals/ai_v2/reports/candidate-contract-evidence.v1.json`。
-
-当前 deterministic contract 证据为：30 个 case 定义完整；29 个可自动判定的文字 contract outcome 全部符合预期；7 个坏输出归类为 `model_output_invalid`；23 个成功公开 DTO 的递归私有字段扫描泄露数为 0；30 次文字调用均来自进程内 deterministic fake，每 case 1 次，图片调用为 0。`narrative-07` 的机制重复判断和全部真实模型质量继续为 `not-run`。
-
-三份 v2 registry 项的候选文件 hash、`AiV2Input.v1`、对应 `*-text-v1` schema、`max_model_calls=1` 均已对齐；生命周期继续为 `candidate`，`caller` 继续为 `null`。这些事实只支持 contract 审查，不支持 production 接入或质量通过结论。
+该命令运行 v2 contract 测试、Python compileall、Node 语法、diff-check 和 boundary 扫描，并输出 deterministic contract evidence。它不会默认连接真实模型或图片供应商。
 
 ## 当前证据
 
-- 全量 deterministic unittest：254 项通过。
-- `PromptRegistry` 在启动时校验路径、hash、变量、contract、生命周期和唯一 production caller。
-- 叙事、静态、轮播 production caller 均穿过各自 Module；图片任务使用 deterministic fake 验证排队、失败、重试和恢复。
-- 真实 AI 输出质量、事实准确性、机制人工评分、成本/延迟 baseline、真实图片质量和供应商成功率尚未验证。
-- 本地 `python -m creative_studio.evaluation_harness --validate-only` 会校验 3 套 fixture（共 30 个 case）和三份 `not_run` 报告；它不调用模型或图片供应商。
+报告：`config/evals/ai_v2/reports/candidate-contract-evidence.v1.json`
 
-## 离线硬约束 lint
+- 30 个 case 定义完整。
+- 29 个可自动判定的文字 contract outcome 符合预期。
+- 7 个坏输出归类为 `model_output_invalid`。
+- 23 个成功公开 DTO 的递归私有字段扫描泄露数为 0。
+- 30 次文字调用全部来自进程内 deterministic fake，每 case 1 次；图片调用为 0。
+- 没有隐藏格式修复、文字重试或图片重试。
+- `narrative-07` 的机制重复判断和全部真实模型质量为 `not-run`。
 
-`creative_studio.evaluation_harness` 提供三层离线检查：
+三份 v2 registry 项的候选文件 hash、`AiV2Input.v1`、对应 `*-text-v1` schema 和 `max_model_calls=1` 已对齐。生命周期仍为 `candidate`，`caller` 仍为 `null`。这些事实只支持 contract 审查，不支持 production 接入或真实质量通过结论。
 
-- `lint_case_output(use_case, case, output)` 使用对应 canonical validator，并递归拒绝图片指令、供应商游标、路径和 raw response 等私有字段。
-- `evaluate_case_outputs(...)` 汇总一组 case 的硬约束通过率和失败分类；它只评价结构/边界，不替代人工创意评分。
-- `lint_evaluation_result(...)` 对 `complete`/`failed` 报告强制要求 `hard_constraint_pass_rate`、`calls`、`latency_ms`、合法失败分类和 `evidence_type`。
+## 失败分类
 
-失败分类使用固定枚举：`model_output_invalid`、`provider_protocol_invalid`、
-`image_generation_failed`、`carousel_operation_failed`；`aggregate_failure_classifications(...)`
-可跨结果聚合，未知分类或负数计数会使门禁失败。
+release gate 使用以下稳定分类：
 
-## 报告契约
+- `model_output_invalid`
+- `provider_protocol_invalid`
+- `image_generation_failed`
+- `carousel_operation_failed`
 
-`config/evals/report-template.v1.json` 是版本化报告模板。每份报告必须保留
-`baseline`、`candidate` 和 `repair_failure` 三个结果槽位；未执行的结果使用 `status: "not_run"`，不得用
-deterministic fake 结果冒充真实供应商质量。非 `not_run` 结果至少记录硬约束通过率、实际调用次数、延迟和
-失败分类。稳定失败分类为 `model_output_invalid`、`provider_protocol_invalid`、
-`image_generation_failed` 和 `carousel_operation_failed`。
-
-deterministic fake 不写入 baseline/candidate/repair_failure。运行
-`python -m creative_studio.evaluation_harness --deterministic-fake-summary` 只输出
-`deterministic-contract-evidence.v1`，并明确 `evidence_type=deterministic_fake`、
-`quality_claim=contract_only`；这份输出不能被解释为真实模型质量报告。
+报告同时记录 schema 通过率、公开字段泄露数、模型调用数、重试数和每类失败计数。未知分类、超出预算、私有字段泄露、Prompt hash/schema 不匹配或 boundary 违规都会使门禁失败。
 
 ## 真实评测前置条件
 
-真实模型或图片网关评测必须使用固定脱敏输入、独立评测输出目录和明确预算；不得读取或修改 `data/`、`chat2api/.env`，也不得把完整模型回复写入公开日志。评测报告至少应包含硬约束通过率、事实错误数、机制差异人工评分、可制作性/一眼可懂评分、第二批重复率、调用次数、延迟和失败分类。
+真实模型或图片评测必须使用固定脱敏输入、临时 SQLite/图片目录和明确预算；不得读取或修改 `data/`、`chat2api/.env`，也不得把完整模型回复写入公开日志。报告至少记录：
 
-在获得单独授权并完成备份/回滚变更卡前，真实 AI、真实图片网关和带认证浏览器均保持“未验证”。
+- 硬约束通过率与失败分类；
+- 事实错误数和机制差异人工评分；
+- 可制作性、一眼可懂和第二批重复率；
+- 调用次数、成本、延迟和供应商成功率；
+- Prompt 版本、schema 版本和审批人。
+
+在完成用户审批、真实质量评测和独立 live caller 变更前，不得把 `caller` 设置为 production，不得默认启用 `CREATIVE_STUDIO_AI_V2_LIVE=1`。

@@ -10,8 +10,6 @@
 
 当前版本只监听 `127.0.0.1`，网页使用 `8775`，本项目自己的 AI 网关使用 `8780`。它不占用原 ERP 的 `8700` 网关。网页要求应用内账号登录，普通用户只能访问自己的项目，管理员可以管理普通账号并访问全部项目；不要把端口映射到局域网或公网。
 
-当前工作树若保留 `launcher.py` 的 `WEB_BIND_HOST = "0.0.0.0"` 修改，则实际监听边界以启动器和负责人批准的变更卡为准；本项目不会把该修改自动视为正式内网部署。
-
 启动控制台也提供“停止”“重启”“检测连接”和“打开网页”按钮。配置只保存到本机 `chat2api/.env`，不会显示在运行信息中。只填写 Session Cookie 时，启动后会自动调用会话接口换取并保存新的 Access Token；换取失败会在运行信息中提示。
 
 ## 第一版范围
@@ -19,8 +17,8 @@
 - 新建、搜索、打开和删除创意项目
 - 自动保存创意需求、定位、画幅和产品证据
 - 叙事类和展示类定位均使用 Excel 配置的单选/多选标签；展示类支持卖点→展示内容过滤、美术风格级联和轮播条件显示
-- 保存参考文件，向 AI 提供文件名和受控摘要；不向浏览器暴露本地路径或私有图片指令
-- 展示类：每批 3 套视觉方案、最多 2 批、3 张异步 AI 参考图、单图重试和原图预览
+- 保存参考文件 metadata；AI v2 当前不把参考文件作为业务输入，浏览器不接收本地存储名或受控摘要
+- 展示类：每批 3 套视觉方案、最多 2 批；每套按用户点击生成参考图，单图失败可重试并支持原图预览
 - 叙事类：每批 5 个故事、10 个钩子和 30 条画面建议，最多 2 批
 - 输入改变后保留旧定位历史
 - 采用或替换当前方案
@@ -35,7 +33,7 @@
 - AI 网关配置：`chat2api/.env`
 - 标签配置：`config/creative_tag_options.json`（由叙事类和展示类标签表整理，运行时只读）
 
-备份与恢复使用 `python -m creative_studio.backup --dry-run --output .scratch/backup-smoke` 做只读检查；正式备份和恢复步骤见 [`docs/operations.md`](docs/operations.md)，发布前完整门禁使用 `python -m creative_studio.release_gate`。
+备份与恢复使用 `python -m creative_studio.backup --dry-run --output .scratch/backup-smoke` 做只读检查；正式备份和恢复步骤见 [`docs/operations.md`](docs/operations.md)，AI v2 门禁使用 `python -m creative_studio.ai_v2.release_gate`。
 
 这些运行数据和敏感配置均被 Git 忽略。当前 `.env` 是从本机原项目复制的配置，仅用于让这台电脑直接启动；不会进入提交。
 
@@ -52,7 +50,7 @@ python -m compileall -q src chat2api
 
 ## 当前技术边界
 
-为快速独立，创意生成核心仍兼容原来的 `WEB_ERP_AI_*` 环境变量名，但变量只由本项目启动脚本设置，不依赖 ERP 进程或 ERP 数据。后续可以在不改变数据合同的情况下逐步重命名。
+正式生成链路只保留 `creative_studio.ai_v2`。默认组合根使用 deterministic candidate models；只有显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 才连接本项目 `chat2api` 网关。旧 AI 模块、Prompt、评测资产和新库建表逻辑已经删除，已有数据库中的旧表与记录不会被清理或迁移。
 
 AI 能力的生产链路、问题台账和重构实施顺序以 [`docs/ai-rebuild-master-plan.md`](docs/ai-rebuild-master-plan.md) 为准；`progress.md` 是历史时间线，不替代当前事实文档。
 

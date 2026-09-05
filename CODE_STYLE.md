@@ -16,7 +16,7 @@
 | 状态管理 | 页面内状态 + SQLite 服务端状态 | 当前页面以顶层 `state` 对象组织临时状态；允许随模块边界拆分视图状态，但项目、生成历史、采用关系和图片任务状态始终以 API/SQLite 为唯一事实来源。不得维护第二套长期业务事实。 |
 | 样式方案 | 原生 CSS | 复用现有设计变量、组件类和响应式断点；不得引入内联样式堆叠或第三方 CSS 框架。 |
 | 路由方案 | 单页、无客户端路由 | 三步工作流使用页面状态切换；API 路由集中在 `src/creative_studio/app.py`。新增页面或客户端路由前必须先说明 URL、刷新、回退和静态托管策略。 |
-| 后端 | Python 标准库 HTTP 服务 + SQLite | HTTP 编排放在 `app.py`，持久化放在 `repository.py`，AI 结构与校验放在 `ai_creative.py`，图片任务放在 `image_jobs.py`。 |
+| 后端 | Python 标准库 HTTP 服务 + SQLite | HTTP 编排放在 `app.py`，中立项目/认证持久化放在 `repository.py`，AI v2 结构、状态机和持久化只放在 `ai_v2/`。 |
 | 测试 | Python `unittest` + 定向静态检查 | 测试使用临时数据库或假服务，不读取、覆盖真实 `data/`，不默认发起真实 AI 请求。 |
 
 ### 1.2 隔离原型
@@ -77,7 +77,7 @@ React 原型遵循：
 
 ### 3.3 名称质量
 
-- 使用项目领域词汇：`project`、`generation`、`visual_item`、`adoption`、`image_job`。不要用 `data`、`info`、`manager`、`helper` 等含义模糊的名称代替真实概念。
+- 使用项目领域词汇：`project`、`run`、`scheme`、`adoption`、`image_attempt`。不要用 `data`、`info`、`manager`、`helper` 等含义模糊的名称代替真实概念。
 - 名称应说明单位或格式，例如 `latency_ms`、`created_at_iso`；不要依赖注释补救含糊命名。
 - API JSON 字段沿用现有 `snake_case`，前后端不得为同一字段各造一种拼写。
 

@@ -19,15 +19,15 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from .public_projection import PublicResultMapper
-from .repository import StudioDataError, StudioRepository
-from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
 from .ai_v2.adapters.image_gateway import ImageGatewayAdapter
 from .ai_v2.adapters.text_gateway import GatewayHttpTransport, TextGatewayAdapter
 from .ai_v2.application import AiV2Application, AiV2ApplicationError
 from .ai_v2.http_api import AiV2HttpApi
 from .ai_v2.model_ports import ImageModelPort, TextModelPort
 from .ai_v2.store import SqliteAiV2Store
+from .auth import AuthError, AuthPermissionError, AuthRateLimitError, AuthService
+from .project_projection import ProjectProjection
+from .repository import StudioDataError, StudioRepository
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -47,14 +47,14 @@ class StudioApplication:
         repository: StudioRepository,
         auth: AuthService,
         *,
-        public_mapper: PublicResultMapper,
+        project_projection: ProjectProjection,
         uploads_dir: Path,
         ai_v2_application: AiV2Application | None = None,
         ai_v2_factory: Callable[[], AiV2Application] | None = None,
     ) -> None:
         self.repository = repository
         self.auth = auth
-        self.public_mapper = public_mapper
+        self.project_projection = project_projection
         self.uploads_dir = Path(uploads_dir).resolve()
         self._ai_v2_application = ai_v2_application
         self._ai_v2_factory = ai_v2_factory
@@ -91,7 +91,7 @@ def create_application(
     """Build the application graph, allowing deterministic adapters in tests."""
 
     source = environment if environment is not None else os.environ
-    public_mapper = PublicResultMapper()
+    project_projection = ProjectProjection()
     repository = StudioRepository(
         database_path,
         **({"clock": clock} if clock is not None else {}),
@@ -147,7 +147,7 @@ def create_application(
     return StudioApplication(
         repository,
         auth,
-        public_mapper=public_mapper,
+        project_projection=project_projection,
         uploads_dir=uploads_dir,
         ai_v2_factory=create_ai_v2_application,
     )
@@ -414,7 +414,7 @@ class StudioHandler(BaseHTTPRequestHandler):
                 projects = [p for p in projects if p.get("owner_user_id") == context.user.get("id")]
             self._json({
                 "success": True,
-                "projects": [self.application.public_mapper.project_summary(project) for project in projects],
+                "projects": [self.application.project_projection.summary(project) for project in projects],
             })
             return
         project_match = re.fullmatch(r"/api/projects/(\d+)", path)
@@ -427,7 +427,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             else:
                 self._json({
                     "success": True,
-                    "project": self.application.public_mapper.project(project),
+                    "project": self.application.project_projection.project(project),
                 })
             return
         self._json({"success": False, "error": "接口不存在"}, HTTPStatus.NOT_FOUND)
@@ -493,7 +493,7 @@ class StudioHandler(BaseHTTPRequestHandler):
             project = self.application.repository.create_project(data.get("name", "未命名创意"), data.get("script_type", "展示类"), int(context.user["id"]))
             self._json({
                 "success": True,
-                "project": self.application.public_mapper.project(project),
+                "project": self.application.project_projection.project(project),
             }, HTTPStatus.CREATED)
             return
         upload_match = re.fullmatch(r"/api/projects/(\d+)/files", path)
@@ -520,7 +520,7 @@ class StudioHandler(BaseHTTPRequestHandler):
         project = self.application.repository.update_project(int(match.group(1)), self._read_json())
         self._json({
             "success": True,
-            "project": self.application.public_mapper.project(project),
+            "project": self.application.project_projection.project(project),
         })
 
     def _delete(self) -> None:

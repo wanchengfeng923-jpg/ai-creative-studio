@@ -8,15 +8,10 @@
 
 ## 启动
 
-应用在 HTTP server bind 前加载 `config/prompts/registry.json`，校验 prompt 文件路径、模板
-变量/hash、production contract 映射和生命周期；校验失败时启动终止。叙事生产项当前为
-`creative.narrative.generate@v6`，旧 v5 仅作为 retired inventory。旧 `WEB_ERP_AI_*_PROMPT_PATH`
-仅作兼容输入，叙事已完成 Phase 2 切换，非轮播静态展示已切换到
-`creative.visual.static.generate@static-v1`，轮播使用
-`creative.visual.carousel.plan@visual-carousel-v1` 和 `CarouselVisualGeneration`；该版本由一次共享 planner
-直接产出每套私有首帧指令，后续画面由后台 operation 按锁定路线编排。旧静态
-`creative.visual.static.generate@visual-v2.3` 仅保留在 registry 的 retired inventory；历史行通过公开投影兼容读取，不能作为新 caller，也不会再执行旧 prompt。
-
+AI v2 Prompt registry 位于 `config/ai_v2/prompts/registry.json`。当前三份 Prompt 均为
+`candidate` 且 `caller=null`；网页组合根默认构造 deterministic candidate text/image
+models，不连接真实网关。只有经过独立审批并显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1`，
+才会通过保留的 `chat2api` 构造文字和图片 adapter。
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。
 3. 在“登录配置”中填写 Access Token 或 Session Cookie，点击“保存配置”；代理配置请使用独立的“网络代理工作台”。
@@ -87,79 +82,49 @@ python -m creative_studio.backup --retention-root .scratch --keep-latest 7
 
 不要复制或明文散落 `chat2api/.env`；令牌单独放在受保护的位置。恢复演练通过后仍需对项目、图片和上传引用做只读 smoke，禁止直接覆盖当前运行目录。多人内网正式上线前，必须把该工具接入受控调度器，设置保留策略、失败告警，并至少完成一次跨目录恢复。
 
-## 静态展示生成边界
+## AI v2 运行边界
 
-旧版生成链路（`generation_service.py`、`image_jobs.py`、`/api/projects/*/generate` 和 `/api/visual-items/*`）已退休，生产入口不再构造或调用这些模块；历史运维说明仅保留为审计记录。
+正式 AI 入口只使用 `/api/v2`。请求只接受 `task_description`、`aspect_ratio`、
+`creative_tags` 三个业务字段；项目文件和产品证据字段不进入 v2。文字生成同步返回，
+静态方案首次点击才创建图片会话，轮播每次点击只推进一帧。公开响应不包含 Prompt、
+execution、会话游标、供应商 job id、本地路径、完整响应或堆栈。
 
-AI v2 入口使用 `/api/v2`：请求只接受 `task_description`、`aspect_ratio`、`creative_tags` 三个业务字段。文字生成同步返回，静态方案首次点击才创建图片会话，轮播每次点击只推进一帧；公开响应不包含 Prompt、execution、会话游标、供应商 job id 或本地路径。
+每批文字使用一个新的文字 session，最多一次模型调用。每个展示方案最多创建一个图片
+session，轮播同一方案的全部帧复用该 session。图片重试必须先读取本地 attempt 并向供应商
+对账：供应商成功时完成原 attempt，仍在工作时重新挂接，只有明确终态失败才在同一 session
+内创建新 attempt；未知、超时、断开或 5xx 不得创建第二个 session。
 
-当前 v2 Prompt registry 保持 `candidate`，本地组合根默认使用 deterministic candidate text/image models，不会连接真实 AI gateway。Prompt 正文评审和真实供应商冒烟完成后，且仅在独立审批变更中，才可设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 构造 gateway adapter；未设置时不会发起真实请求。
+旧 `/api/projects/{id}/generate`、`/api/visual-items/*` 和旧采用接口返回 404。根包旧 AI
+模块、Prompt、v1 评测资产和仓储方法已删除，不存在 fallback、双写或双读。
 
-非轮播展示生成从旧 `StaticVisualGeneration` 进入 `StaticVisualResult.v1` 校验；一批固定三案，成功后为每案创建一个首图任务。`generation_service.py` 通过
-`StaticVisualImageRequest` 把画幅、私有指令和稳定 request id 交给图片队列。canonical 正文写入
-`generations.items_json` 和 `visual_items.content_json`，私有
-`image_generation_instruction` 只写入 `visual_items.image_prompt` 和受控图片队列，静态方案不写入
-`display_frames`。浏览器 history/status/adopt 由 `StaticVisualPublicDTO.v1` 白名单投影，不能包含私有图片指令、完整模型响应、本地路径或 gateway job id。
+## 历史数据库兼容
 
-本阶段的 registry、临时 SQLite、fake model/image runner、参考资料边界和前端 canonical renderer 已通过当前 `254` 项 deterministic unittest，以及 Node 语法和 Python compileall 检查；真实 AI、图片网关、认证浏览器、真实数据库写入和图片质量未验证。遇到这些需求时，先建立独立变更卡，不要直接对 `data/` 或 `chat2api/.env` 操作。
+`StudioRepository` 新建数据库时只创建用户、会话、审计、项目和项目文件表。
+`SqliteAiV2Store` 在同一数据库中创建独立的 `ai_v2_*` 表。已有数据库中的
+`generations`、`visual_items`、`display_frames`、`carousel_operations`、
+`adoptions` 仅作为历史数据原样保留；当前初始化不创建、迁移、读取或删除这些表。
 
-## 轮播后台 Operation
+`creative_studio.backup` 继续只读检查历史 `visual_items` / `display_frames` 中标记成功的
+图片路径，确保旧数据库备份仍能发现缺失文件。这项兼容不恢复旧 AI 运行时。不要手工 DROP
+旧表；任何历史数据归档或删除都必须另开高风险变更卡、先备份并完成恢复演练。
 
-旧轮播继续接口 `POST /api/visual-items/{id}/continue` 在首图成功后创建持久化
-`carousel_operations`，立即返回 HTTP `202`、`operation_id` 和方案公开 DTO。前端随后轮询
-`GET /api/visual-items/{id}/operation/{operation_id}`，逐帧状态仍以
-`GET /api/visual-items/{id}/frames/status` 为准。operation 的公开状态为 `queued`、`running`、
-`completed`、`blocked` 或 `failed`，只暴露安全进度和错误摘要。
+## AI v2 验证
 
-后台 coordinator 使用 lease token 和 heartbeat 独占 operation。每次图片成功会在同一事务中提交
-图片 artifact、frame 状态、方案会话游标和 operation revision；旧 worker 的 token 或 attempt 不匹配时
-不能覆盖新状态。lease 过期恢复只回收明确失活的 operation，并把崩溃 worker 遗留的当前
-`generating` 帧重置为 `pending`，已成功帧不会重复生成。两次图片失败后 operation 进入 `blocked`，
-保留 frame 错误供人工重试；不会删除 operation 或生成失败记录。
-
-轮播 v1 的流程决策见 [`docs/adr/0003-carousel-v1-background-operation.md`](adr/0003-carousel-v1-background-operation.md)。
-真实 AI、图片网关、认证浏览器和多进程生产竞态仍未验证；当前测试全部使用 deterministic fake。
-
-## 历史公开投影 scrub
-
-Phase 0 提供 `creative_studio.projection_scrub`，用于统计或重建旧 `generations.items_json` 与 `adoptions.snapshot_json` 的公开投影。默认模式只读；工具会通过 SQLite `mode=ro` 打开目标库，不写数据，也不创建备份。
-
-先在仓库根目录执行真实运行库的只读 dry-run：
+代码或 Prompt 变化后运行：
 
 ```powershell
 $env:PYTHONPATH = "D:\code\ai_creative_studio\src"
-python -m creative_studio.projection_scrub --database data\creative_studio.db
+python -m unittest discover -s tests -q
+python -m unittest discover -s tests -p "test_ai_v2_*.py" -q
+node --check static\app.js
+node --check static\ai-v2\app.js
+python -m compileall -q src chat2api
+python -m creative_studio.ai_v2.release_gate
+git diff --check
 ```
 
-输出中的 `scanned_rows` 是检查行数，`changed_rows` 是重建后会变化的行数，`private_field_occurrences` 是旧 JSON 中命中的私有字段次数，`invalid_json_rows` 是无法安全重建的行数，`unknown_kind_rows` 是 recommendation kind 不在 `narrative`/`visual` 范围内的行数。只有 `applied=false` 才是 dry-run；该命令不得改为带 `--apply` 的真实库命令。
-
-需要验证写入时，只操作临时副本，并让工具另建一个不存在的 backup 文件：
-
-```powershell
-New-Item -ItemType Directory -Force .scratch\projection-scrub | Out-Null
-Copy-Item -LiteralPath data\creative_studio.db -Destination .scratch\projection-scrub\creative_studio-copy.db
-python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db
-python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db --apply --backup .scratch\projection-scrub\creative_studio-before.db
-python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-copy.db
-```
-
-`--apply` 在 `invalid_json_rows` 或 `unknown_kind_rows` 非零时会在创建 backup 和写入之前直接中止，不允许跳过问题行做部分重建。最后一次 dry-run 应报告 `changed_rows=0`、`private_field_occurrences=0`、`invalid_json_rows=0` 和 `unknown_kind_rows=0`。若任一检查不为零，停止处理并保留副本、backup 和输出供诊断，不要尝试绕过保护后修改真实库。
-
-恢复演练同样只针对临时副本。保留 apply 后的副本作为对照，从 backup 创建另一个恢复文件，再重新 dry-run：
-
-```powershell
-Copy-Item -LiteralPath .scratch\projection-scrub\creative_studio-before.db -Destination .scratch\projection-scrub\creative_studio-restored.db
-python -m creative_studio.projection_scrub --database .scratch\projection-scrub\creative_studio-restored.db
-```
-
-恢复文件的统计应与 apply 前的临时副本一致。工具硬拒绝直接 apply 仓库默认 `data/creative_studio.db`；本文档也不授权绕过该保护。若未来确需处理真实运行库，必须另行取得用户确认，停止服务，完成数据库、图片和上传目录的独立备份与恢复演练，再通过单独评审的迁移方案执行。
-
-截至 2026-09-04，对默认运行库执行过一次只读 dry-run，结果为 `scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`、`invalid_json_rows=0`、`unknown_kind_rows=0`。因此当前运行库仍需要单独的备份、恢复演练和历史 scrub 变更卡；本次未执行 `--apply`，也未写入真实数据。
-
-Phase 5 临时副本恢复演练已由 `tests/test_projection_scrub.py` 覆盖：副本先 dry-run，再使用新 backup
-apply；从 backup 恢复后再次 apply，最后 dry-run 达到 `changed_rows=0` 和
-`private_field_occurrences=0`。演练只使用临时目录，不代表真实运行库已经迁移。
-
+release gate 的 deterministic 结果只证明 contract、schema、隐私和调用预算边界；真实模型
+质量与供应商稳定性仍需单独审批和受控评测。
 ## 故障处理
 
 ### 账号初始化与会话

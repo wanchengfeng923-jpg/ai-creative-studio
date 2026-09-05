@@ -2343,3 +2343,29 @@
 - 本轮后续执行未发送真实 AI/图片请求，未修改真实数据库、图片、上传文件、`chat2api/.env`、监听地址或入口发布配置。
 - `narrative-07` 的机制重复和全部真实模型质量仍为 `not-run`；deterministic 证据只支持 contract 审查，不构成 Prompt 质量或 production 发布批准。
 - 独立 `/ai-v2/` 页面是否清理、受控真实模型评测、production caller 和正式发布继续留在单独审批变更中。
+
+# 2026-09-05 旧 AI 实现退役
+
+### 已完成
+
+- 将此前主页面 AI v2 接入与候选 Prompt contract 材料提交为 checkpoint `c80330d`，再从干净工作树执行旧 AI 清理。
+- 删除根包 27 个旧 AI Python 模块、旧 Prompt/registry、旧 v1 eval fixture/报告和 7 个旧实现测试；完整保留 `creative_studio.ai_v2`、`config/ai_v2`、`config/evals/ai_v2` 与 `chat2api`。
+- 新增中立 `ProjectProjection`，项目详情/列表继续使用白名单并隐藏上传文件内部存储名；旧采用状态不再从项目仓储读取，页面继续通过 v2 adoption API 恢复。
+- `StudioRepository` 收缩为用户、会话、审计、项目与项目文件能力；新库不再创建旧 AI 表，已有库中的旧表结构和记录不修改、不读取、不删除。
+- `backup.py` 保留对已有旧图片表的只读完整性检查，确保历史数据库仍可备份与恢复。
+- 新增退役路径守卫、项目投影测试、新库表边界和旧表哨兵保护测试；同步 README、代码地图、运维、AI 文档入口、质量评测和开发规则。
+- 独立审查后修正发布 runbook 的 v2 release gate 路径、项目投影公共方法文档字符串和应用导入顺序；补充项目列表/详情经过白名单投影的 HTTP 接线测试。
+
+### 验证
+
+- TDD RED：项目投影测试先因模块不存在失败；仓储测试先因新库创建五类旧表失败；退役路径守卫先列出 50 个旧路径。
+- 定向 GREEN：项目/API 5 项、仓储/认证/备份 34 项、退役/标签/v2 boundary/gateway 25 项通过。
+- 最终全量 unittest：173 项通过；AI v2 unittest：100 项通过；v2 release gate：100 项通过。
+- `node --check static\\app.js`、`node --check static\\ai-v2\\app.js`、`python -m compileall -q src chat2api`、boundary 和 `git diff --check` 全部通过。
+- release gate 继续报告 `evidence_type=deterministic_fake`、`quality_claim=contract_only`、23 个公开 DTO 泄露数为 0；三份 Prompt 仍为 `candidate`、`caller=null`。
+
+### 未做与数据边界
+
+- 未调用真实 AI/图片供应商，未修改或删除真实数据库、图片、上传文件和 `chat2api/.env`。
+- 已有数据库中的旧表与历史记录仍原样保留；后续若要归档或删除，必须另开高风险变更、先备份并完成恢复演练。
+- 历史 ADR、handoff、实施计划和研究文档保留旧名称作为审计记录，不代表旧运行时仍可用。

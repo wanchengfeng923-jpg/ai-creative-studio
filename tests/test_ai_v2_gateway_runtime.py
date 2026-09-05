@@ -312,32 +312,21 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
     def test_launcher_defaults_to_loopback_web_binding(self) -> None:
         self.assertEqual(WEB_BIND_HOST, "127.0.0.1")
 
-    def test_composition_root_does_not_construct_legacy_ai_runtime(self) -> None:
+    def test_composition_root_exposes_only_v2_ai_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch(
-                "creative_studio.generation_service.CreativeGenerationService.__init__",
-                side_effect=AssertionError("legacy service constructed"),
-            ), patch(
-                "creative_studio.image_jobs.ImageJobRunner.__init__",
-                side_effect=AssertionError("legacy worker constructed"),
-            ), patch(
-                "creative_studio.image_jobs.GptWebImageClient.__init__",
-                side_effect=AssertionError("legacy image client constructed"),
-            ), patch(
-                "creative_studio.model_client.HttpModelClient.__init__",
-                side_effect=AssertionError("legacy model client constructed"),
-            ):
-                application = create_application(
-                    database_path=root / "studio.db",
-                    uploads_dir=root / "uploads",
-                    environment={},
-                    ai_v2_text_model=DeterministicTextModel([_static_text()]),
-                    ai_v2_image_model=DeterministicImageModel(),
-                )
+            application = create_application(
+                database_path=root / "studio.db",
+                uploads_dir=root / "uploads",
+                environment={},
+                ai_v2_text_model=DeterministicTextModel([_static_text()]),
+                ai_v2_image_model=DeterministicImageModel(),
+            )
 
             self.assertFalse(hasattr(application, "generation_service"))
             self.assertFalse(hasattr(application, "image_runner"))
+            self.assertIsNotNone(application.ai_v2_application)
+            application.ai_v2_application.store.close()  # type: ignore[union-attr]
 
     def test_legacy_generation_post_routes_are_unavailable(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -349,13 +338,6 @@ class AiV2GatewayRuntimeTests(unittest.TestCase):
                 ai_v2_text_model=DeterministicTextModel([_static_text()]),
                 ai_v2_image_model=DeterministicImageModel(),
             )
-            application.generate = lambda _project_id: {"success": True}
-            application.select_visual_scheme = lambda _item_id: {"scheme_id": 1}
-            application.continue_visual_scheme = lambda _item_id: {"scheme": {"scheme_id": 1}}
-            application.adopt_visual = lambda _project_id, _item_id: {"scheme_id": 1}
-            application.repository.get_visual_item_owner_id = lambda _item_id: 1
-            application.repository.retry_visual_item = lambda _item_id: True
-            application.image_runner = SimpleNamespace(retry=lambda _item_id: None)
             context = SimpleNamespace(user={"id": 1, "role": "admin", "must_change_password": False})
 
             for path in (

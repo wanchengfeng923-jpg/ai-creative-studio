@@ -33,7 +33,7 @@
 - 数据：`data/creative_studio.db`、`data/images/`、`data/uploads/`，均为运行数据，不提交 Git。
 - 密钥：`chat2api/.env` 只保存在本机并被 Git 忽略；不得写入源码、日志、文档、测试夹具或提交历史。
 - 当前应用不读取或写入 ERP 数据库，不连接 ERP 用户、提案、视频库或投放数据。
-- AI 文字生成仍复用 `WEB_ERP_AI_*` 环境变量命名；这是兼容层，不代表依赖 ERP 进程。
+- 正式 AI 只使用 `CREATIVE_STUDIO_AI_*` / `CREATIVE_STUDIO_AI_V2_LIVE` 环境变量；旧 `WEB_ERP_AI_*` 运行时兼容层已经删除。
 
 ## 正式前端
 
@@ -51,11 +51,12 @@
 - `image_prompt` 只在服务端使用，不返回给浏览器。
 - 模型、提示词、结构校验或图片任务状态变化必须有对应的定向检查；真实 AI 请求应尽量使用固定、脱敏的评估样例，避免无意消耗额度。
 - AI 输出不能直接执行 Python、PowerShell、SQL、文件路径或网络控制动作。
+- 根包旧 AI 模块、旧 Prompt、旧评测资产和旧表写入已经退役；新代码不得恢复旧引用、旧路由、旧表创建、双写或 fallback。
 
 ### AI 迁移治理
 
 - 每个 AI 用例必须有明确的 input schema、prompt spec、output contract、validator、持久化 mapper、公开 DTO、生产 caller 和测试 seam；不能只改提示词或只加字段。
-- 新 prompt 必须登记在 `PromptRegistry`，声明 owner contract、版本、hash、输入/输出 schema、调用阶段、预算和评测集；没有生产 caller 的 prompt 不得继续作为“已实现功能”。
+- 新 prompt 必须登记在 AI v2 registry，声明 owner contract、版本、hash、输入/输出 schema、调用阶段、预算和评测集；没有 production caller 的 prompt 不得继续作为“已实现功能”。
 - Agent 探索阶段只读并报告 production/test/dead 证据；设计阶段必须写目标、非目标、不变量、接口、依赖、迁移和回滚；实施阶段一责任域一变更卡，禁止多个 Agent 同时修改同一文件；评审阶段按当前事实和生产引用复核。
 - 先用 deterministic fake 和生产入口 contract harness 验证，再在用户授权后做真实 AI/图片冒烟。测试通过只代表指定 seam 通过，不代表模型质量或真实网关已验证。
 - 旧 adapter、旧 schema、旧字段映射和兼容开关必须写明 `deprecated_since`、替代项、禁止新调用和删除条件；禁止无限期双写、双读或“临时”分支。

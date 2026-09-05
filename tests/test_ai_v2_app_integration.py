@@ -60,8 +60,18 @@ class AiV2AppIntegrationTests(unittest.TestCase):
     def _legacy_counts(application) -> dict[str, int]:
         connection = sqlite3.connect(application.repository.database_path)
         try:
+            existing = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
             return {
-                table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                table: (
+                    int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+                    if table in existing
+                    else 0
+                )
                 for table in ("generations", "visual_items", "adoptions")
             }
         finally:
