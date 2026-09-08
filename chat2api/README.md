@@ -1,11 +1,11 @@
 # ChatGPT Web 网关交付说明
 
-本目录是 AI 创意辅助功能使用的本地网关参考实现。它把 ERP 的 OpenAI 兼容请求转换为 ChatGPT 网页内部会话请求，并提供真实会话续接、模型列表、任务队列和会话凭据更换接口。
+本目录是辅助创意工具使用的本地网关实现。它把本项目 AI v2 的 OpenAI 兼容请求转换为 ChatGPT 网页内部会话请求，并提供真实会话续接、模型列表、任务队列和会话凭据更换接口。
 
 ## 重要边界
 
 - 该实现依赖 ChatGPT 网页内部接口，不是稳定的公开 API；上线前必须由负责人评估合规、账号和维护风险。
-- `/v1/chat/completions` 本身没有独立业务认证。ERP 和网关部署在同一台服务器时，必须使用 `HOST=127.0.0.1`，不要把 8700 暴露到公网或普通办公网。
+- `/v1/chat/completions` 本身没有独立业务认证。网页和网关部署在同一台机器时，必须使用 `HOST=127.0.0.1`，不要把 8780 暴露到公网或普通办公网。
 - `/v1/session` 和 `/v1/session-info` 使用 `CHATGPT_CONTROL_TOKEN`。未配置控制令牌时，V2 仅允许真实回环来源；生产仍要求配置高强度随机令牌。
 - 本交付来源中没有可验证的 `LICENSE` 文件。旧说明里的 MIT 标记不能作为公司分发依据，负责人必须确认代码来源和授权后再使用。
 
@@ -25,14 +25,14 @@ Copy-Item .env.example .env
 CHATGPT_ACCESS_TOKEN=<当前账号的访问令牌>
 CHATGPT_CONTROL_TOKEN=<高强度随机控制令牌>
 HOST=127.0.0.1
-PORT=8700
+PORT=8780
 MAX_CONCURRENT_TASKS=3
 TASK_QUEUE_TIMEOUT=90
 ```
 
 自动续期建议优先填写 `CHATGPT_REFRESH_TOKEN`；没有时可填写完整 `CHATGPT_SESSION_COOKIE`。服务器需要代理才能访问 ChatGPT 时再填写 `PROXY_URL`。
 
-ERP 的 `WEB_ERP_AI_CONTROL_TOKEN` 必须与 `CHATGPT_CONTROL_TOKEN` 完全相同。
+启动器传入的 `CREATIVE_STUDIO_AI_CONTROL_TOKEN` 必须与 `CHATGPT_CONTROL_TOKEN` 完全相同。
 
 ## 启动与检查
 
@@ -42,9 +42,9 @@ ERP 的 `WEB_ERP_AI_CONTROL_TOKEN` 必须与 `CHATGPT_CONTROL_TOKEN` 完全相�
 
 本机检查：
 
-- `GET http://127.0.0.1:8700/health`
-- `GET http://127.0.0.1:8700/v1/task-queue`
-- `GET http://127.0.0.1:8700/v1/models`
+- `GET http://127.0.0.1:8780/health`
+- `GET http://127.0.0.1:8780/v1/task-queue`
+- `GET http://127.0.0.1:8780/v1/models`
 
 ## 主要接口
 

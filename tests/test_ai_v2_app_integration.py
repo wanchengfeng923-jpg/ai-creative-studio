@@ -23,6 +23,8 @@ def _static_text() -> str:
                 "core_idea": "核心创意",
                 "ad_copy": "广告文案",
                 "image_description": "画面描述",
+                "content_extensions": ["后续内容"],
+                "reference_sources": [{"name": "参考", "note": "参考说明"}],
                 "execution": {"image_prompt": "private prompt"},
             }
             for index in range(1, 4)
@@ -37,7 +39,10 @@ def _carousel_text() -> str:
             {
                 "title": f"轮播方案 {item}",
                 "core_idea": "核心创意",
+                "core_subject": "固定主体",
                 "ad_copy": "广告文案",
+                "content_extensions": ["后续内容"],
+                "reference_sources": [{"name": "参考", "note": "参考说明"}],
                 "frames": [
                     {"index": 1, "description": "首帧"},
                     {"index": 2, "description": "第二帧"},
@@ -219,6 +224,32 @@ class AiV2AppIntegrationTests(unittest.TestCase):
         self.assertEqual(response["use_case"], "static")
         self.assertEqual(len(response["items"]), 3)
         self.assertEqual(len(image.start_calls), 0)
+
+    def test_v2_generate_without_live_returns_safe_configuration_error(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            application = create_application(
+                database_path=root / "studio.db",
+                images_dir=root / "images",
+                uploads_dir=root / "uploads",
+                environment={},
+            )
+            application.auth.init_admin("admin", "correct horse battery staple")
+            project = application.repository.create_project("v2", "展示类", 1)
+            response, status = self._call(
+                application,
+                "do_POST",
+                f"/api/v2/projects/{project['id']}/generate",
+                {"task_description": "说明", "aspect_ratio": "16:9", "creative_tags": {}},
+                user={"id": 1, "role": "admin", "must_change_password": False},
+            )
+
+        self.assertEqual(status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(response["error_code"], "ai_not_enabled")
+        self.assertEqual(response["phase"], "configuration")
+        self.assertFalse(response["retryable"])
+        self.assertRegex(response["trace_id"], r"^[0-9a-f]{32}$")
+        self.assertNotIn("AI v2 尚未启用", response)
 
     def test_history_exposes_image_url_after_static_artifact_completes(self) -> None:
         with TemporaryDirectory() as directory:

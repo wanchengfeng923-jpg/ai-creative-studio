@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import base64
+import ctypes
 import os
 import re
 import shutil
@@ -30,6 +31,21 @@ ENV_PATH = ROOT / "chat2api" / ".env"
 WEB_URL = "http://127.0.0.1:8775/"
 GATEWAY_URL = "http://127.0.0.1:8780"
 WEB_BIND_HOST = "127.0.0.1"
+_LAUNCHER_MUTEX_NAME = "Local\\CreativeStudioLauncherSingleInstance"
+
+
+def _acquire_launcher_mutex() -> int | None:
+    """Prevent a second launcher from creating a competing service pair."""
+    if os.name != "nt":
+        return 1
+    kernel32 = ctypes.windll.kernel32
+    handle = kernel32.CreateMutexW(None, True, _LAUNCHER_MUTEX_NAME)
+    if not handle:
+        return None
+    if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(handle)
+        return None
+    return int(handle)
 
 
 def _terminate_process(process: subprocess.Popen[bytes], timeout: float = 3.0) -> None:
@@ -821,7 +837,12 @@ class Launcher(tk.Tk):
             "CREATIVE_STUDIO_AI_API_KEY": "local-chatgpt-gateway",
             "CREATIVE_STUDIO_AI_MODEL": "gpt-5-6-mini",
             "CREATIVE_STUDIO_AI_TIMEOUT_SECONDS": "300",
+            "CREATIVE_STUDIO_DATA_DIR": str(ROOT / "data"),
+            "CHATGPT_IMAGES_DIR": str(ROOT / "data" / "images"),
+            "CHATGPT_IMAGE_JOB_DIR": str(ROOT / "data" / "image_job_state"),
             "CREATIVE_STUDIO_AI_CONTROL_TOKEN": read_env().get("CHATGPT_CONTROL_TOKEN", ""),
+            # Production cutover is explicit and scoped to launcher child processes.
+            "CREATIVE_STUDIO_AI_V2_LIVE": "1",
         })
         return env
 
@@ -1081,6 +1102,13 @@ class Launcher(tk.Tk):
 
 
 if __name__ == "__main__":
+    _launcher_mutex = _acquire_launcher_mutex()
+    if _launcher_mutex is None:
+        try:
+            messagebox.showwarning("启动控制台已运行", "已有一个 AI 创意工作台启动控制台在运行，请使用现有窗口。")
+        except Exception:
+            pass
+        raise SystemExit(0)
     try:
         Launcher().mainloop()
     except Exception as exc:  # pythonw 没有控制台，必须给出可见的失败信息

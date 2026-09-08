@@ -37,7 +37,11 @@ class ImageWorker:
             if attempt is None:
                 raise AiV2StoreConflict("image attempt disappeared after claim")
 
-        provider_job_id = attempt.provider_job_id or session.provider_job_id
+        # A session job belongs to the first submission only. Once an attempt
+        # exists, polling must use that attempt's own idempotent provider job;
+        # falling back to the session job can complete a continuation with the
+        # previous frame's artifact.
+        provider_job_id = attempt.provider_job_id
         if attempt.status == "generating" and not provider_job_id and not claimed:
             return
         if attempt.status in {"pending", "generating"} and provider_job_id:
@@ -51,7 +55,11 @@ class ImageWorker:
             return
 
         if attempt.status == "failed":
-            result = self.image_model.reconcile(ReconcileRequest(session_key, attempt.request_key, session.cursor, session.provider_job_id))
+            # A failed attempt may have been created before its provider job
+            # id was copied locally; the session job is the only fallback for
+            # that legacy first-attempt shape.
+            failed_job_id = attempt.provider_job_id or session.provider_job_id
+            result = self.image_model.reconcile(ReconcileRequest(session_key, attempt.request_key, session.cursor, failed_job_id))
             if result.state in {"success", "working"}:
                 self._apply_reconcile(attempt, result)
                 return

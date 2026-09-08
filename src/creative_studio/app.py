@@ -33,7 +33,7 @@ from .repository import StudioDataError, StudioRepository
 ROOT_DIR = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT_DIR / "static"
 TAG_OPTIONS_PATH = ROOT_DIR / "config" / "creative_tag_options.json"
-DATA_DIR = ROOT_DIR / "data"
+DATA_DIR = Path(os.environ.get("CREATIVE_STUDIO_DATA_DIR") or ROOT_DIR / "data").resolve()
 DATABASE_PATH = DATA_DIR / "creative_studio.db"
 IMAGES_DIR = DATA_DIR / "images"
 UPLOADS_DIR = DATA_DIR / "uploads"
@@ -80,14 +80,18 @@ class StudioApplication:
 
 def create_application(
     *,
-    database_path: Path = DATABASE_PATH,
-    images_dir: Path = IMAGES_DIR,
-    uploads_dir: Path = UPLOADS_DIR,
+    database_path: Path | None = None,
+    images_dir: Path | None = None,
+    uploads_dir: Path | None = None,
     clock: Callable[[], str] | None = None,
     environment: MutableMapping[str, str] | None = None,
     ai_v2_text_model: TextModelPort | None = None,
     ai_v2_image_model: ImageModelPort | None = None,
 ) -> StudioApplication:
+    data_dir = Path(os.environ.get("CREATIVE_STUDIO_DATA_DIR") or ROOT_DIR / "data").resolve()
+    database_path = Path(database_path or data_dir / "creative_studio.db")
+    images_dir = Path(images_dir or data_dir / "images")
+    uploads_dir = Path(uploads_dir or data_dir / "uploads")
     """Build the application graph, allowing deterministic adapters in tests."""
 
     source = environment if environment is not None else os.environ
@@ -121,22 +125,23 @@ def create_application(
             timeout_seconds=timeout_seconds,
         )
         live_enabled = str(source.get("CREATIVE_STUDIO_AI_V2_LIVE") or "0").strip() == "1"
+        if not live_enabled and ai_v2_text_model is None:
+            raise AiV2ApplicationError(
+                "ai_not_enabled",
+                "AI v2 尚未启用",
+                phase="configuration",
+                retryable=False,
+            )
         if ai_v2_text_model is not None:
             text_model = ai_v2_text_model
         elif live_enabled:
             text_model = TextGatewayAdapter(transport, base_url=gateway_url, model=model)
-        else:
-            from .ai_v2.application import CandidateTextModel
-
-            text_model = CandidateTextModel()
         if ai_v2_image_model is not None:
             image_model = ai_v2_image_model
         elif live_enabled:
             image_model = ImageGatewayAdapter(transport, base_url=gateway_url)
         else:
-            from .ai_v2.application import CandidateImageModel
-
-            image_model = CandidateImageModel()
+            image_model = None
         return AiV2Application(
             SqliteAiV2Store(database_path),
             text_model=text_model,
@@ -233,7 +238,12 @@ class StudioHandler(BaseHTTPRequestHandler):
         return application
 
     def _v2_api_error(self, exc: AiV2ApplicationError) -> None:
-        status = HTTPStatus.NOT_FOUND if exc.error_code.endswith("_not_found") else HTTPStatus.BAD_REQUEST
+        if exc.error_code.endswith("_not_found"):
+            status = HTTPStatus.NOT_FOUND
+        elif exc.error_code == "ai_not_enabled" or exc.retryable:
+            status = HTTPStatus.SERVICE_UNAVAILABLE
+        else:
+            status = HTTPStatus.BAD_REQUEST
         self._json({
             "error_code": exc.error_code,
             "phase": exc.phase,
@@ -319,6 +329,12 @@ class StudioHandler(BaseHTTPRequestHandler):
             scheme_match = re.fullmatch(r"/api/v2/schemes/(\d+)/(?:image|frames/\d+/image)", path)
             if scheme_match:
                 return self._require_v2_project_access(self._v2_application().project_id_for_scheme(int(scheme_match.group(1))), context)
+            queue_match = re.fullmatch(r"/api/v2/queue/([a-f0-9]{32})", path)
+            if queue_match:
+                api = self.application.ai_v2_api
+                if api is None:
+                    return False
+                return self._require_v2_project_access(api.project_id_for_queue_ticket(queue_match.group(1)), context)
             attempt_match = re.fullmatch(r"/api/v2/image-attempts/(\d+)(?:/image)?", path)
             if attempt_match:
                 return self._require_v2_project_access(self._v2_application().project_id_for_attempt(int(attempt_match.group(1))), context)
@@ -636,6 +652,9 @@ class StudioHandler(BaseHTTPRequestHandler):
             return
         if isinstance(exc, StudioDataError):
             self._json({"success": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+            return
+        if isinstance(exc, AiV2ApplicationError):
+            self._v2_api_error(exc)
             return
         traceback.print_exc()
         self._json({"success": False, "error": "服务处理失败，请查看启动窗口日志"}, HTTPStatus.INTERNAL_SERVER_ERROR)

@@ -27,6 +27,8 @@ def _result() -> str:
                 "core_idea": "核心创意",
                 "ad_copy": "广告文案",
                 "image_description": "画面描述",
+                "content_extensions": ["后续内容"],
+                "reference_sources": [{"name": "参考", "note": "参考说明"}],
                 "execution": {"image_prompt": f"图片指令 {index}"},
             }
             for index in range(3)

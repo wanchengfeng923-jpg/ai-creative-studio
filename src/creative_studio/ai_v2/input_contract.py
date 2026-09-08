@@ -12,6 +12,7 @@ from typing import Any, Literal
 MAX_TASK_DESCRIPTION_LENGTH = 500
 ALLOWED_ASPECT_RATIOS = frozenset({"16:9", "9:16"})
 _ALLOWED_FIELDS = frozenset({"task_description", "aspect_ratio", "creative_tags"})
+_EDITOR_ONLY_TAGS = frozenset({"visual_carousel_rounds"})
 
 
 class InputContractError(ValueError):
@@ -44,6 +45,8 @@ def _normalize_tags(value: Any) -> dict[str, tuple[str, ...]]:
     for raw_key, raw_values in value.items():
         if not isinstance(raw_key, str) or not raw_key.strip():
             _raise("tag group names must be non-empty strings", "$.creative_tags", "invalid_tag_group")
+        if raw_key.strip() in _EDITOR_ONLY_TAGS:
+            continue
         if isinstance(raw_values, (str, bytes)) or not isinstance(raw_values, Sequence):
             _raise("tag values must be a string sequence", f"$.creative_tags.{raw_key}", "invalid_type")
 
@@ -138,4 +141,3 @@ __all__ = [
     "normalize_input",
     "resolve_use_case",
 ]
-

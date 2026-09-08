@@ -31,6 +31,8 @@ def _static_value() -> dict[str, object]:
                 "core_idea": "核心创意",
                 "ad_copy": "广告文案",
                 "image_description": "画面描述",
+                "content_extensions": ["后续内容"],
+                "reference_sources": [{"name": "参考", "note": "参考说明"}],
                 "execution": {"image_prompt": "私有图片提示词"},
             }
             for index in range(3)
@@ -47,7 +49,10 @@ def _carousel_value(frame_count: int = 3) -> dict[str, object]:
             {
                 "title": f"方案 {index}",
                 "core_idea": "核心创意",
+                "core_subject": "固定主体",
                 "ad_copy": "广告文案",
+                "content_extensions": ["后续内容"],
+                "reference_sources": [{"name": "参考", "note": "参考说明"}],
                 "frames": copy.deepcopy(frames),
                 "execution": {
                     "continuity_rules": ["主体一致"],
@@ -131,6 +136,7 @@ class AiV2SchemaTests(unittest.TestCase):
         with self.assertRaises(SchemaViolation) as context:
             validate_json(value, schema)
         self.assertEqual(context.exception.reason_code, "index_mismatch")
+
 
     def test_rejects_missing_fields_wrong_types_and_extra_fields(self) -> None:
         schema = load_schema("narrative-text", "v1")

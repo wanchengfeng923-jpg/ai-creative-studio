@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import time
 from collections.abc import Mapping
 from typing import Protocol
 from urllib.parse import urljoin, urlsplit
@@ -39,6 +40,16 @@ class ImageGatewayAdapter(ImageModelPort):
 
     def _path(self, path: str) -> str:
         return urljoin(self.base_url, path.lstrip("/"))
+
+    @staticmethod
+    def _transport_error_code(error: BaseException) -> str:
+        response = getattr(error, "response", None)
+        status = getattr(response, "status_code", None)
+        if status in {401, 403}:
+            return "provider_auth_failed"
+        if status in {502, 503, 504}:
+            return "provider_unavailable"
+        return "provider_unavailable"
 
     @staticmethod
     def _request_payload(request: ImageRequest) -> dict[str, object]:
@@ -108,7 +119,13 @@ class ImageGatewayAdapter(ImageModelPort):
         try:
             response = self.transport.post_json(self._path("v1/images/jobs"), payload)
         except Exception:
-            return ImageSubmission("unknown", None, None, None, "provider_unavailable")
+            # The gateway accepts an idempotent request_id. A short retry handles
+            # transient loopback disconnects without creating a second provider job.
+            try:
+                time.sleep(0.25)
+                response = self.transport.post_json(self._path("v1/images/jobs"), payload)
+            except Exception as error:
+                return ImageSubmission("unknown", None, None, None, self._transport_error_code(error))
         state = self._state(response)
         job_id = str(response.get("job_id") or "") or None
         if state == "success":

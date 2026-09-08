@@ -13,11 +13,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["title", "core_idea", "ad_copy", "frames", "execution"],
+        "required": ["title", "core_idea", "ad_copy", "content_extensions", "reference_sources", "frames", "execution"],
         "properties": {
           "title": {"type": "string", "minLength": 1},
           "core_idea": {"type": "string", "minLength": 1},
+          "core_subject": {"type": "string", "minLength": 1},
           "ad_copy": {"type": "string", "minLength": 1},
+          "content_extensions": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "reference_sources": {
+            "type": "array", "minItems": 1,
+            "items": {"type": "object", "additionalProperties": false, "required": ["name", "note"], "properties": {"name": {"type": "string", "minLength": 1}, "note": {"type": "string", "minLength": 1}}}
+          },
           "frames": {
             "type": "array",
             "minItems": 2,

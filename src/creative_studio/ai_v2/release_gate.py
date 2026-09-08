@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,8 @@ def _candidate_output(case: Mapping[str, Any]) -> str:
                     "core_idea": "core idea",
                     "ad_copy": "ad copy",
                     "image_description": "image description",
+                    "content_extensions": ["follow-up content"],
+                    "reference_sources": [{"name": "reference", "note": "reference note"}],
                     "execution": {"image_prompt": "private image instruction"},
                 }
                 for index in range(1, 4)
@@ -114,7 +117,10 @@ def _candidate_output(case: Mapping[str, Any]) -> str:
                 {
                     "title": f"deterministic route {index}",
                     "core_idea": "core idea",
+                    "core_subject": "fixed subject",
                     "ad_copy": "ad copy",
+                    "content_extensions": ["follow-up content"],
+                    "reference_sources": [{"name": "reference", "note": "reference note"}],
                     "frames": [
                         {"index": frame, "description": f"frame {frame}"}
                         for frame in range(1, count + 1)
@@ -196,7 +202,18 @@ def build_candidate_contract_evidence(root: Path = ROOT) -> dict[str, Any]:
     if counts != Counter({"narrative": 10, "static": 10, "carousel": 10}):
         raise ValueError("v2 evaluation set must contain 10 cases per use case")
 
-    registry = AiV2PromptRegistry(root / "config" / "ai_v2" / "prompts" / "registry.json")
+    # Candidate evidence remains reproducible after the production registry is promoted.
+    # The fixture is derived in a disposable directory and never changes the checked-in registry.
+    source_registry_path = root / "config" / "ai_v2" / "prompts" / "registry.json"
+    candidate_directory = Path(tempfile.mkdtemp(prefix="ai-v2-candidate-registry-"))
+    source_payload = json.loads(source_registry_path.read_text(encoding="utf-8"))
+    for entry in source_payload["prompts"]:
+        entry["lifecycle"] = "candidate"
+        entry["caller"] = None
+        shutil.copyfile(source_registry_path.parent / entry["path"], candidate_directory / entry["path"])
+    candidate_registry_path = candidate_directory / "registry.json"
+    candidate_registry_path.write_text(json.dumps(source_payload), encoding="utf-8")
+    registry = AiV2PromptRegistry(candidate_registry_path)
     registry_evidence = _registry_evidence(root, registry)
     if any(item["lifecycle"] != "candidate" or item["caller"] is not None for item in registry_evidence):
         raise ValueError("v2 evaluation only accepts unapproved candidate prompts")

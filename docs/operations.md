@@ -9,8 +9,8 @@
 ## 启动
 
 AI v2 Prompt registry 位于 `config/ai_v2/prompts/registry.json`。当前三份 Prompt 均为
-`candidate` 且 `caller=null`；网页组合根默认构造 deterministic candidate text/image
-models，不连接真实网关。只有经过独立审批并显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1`，
+`candidate` 且 `caller=null`；网页组合根在未显式注入测试模型且未启用 live 时 fail-closed，
+返回 `ai_not_enabled`，不会把 deterministic candidate text/image 当作正式结果。只有经过独立审批并显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1`，
 才会通过保留的 `chat2api` 构造文字和图片 adapter。
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。

@@ -55,7 +55,10 @@ class WebImageClient:
             await self._bootstrap(session)
 
             # 2. 获取 requirements token
-            reqs = await self._get_requirements(session)
+            try:
+                reqs = await self._get_requirements(session)
+            except Exception as error:
+                raise RuntimeError(f"image_requirements: {error}") from error
 
             # 3. 上传参考图（如果有）
             refs: list[dict[str, Any]] = []
@@ -68,22 +71,31 @@ class WebImageClient:
             for _ in range(n):
                 if len(assets) >= n:
                     break
-                result = await self._generate_one(
-                    session, reqs, prompt, web_model, refs,
-                    conversation_id=str(conversation_id or "").strip(),
-                    parent_message_id=str(parent_message_id or "").strip(),
-                )
+                try:
+                    result = await self._generate_one(
+                        session, reqs, prompt, web_model, refs,
+                        conversation_id=str(conversation_id or "").strip(),
+                        parent_message_id=str(parent_message_id or "").strip(),
+                    )
+                except Exception as error:
+                    raise RuntimeError(f"image_generation: {error}") from error
                 assets.extend(result)
 
             return assets[:n]
 
     async def _bootstrap(self, session):
-        """模拟浏览器首次访问。"""
+        """尽力模拟浏览器首次访问。
+
+        图片接口真正依赖的是后续 requirements/conversation 请求；首页响应
+        本身不提供会话状态。某些代理对首页的 TLS/重定向处理不稳定时，不能
+        因此阻断图片会话建立，后续受保护接口仍会报告真实的认证或网络错误。
+        """
         headers = self.fp.base_headers()
         headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-        resp = await session.get(f"{self.base_url}/", headers=headers)
-        if resp.status_code >= 400:
-            raise Exception(f"Web bootstrap failed: {resp.status_code}")
+        try:
+            await session.get(f"{self.base_url}/", headers=headers)
+        except Exception:
+            return
 
     async def _get_requirements(self, session) -> dict[str, str]:
         """获取 chat-requirements token 和 proof-of-work token。"""
@@ -210,13 +222,33 @@ class WebImageClient:
 
     async def _generate_one(self, session, reqs: dict[str, str], prompt: str, model: str, refs: list[dict], *, conversation_id: str = "", parent_message_id: str = "") -> list[dict[str, Any]]:
         """生成一张图片的完整流程。"""
-        conduit = await self._prepare_conversation(session, reqs, prompt, model, refs, conversation_id=conversation_id, parent_message_id=parent_message_id)
-        conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id = await self._start_generation(
-            session, reqs, conduit, prompt, model, refs,
-            conversation_id=conversation_id, parent_message_id=parent_message_id,
-        )
+        # A continuation conversation contains every earlier generated image.
+        # Capture that set before submitting so polling cannot select frame 1 again.
+        existing_assets: set[str] = set()
+        if conversation_id:
+            try:
+                old_fids, old_sids, old_urls = await self._poll_conversation(session, conversation_id, refs)
+                existing_assets.update(old_fids)
+                existing_assets.update(old_sids)
+                existing_assets.update(old_urls)
+            except Exception:
+                pass
+        try:
+            conduit = await self._prepare_conversation(session, reqs, prompt, model, refs, conversation_id=conversation_id, parent_message_id=parent_message_id)
+        except Exception as error:
+            raise RuntimeError(f"image_prepare: {error}") from error
+        try:
+            conversation_id, file_ids, sediment_ids, direct_urls, last_text, assistant_message_id = await self._start_generation(
+                session, reqs, conduit, prompt, model, refs,
+                conversation_id=conversation_id, parent_message_id=parent_message_id,
+            )
+        except Exception as error:
+            raise RuntimeError(f"image_conversation: {error}") from error
         self.last_conversation_id = conversation_id
         self.last_parent_message_id = assistant_message_id
+        file_ids = self._exclude_existing(file_ids, existing_assets)
+        sediment_ids = self._exclude_existing(sediment_ids, existing_assets)
+        direct_urls = self._exclude_existing(direct_urls, existing_assets)
 
         assets: list[dict[str, Any]] = []
         deadline = time.time() + 9 * 60
@@ -226,12 +258,16 @@ class WebImageClient:
             if conversation_id:
                 poll_fids, poll_sids, poll_urls = await self._poll_conversation(session, conversation_id, refs)
                 poll_count += 1
+                poll_fids = self._exclude_existing(poll_fids, existing_assets)
+                poll_sids = self._exclude_existing(poll_sids, existing_assets)
+                poll_urls = self._exclude_existing(poll_urls, existing_assets)
                 _add_unique(file_ids, *poll_fids)
                 _add_unique(sediment_ids, *poll_sids)
                 _add_unique(direct_urls, *poll_urls)
 
                 if poll_count == 1 or poll_count % 6 == 0:
                     lib_ids = await self._poll_library(session, conversation_id, refs)
+                    lib_ids = self._exclude_existing(lib_ids, existing_assets)
                     _add_unique(file_ids, *lib_ids)
 
             urls = await self._resolve_image_urls(session, conversation_id, file_ids, sediment_ids, refs)
@@ -594,6 +630,11 @@ class WebImageClient:
             return out
 
         return _filter(file_ids), _filter(sediment_ids), _filter(direct_urls)
+
+    @staticmethod
+    def _exclude_existing(values: list[str], existing: set[str]) -> list[str]:
+        """Keep only assets that were not present before a continuation request."""
+        return [value for value in values if value and value not in existing]
 
     def _should_use_web_headers(self, raw_url: str) -> bool:
         try:

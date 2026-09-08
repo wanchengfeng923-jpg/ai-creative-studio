@@ -19,7 +19,7 @@ class AiV2IntegrationTests(unittest.TestCase):
             db = Path(directory) / "db.sqlite"
             store = SqliteAiV2Store(db)
             try:
-                text = json.dumps({"schema_version": "static-text-v1", "items": [{"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "execution": {"image_prompt": "p"}} for i in range(3)]})
+                text = json.dumps({"schema_version": "static-text-v1", "items": [{"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "content_extensions": ["e"], "reference_sources": [{"name": "r", "note": "n"}], "execution": {"image_prompt": "p"}} for i in range(3)]})
                 image = DeterministicImageModel(start_submissions={"v2-run-1-scheme-1:frame:1": ImageSubmission("success", "job", ImageSessionCursor("fake", "c", "m", 1), image_artifact(b"x", "image/png"), None)})
                 api = AiV2HttpApi(AiV2Application(store, text_model=DeterministicTextModel([text]), image_model=image))
                 _, run = api.dispatch("POST", "/api/v2/projects/1/generate", {"task_description": "x", "aspect_ratio": "16:9", "creative_tags": {}})

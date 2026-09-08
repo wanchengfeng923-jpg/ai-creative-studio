@@ -1,4 +1,4 @@
-"""会话控制接口：网页 ERP 调用。
+"""会话控制接口：辅助创意工具调用。
 
 - GET  /v1/session-info   查当前会话/自动续期/下次更换 Cookie 时间。
 - POST /v1/session         传入新会话 Cookie，立即更新并换新 access token。

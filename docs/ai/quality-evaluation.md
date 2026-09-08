@@ -27,7 +27,7 @@ python -m creative_studio.ai_v2.release_gate
 - 没有隐藏格式修复、文字重试或图片重试。
 - `narrative-07` 的机制重复判断和全部真实模型质量为 `not-run`。
 
-三份 v2 registry 项的候选文件 hash、`AiV2Input.v1`、对应 `*-text-v1` schema 和 `max_model_calls=1` 已对齐。生命周期仍为 `candidate`，`caller` 仍为 `null`。这些事实只支持 contract 审查，不支持 production 接入或真实质量通过结论。
+三份 v2 registry 项的文件 hash、`AiV2Input.v1`、对应 `*-text-v1` schema、production caller 和 `max_model_calls=1` 已对齐。candidate contract evidence 使用临时降级 registry 重建；production lifecycle 仍不等于真实模型质量通过。
 
 ## 失败分类
 
@@ -50,4 +50,4 @@ release gate 使用以下稳定分类：
 - 调用次数、成本、延迟和供应商成功率；
 - Prompt 版本、schema 版本和审批人。
 
-在完成用户审批、真实质量评测和独立 live caller 变更前，不得把 `caller` 设置为 production，不得默认启用 `CREATIVE_STUDIO_AI_V2_LIVE=1`。
+Prompt 已获 production caller 批准，但在真实质量结论、备份恢复和正式切换完成前，不得默认启用 `CREATIVE_STUDIO_AI_V2_LIVE=1`。

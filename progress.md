@@ -1,5 +1,130 @@
 # 当前项目进度（2026-09-04）
 
+## 2026-09-06 公网使用手册
+
+- 新增 `docs/deployment/public-startup-guide.md`，按 RDP 登录、启动器代理桥、控制令牌注入、网页公网启动、健康检查和下线步骤编写。
+- 手册不包含 Token、Cookie 或代理密码；记录当前入口 `http://42.194.220.18:8775/`，AI 网关 `8780` 保持本机访问。
+
+## 2026-09-06 公网 8775 验收
+
+- 用户确认只开放网页 `8775`，不使用 `80`、域名或反向代理；AI 网关 `8780` 保持回环监听。
+- 服务器网页已绑定 `0.0.0.0:8775`，本机 `/api/health` 返回 200；从外部对 `42.194.220.18:8775/api/health` 的只读请求返回 200。
+- 该变更只调整监听地址和 Windows 防火墙规则，未修改工作台页面、数据库或 Prompt；公网暴露后的认证、HTTPS 和长期运维风险仍需后续处理。
+
+## 2026-09-06 轮播主体锚点与公开字段贯通
+
+- 轮播 Prompt 增加总视觉锚点、`core_subject`、逐帧主体/状态/结果约束，并移除对图片 Prompt 的过度短句化要求。
+- 轮播 schema 将 `core_subject` 设为必填；公开投影和正式前端直接读取该字段，保留旧 `image_description` 兼容回退。
+- 更新 Prompt registry 哈希、deterministic fake 和相关契约夹具；脚本缓存版本更新为 `20260906-carousel-core-subject1`。
+- 验证：AI v2 定向 123 项、全量 unittest 198 项、Node 语法、compileall、`git diff --check` 通过；未执行真实 AI 质量评测或真实网页点击验证。
+
+## 2026-09-06 部署步骤 0 确认完成
+
+- 用户确认以本机项目及 `data/` 为权威迁移源，允许覆盖目标同名旧数据，并同意 `E:\AI-Creative-Studio\` 下 app/data/staging 目录规划。
+- 实时部署记录已进入步骤 1 只读盘点；实际目录、任务、数据读写者和传输通道待核验，尚未上传、覆盖或修改服务器。
+- 修正先前记录：用户只明确不需要正式域名，反向代理尚未决定；备份位置、保留期限和公网入口方案在后续步骤落实。
+- 步骤 1：用户回传服务器检查结果，`E:\AI-Creative-Studio` 尚不存在；E 盘根目录、非系统任务及应用读写者仍待盘点，未创建目录或上传文件。
+- 后续用户明确服务器为全新实例，要求跳过旧环境检查；已按此更新实时文档，不再要求旧应用、任务或旧数据库清单。
+- 本机初步统计 `data/`、网关 images/job state 共 571133590 字节（约 545 MiB），尚非一致性快照；发现应用默认数据路径仍依赖代码目录，独立 E 盘数据路径需在打包前适配验证。本轮只读盘点和文档更新，未上传或迁移。
+- 已完成路径配置切片：`CREATIVE_STUDIO_DATA_DIR` 注入工作台数据根目录，启动器同时预留网关图片与 job state 目录变量；定向测试、compileall、diff-check 通过。全量重跑受既有 carousel fixture/Prompt 不一致影响（`carousel-05` 和文本断言），未归因于本切片，发布包前需处理。
+- 暂停制作发布包：当前工作树已有 Prompt registry production/candidate 断言冲突、Prompt 文案断言冲突和 `carousel-05` deterministic fake 评测冲突；需单独决定以当前生产 Prompt 更新测试，还是回到 candidate 基线。
+- 用户确认以当前 production Prompt 为事实源；已更新 Prompt 断言、轮播帧数量归一化评测案例和 release gate 统计。全量 unittest 200 项、AI v2 release gate 124 项、compileall、diff-check 通过。
+- 步骤 2：生成并恢复验证部署前备份，`verified=true`、`references_verified=true`；恢复库确认 3 用户（2 admin、1 user）。生成不含 `.env`/数据库/图片/上传文件的程序包，SHA-256 为 `6515DA374282A906BA4BF4CC6CEC69456EFA9479DEDC6919497BFD2034291178`。尚未上传服务器。
+- 用户已将程序包解压到服务器 `E:\AI-Creative-Studio`；尚未启动、覆盖数据或注入敏感配置，等待服务器端只读结构核验。
+- 服务器核验确认程序目录层级正确；根目录没有 `database`/`images`，业务备份应在暂存目录或其他层级，尚未创建正式 data 目录。
+
+## 2026-09-06 图片网关瞬时失败处理
+
+- 修正图片 provider unavailable/state unknown 的错误映射为可重试图片错误，HTTP 层返回 503 语义而不是不可重试的 400。
+- 图片网关提交在同一 `request_id` 下增加一次短暂重试；网关请求键幂等，避免连接瞬断时重复创建供应商任务。
+- `py_compile` 和 `git diff --check` 通过；现有静态/轮播定向测试受用户当前 Prompt deterministic fixture 变更影响，未作为本次改动通过证据。
+
+## 2026-09-06 启动器单实例保护
+
+- 核查未发现 Windows 启动项或计划任务自动启动本项目；重复服务来自启动器没有单实例保护，旧的系统 Python launcher 可与 `.venv` launcher 并存并各自拉起 8775/8780。
+- `launcher.py` 增加 Windows 命名互斥锁；第二个启动器现在直接提示已有控制台，不再创建第二套网页/网关进程。
+- `py_compile` 和 diff 检查通过；网关定向测试受当前 Prompt deterministic fixture 与 Windows 临时 SQLite 文件锁影响，未将失败归因于本次锁改动。
+
+## 2026-09-06 轮播 Prompt 标签落地约束
+
+- 在轮播 Prompt 输出格式前增加标签落地要求：主目标用户、玩家欲望、产品卖点和展示内容必须转化为具体主体、玩法状态和可见结果，标题与轮播主线保持一致，三套方案使用不同标签组合或观看方式。
+- 已更新轮播 Prompt registry 哈希；registry 校验、Prompt registry/schema 定向测试 11 项通过，`git diff --check` 通过。
+
+## 2026-09-06 静态/轮播公开字段补齐
+
+- 根因：静态和轮播 Prompt/schema 未要求 `content_extensions`、`reference_sources`，公开投影和前端因此显示空字段。
+- 修复：两类 schema、Prompt 示例、公开投影和 schema 测试已同步补齐这两个字段；Prompt registry 哈希已更新。
+- 验证：schema、projection、registry 定向测试 15 项通过，Node 检查和 `git diff --check` 通过。
+
+## 2026-09-06 轮播结果字段与图片入口修复
+
+- 修复正式根页面读取 v2 轮播帧时使用旧字段导致画面路线内容为空的问题：统一映射公开的 `description`/`index` 字段。
+- 修复轮播卡片首个图片按钮误调用静态方案 `/schemes/{id}/image` 的问题；现在按待生成帧调用 `/frames/{index}/image`，避免 `invalid_use_case`。
+- 新增前端回归测试；定向 AI v2 测试 22 项、Node 语法检查和 `git diff --check` 通过。
+
+## 2026-09-06 AI v2 生成并发排队显示
+
+- 新增进程内 FIFO 生成队列，最多同时运行 6 个文字生成会话；第 7 个及之后的请求返回排队 ticket，并按提交顺序等待空闲槽位。
+- 新增队列状态查询接口，公开 ticket 状态和队列位置；任务完成或失败都会释放运行槽位，不暴露会话 ID、供应商游标或 Prompt。
+- 前端生成按钮增加“排队中 · 前面还有 N 个”状态，轮到任务后显示原有生成计时，完成后沿用现有历史刷新和错误提示。
+- 验证：队列单元测试、AI v2 应用集成测试通过；待完成全量 unittest、Node、compileall 和 diff-check。
+
+## 2026-09-06 建立实时部署记录
+
+- 新增 `docs/deployment/live-deployment.md`，记录部署目标、软件/数据边界、分步门禁、验证证据和回滚原则。
+- 当前只完成文档初始化；未执行服务器部署、端口开放、数据库迁移、生产数据覆盖或 `.env` 修改。
+- 步骤 0 已确认目标为公网 Windows 单服务器、全量迁移并继续使用 SQLite；服务器地址、同事提供的端口用途、远程管理通道和开机自动启动仍待确认。
+- 用户提供聊天截图：出现公网地址 `42.194.220.18:8775`，并提到已开放 `80`；当前仅记录为网页入口候选，尚未验证公网端口或 RDP 管理通道。截图中的 Token/Cookie 已遮挡，未读取或记录。
+- 只读网络探测结果：`3389`、`5985` TCP 可达；`80`、`8775`、`5986` 不可达。尚未进行 RDP/WinRM 认证或远程命令往返。
+- 用户确认已通过 Windows 自带远程桌面登录服务器；当前仅把 RDP 作为管理通道记录，尚未执行远程命令或上传。
+- 服务器只读盘点：主机名 `10_10_2_15`，RDP/WinRM 监听于 `3389`/`5985`，工作台端口未监听；C 盘可用约 33.14 GB，E 盘可用约 99.89 GB。暂建议 E 盘作为应用与数据承载盘，待步骤 1 确认目录。
+
+## 2026-09-06 生成失败修复：编辑器轮次元数据误入 v2 输入
+
+- 根因：项目标签中的 `visual_carousel_rounds` 是 UI 编辑器对象数组，但 v2 `creative_tags` 契约只接受字符串数组；轮播、静态和叙事生成都会因此返回 `invalid_type`。8775/8780 当时均正常监听，非端口问题。
+- 修复：前端生成请求过滤 `visual_carousel_rounds` 和非字符串标签；服务端输入边界同步忽略该编辑器专用字段，避免旧页面/其他客户端再次触发同一错误。
+- 回归：当前项目 57 的真实保存输入归一化通过；全量 unittest 184 项通过，Node 检查通过。
+- 按用户授权经启动器代理桥完成真实三类文字 smoke：叙事项目 21 run 11、静态项目 31 run 12、轮播项目 12 run 13 均成功，公开字段扫描无私有字段泄露，未调用图片。
+
+## 2026-09-06 启动器与旧 v1 引用审查
+
+- 核对 `launcher.py` -> `chat2api/main.py` -> `creative_studio.app`：启动器传递的网关、模型、控制令牌和 `CREATIVE_STUDIO_AI_V2_LIVE=1` 与组合根读取项一致，并主动移除旧 `WEB_ERP_AI_*` 环境变量。
+- 未发现旧 `generation_service`、`ai_creative`、`model_client`、`image_jobs` 等生产模块或旧业务路由文件；旧 `/v1` 网关接口属于当前 v2 adapter 的传输协议，不是创意工作台 v1 业务路由。
+- 修正 `chat2api/README.md`、`chat2api/config.py`、`chat2api/routes_session.py` 中残留的 ERP/8700 说明，独立启动默认端口统一为 8780。
+- 启动器/网关定向测试 47 项、Node、compileall、git diff-check 通过。
+
+## 2026-09-06 AI v2 cutover follow-up
+
+- 复核真实数据库：项目 12 的 `run_id=8` 文字 run 成功，方案 19 的 `attempt_id=7` 图片任务成功；公开投影未暴露私有 prompt 字段。当前表结构不保存耗时或 trace id，因此这两项无法从历史记录补录。
+- 本地根页面已打开并确认登录门；因没有可用生产账号密码，未进入登录后步骤流/项目抽屉/历史视图，未改账号或生产数据。
+- live 环境关闭时 `create_application()` 返回稳定 `ai_not_enabled`，不会构造 candidate 假结果。临时网页进程已停止。
+- 继续复核：`.venv` 下 AI v2 定向测试 110 项通过，release gate 的 v2-contract/compileall/Node/diff-check/boundary 均为 `ok`；全量测试仍仅因环境缺少 `curl_cffi` 导入失败。8775/8780/8791 均无监听，7897 为外部 Clash。
+- 使用项目 `.venv` 重跑全量 unittest，184 项全部通过；确认此前错误仅由系统 Python 环境缺少 `curl_cffi` 引起。
+- 使用本机账号完成桌面 UI 检查：步骤流、项目抽屉、三套方案与历史结果可见，1280x720 无横向溢出、控制台无 error；浏览器后端不支持动态视口调整，390x844 尚未验证。
+- 追加响应式 CSS 静态复核：移动断点、`min-width:320px`、关键容器 `min-width:0` 和表格局部横向滚动规则均存在；未修改代码。
+
+## 2026-09-05 AI v2 P0/P1 正式入口收口
+
+### 已完成
+
+- 按 `docs/superpowers/handoffs/2026-09-05-ai-v2-production-integration-handoff.md` 建立 `.scratch/ai-v2-production-integration/spec.md` 和 `docs/superpowers/plans/2026-09-05-ai-v2-production-integration.md`。
+- P0 基线记录确认分支为 `codex/tag-accordion-prototype`、HEAD 为 `1bb6dd1`；修改前已停止明确属于本项目的 8775 网页进程和 8780 网关进程，未停止其他进程。
+- 正式 composition root 在未设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 且没有显式测试文字模型时返回稳定 `ai_not_enabled` 配置错误，不再静默构造 candidate text/image model；显式 deterministic fake 注入和 live gateway 构造保持可测试。
+- 根页面 `static/app.js` 现在解析 v2 `error_code`、`phase`、`retryable`、`trace_id`、`field_path`，映射为安全中文提示并附追踪 ID；生成成功后的 history 刷新失败和项目列表刷新失败分开提示，保留已返回的生成方案。
+- 保持 Prompt registry 三项为 `candidate`、`caller=null`；未设置 live，未修改 `chat2api/.env`，未调用新的真实 AI/图片请求，未写入真实数据库、图片或上传目录。
+
+### 验证
+
+- `python -m unittest discover -s tests -q`：176 项通过。
+- `python -m unittest discover -s tests -p "test_ai_v2_*.py" -q`：103 项通过。
+- `python -m creative_studio.ai_v2.release_gate`：103 项通过；`v2-contract`、`compileall`、`node`、`diff-check`、`boundary` 均为 `ok`；报告仍为 `evidence_type=deterministic_fake`、`quality_claim=contract_only`、真实模型质量 `not-run`。
+- `node --check static\\app.js`、`node --check static\\ai-v2\\app.js`、`python -m compileall -q src chat2api`、AI v2 boundary 和 `git diff --check`：通过。
+
+### 未完成与下一步
+
+- Prompt 审批、production caller、独立 production readiness gate、受控真实文字/图片评测和本机正式切换仍未执行。
+- 下一步只能在用户分别确认 Prompt 评审结论与真实调用预算后进入 P2/P3；不得把 deterministic contract 证据表述为生产质量通过。
+
 ## 2026-09-05 清理旧 AI 测试
 
 ### 已完成
@@ -2369,3 +2494,216 @@
 - 未调用真实 AI/图片供应商，未修改或删除真实数据库、图片、上传文件和 `chat2api/.env`。
 - 已有数据库中的旧表与历史记录仍原样保留；后续若要归档或删除，必须另开高风险变更、先备份并完成恢复演练。
 - 历史 ADR、handoff、实施计划和研究文档保留旧名称作为审计记录，不代表旧运行时仍可用。
+
+# 2026-09-05 AI v2 正式版接入交接
+
+- 新增 `docs/superpowers/handoffs/2026-09-05-ai-v2-production-integration-handoff.md`，将当前状态明确为“主页面和 v2 契约已接入，正式模型尚未启用”。
+- 交接把主页面隐藏 `error_code`、正式入口静默使用 candidate、registry/release gate 仅支持 candidate 证据列为首批阻断项。
+- 后续按 P0-P5 依次执行：基线与计划、错误可观察性和 fail-closed、Prompt/caller 审批、受控真实文字、受控真实图片、本机正式切换。
+- 本次只写交接文档；未启用 live，未调用真实 AI，未修改真实数据库、图片、上传文件或 `chat2api/.env`。
+
+# 2026-09-05 AI v2 下一会话接手与 P0 回归
+
+### 已完成
+
+- 读取 `AGENTS.md`、`progress.md`、AI v2 正式接入计划与交接文档、运维/代码规范、AI 文档和 ADR；保留接手时全部未提交修改。
+- 确认分支为 `codex/tag-accordion-prototype`、HEAD 为 `1bb6dd1`；8775/8780 无监听，`CREATIVE_STUDIO_AI_V2_LIVE` 未设置。
+- 完成 P0 回归门禁：全量 unittest 176 项、AI v2 unittest 103 项通过；Node 两份正式脚本、compileall、release gate、boundary 和 `git diff --check` 均通过。
+- release evidence 仍为 `deterministic_fake` / `contract_only`，真实模型质量 `not-run`；没有真实文字/图片调用。
+
+### 未做与下一门禁
+
+- 当前展示类轮播仍是 carousel-only：一次 carousel Prompt 规划 3 套方案，静态 Prompt 不先行调用；用户必须先确认保持该语义或改为两阶段 static→carousel。
+- 在产品语义确认和三份 Prompt 独立审批前，不修改调用链、registry、production caller 或 live 配置。
+
+# 2026-09-05 展示类轮播产品语义确认
+
+- 用户明确确认保持当前 carousel-only 逻辑：展示类选择轮播时只调用 carousel Prompt，不先调用 static Prompt；静态 Prompt 继续只服务非轮播展示类。
+- 现有输入契约、应用分发、轮播规划和逐帧会话回归已覆盖该语义，本次无需修改源码或调用链。
+- 该确认不等同于三份 Prompt 审批、production caller、真实模型调用授权或正式发布批准。
+
+# 2026-09-05 AI v2 Prompt 受控评测审批
+
+- 用户分别批准 `narrative-text-v1`、`static-text-v1`、`carousel-text-v1` 进入受控真实文字评测。
+- 用户确认保持现有 Prompt；具体效果内容由其他材料承载，本次不新增效果字段或扩展输出范围。
+- 三份 Prompt 仍保持 `lifecycle=candidate`、`caller=null`；本次批准不包含 production caller、默认 live、图片调用或正式发布。
+- 真实文字评测仍需在执行前单独确认脱敏样例、最大调用次数、总预算/预计成本、隔离输出目录和停止条件。
+
+# 2026-09-05 受控真实文字评测预检
+
+- 用户确认使用项目内置标签，并表示不设金额预算上限；硬上限仍为 30 次文字调用、0 次图片调用，异常泄露/状态不明/超调用数立即停止。
+- 使用 `.venv` 在 8780 启动本项目 `chat2api` 网关进行只读预检；`/health` 返回 `ok=true`、`has_token=true`、`auto_refresh=true`。
+- `/v1/models` 返回 `detected=false`，仅返回候选模型列表，无法证明上游会话已通过验证；因此未发送任何真实文字或图片模型请求。
+- 预检网关已关闭，8775/8780 无监听；未读取或修改 `chat2api/.env`，未写入真实数据库、图片或上传目录。
+
+# 2026-09-05 受授权会话刷新结果
+
+- 用户明确授权使用现有 Session Cookie 刷新会话并写回 `chat2api/.env`。
+- 本机网关执行一次 `POST /v1/session`；接口返回 `refresh_ok=false`、`has_token=true`、`auto_refresh=true`，刷新失败状态已记录但未输出错误正文或任何凭据。
+- `/v1/models` 仍返回 `detected=false`；没有发送真实文字或图片模型请求。
+- 网关已关闭，8775/8780 无监听；除网关授权刷新对 `chat2api/.env` 的既定写入外，没有修改其他配置、数据库、图片或上传目录。
+
+# 2026-09-05 受控真实文字评测完成
+
+- 使用项目内置标签、临时 SQLite 和独立 `.scratch/ai-v2-real-text-eval/` 输出目录，调用当前本机 `chat2api` 网关的 `gpt-5-6-mini`。
+- 评测完成 30 次文字调用、0 次图片调用；没有重试或隐藏格式修复；总耗时约 418 秒。
+- 叙事：10/10 schema-valid，均返回 5 套方案；静态：10/10 schema-valid，均返回 3 套方案。
+- 轮播：2/10 schema-valid；8 个失败均为 `model_output_invalid`，字段路径集中在 `$.items[].frames`，未创建图片会话。
+- 成功公开 DTO 私有字段泄露数为 0；延迟范围约 10.4–32.6 秒，平均约 13.9 秒，中位数约 13.1 秒。
+- 隔离报告为 `.scratch/ai-v2-real-text-eval/report.json`；证据类型为 `controlled_real_text_eval`，质量结论仍为 `real_text_quality_not_production`，不得描述为生产质量通过。
+
+# 2026-09-05 轮播真实评测失败根因诊断
+
+- 直接根因：`carousel-text-v1.txt` 只要求每套返回 2–5 个连续帧，没有把 `visual_carousel_count` 的固定选择明确写成“每套必须恰好返回 N 帧”；而 `carousel_visual.py` 在 schema 通过后额外强制每套帧数等于所选 N，错配统一映射为 `model_output_invalid` / `$.items[].frames`。
+- 最小 deterministic 复现已确认：选择 4 屏、返回合法 2 帧时稳定得到同一错误；因此真实评测中前两次偶然命中 2/3 屏，后续错配失败与该契约冲突一致。
+- 另一个独立缺口：内置配置屏数标签是 `2屏`/`3屏` 等中文值，`_requested_count()` 只接受纯数字或 `AI决定`；当前评测脚本使用数字字符串绕过该问题，因此它不是本次 8 个模型输出失败的直接原因，但真实页面固定屏数可能在模型调用前失败。
+- 未修改 Prompt、输入解析或校验逻辑；待用户确认后再决定采用“Prompt 明确固定 N”还是调整产品契约。
+
+# 2026-09-05 轮播固定屏数契约修复
+
+- 在 `carousel-text-v1` Prompt 中明确：固定 `visual_carousel_count` 时每套必须恰好返回所选帧数；`AI决定` 时才允许选择 2–5 帧且三套统一。
+- `_requested_count()` 现在接受内置标签 `2屏`、`3屏`、`4屏`、`5屏`，并继续兼容纯数字和 `AI决定`。
+- 新增回归测试覆盖 Prompt 固定屏数指令和 `3屏` 输入；RED 阶段分别复现缺失指令与解析失败，GREEN 后通过。
+- 更新轮播 Prompt hash 为 `9a1d7fd6505743af3b41b8f86fe5fe6b7bef7002fb6888942d90274d125229d4`；由于 Prompt 文本变更，轮播审批已标记为“需修改后再评”，叙事/静态审批不变。
+
+### 修复后验证
+
+- 全量 unittest：178 项通过；AI v2：105 项通过。
+- 单独 release gate：105 项通过，`v2-contract`、compileall、Node、diff-check、boundary 均为 `ok`；并行首次运行的既有 adoption 时间戳抖动单独重跑后通过。
+- 既有 30 次真实文字评测使用旧轮播 Prompt hash，不能作为修复后质量证据；本次未追加真实调用。
+
+# 2026-09-05 轮播修复后受控重测
+
+- 用户要求只重测轮播文字；使用修复后的 Prompt、内置标签、当前 `gpt-5-6-mini` 网关和独立 `carousel-rerun.sqlite3`。
+- 完成 10 次轮播文字调用、0 次图片调用；9/10 schema-valid。
+- 固定 2/3/4/5 屏的 9 个 case 均返回三套方案且帧数分别精确匹配所选屏数；`carousel-08` 仍有 1 次 `model_output_invalid`，字段路径为 `$.items[].frames`。
+- 成功公开 DTO 私有字段泄露数为 0；总耗时约 138 秒，延迟约 11.4–17.8 秒。
+- 新报告位于 `.scratch/ai-v2-real-text-eval/carousel-rerun-report.json`；质量结论仍为 `real_text_quality_not_production`。图片链路尚未测试。
+
+### carousel-08 失败定位
+
+- `carousel-08` 的输入固定选择 3 屏，错误路径 `$.items[].frames` 对应 `carousel_visual.py` 第 102 行的 `frame_count_mismatch`，说明至少一套模型方案返回的帧数不是 3。
+- 报告未保留供应商原始响应，因此无法安全确定具体返回了 2、4 还是 5 帧；没有证据表明是图片调用或会话问题。
+- 该 case 的任务说明是“首帧失败不解锁第二帧”的状态行为描述，不是自然创意 brief，可能增加模型把运行规则混入轮播规划的概率。
+
+# 2026-09-05 轮播 AI决定屏数重测
+
+- 按用户要求执行第二轮 10 个轮播文字 case，其中 9 个固定屏数、1 个 `AI决定`；AI决定 case 使用自然的多屏创意 brief，图片调用仍为 0。
+- 10 次文字调用完成，9/10 schema-valid；`AI决定` case 成功，三套方案统一选择 3 帧；固定 2/4/5 屏及其他 3 屏 case 均精确匹配。
+- 唯一失败为 `carousel-02`，错误路径为 `$` 的 `model_output_invalid`，不属于帧数错配；无私有字段泄露、无重试或图片会话。
+- 报告位于 `.scratch/ai-v2-real-text-eval/carousel-ai-count-rerun-report.json`；仍属于受控真实文字证据，不构成 production 质量通过。
+
+# 2026-09-05 受控真实图片评测预检
+
+- 已读取图片评测 handoff、下一会话 handoff、AGENTS、项目代码地图、运维手册、AI 总纲、代码规范和 Prompt 审批记录；未修改 Prompt、registry、caller、live 开关或 `chat2api/.env`。
+- 静态/轮播图片 deterministic 基线 30 项通过；AI v2 全套 106 项、全量 unittest 179 项、release gate、compileall、Node、boundary 和 diff-check 均通过。
+- 8775/8780 当前均在监听；8780 的 `chat2api/images/`、`chat2api/image_job_state/` 和项目 `data/images/` 已有非空运行数据，不能作为隔离图片评测环境；健康和模型列表只读检查通过，未发起图片请求。
+- 真实图片评测仍待明确授权：use case 为 static 单图 + carousel 两帧，建议最多 3 次供应商图片提交（1+2）、模型沿用 `gpt-5-6-mini`、临时网关/SQLite/图片目录、unknown/认证失败/超预算即停；本次预检不构成图片调用批准。
+
+# 2026-09-05 受控真实图片评测停止于 provider unknown
+
+- 按用户“继续任务”执行默认边界：专用网关 8791、临时 SQLite/图片/job 目录、`gpt-5-6-mini`，最多 3 次图片提交；没有调用文字模型。
+- 静态首次点击实际接受 1 个供应商 job，轮询观察到 working 后供应商返回普通 `failed`；v2 adapter 按契约映射为 `unknown`，未创建重试 attempt，随后立即停止，未执行重复点击验收。
+- 本地状态保留为 1 个 image session、1 个 generating attempt、0 个 artifact；供应商失败分类为网络代理关闭。轮询 73 次；未发生第二 session 或隐藏重试。
+- 轮播未发起真实图片请求，原因是静态 provider unknown；没有把未执行项记为通过。控制令牌预检期间的 2 次 401 未创建供应商 job。
+- 报告：`.scratch/ai-v2-real-image-eval/static-real-image-report.json`、`.scratch/ai-v2-real-image-eval/carousel-real-image-report.json`；两份均为 `controlled_real_image_eval`、`status=not_exercised`，不构成生产质量通过。
+- 专用网关已停止，8791 已释放；现有 8775/8780 未改动。报告无 Prompt、Cookie、token、job/session 标识或绝对路径；隔离图片目录无生成文件。
+
+# 2026-09-05 AI v2 图片评测交接后回归
+
+- 接手后确认 8775、8780、8791 均未监听，`CREATIVE_STUDIO_AI_V2_LIVE` 未设置；现有工作树修改全部保留。
+- deterministic 静态/轮播图片测试 12 项通过；AI v2 release gate、Node、compileall、boundary 和 `git diff --check` 通过。
+- 使用 `.venv` 重跑全量 unittest：首次出现既有 adoption `updated_at` 秒级抖动，定向重跑后全量 180 项通过。
+- 未发起新的真实文字或图片调用，未修改 `chat2api/.env`、真实数据库、图片或上传目录。
+
+# 2026-09-06 AI v2 接手核验与 readiness 设计输入
+
+- 接手分支 `codex/tag-accordion-prototype`、HEAD `1bb6dd1`；已保存既有工作树快照，保留全部未提交修改。8775/8780/8791 未监听，进程/用户/系统级 live 均未设置。
+- 新鲜验证：全量 unittest 180 项、静态/轮播定向 12 项、release gate 内 AI v2 106 项通过；Node、compileall、boundary、diff-check 通过。证据仍仅为 deterministic contract。
+- 核实三份 registry 为 candidate/caller=null；叙事/静态仅有受控评测批准，修订后的轮播仍需重评。正式入口实际已 fail-closed，operations/代码地图相关段落滞后。
+- 图片交接和现存报告存在冲突：旧记录写 unknown/轮播未执行，当前 JSON 写成功但提交数与 final handoff 不符，轮播两帧 artifact hash 前缀相同。尚未核清来源，不作生产通过结论。
+- 独立 production gate 的范围、验收和回滚建议已记录于 `docs/superpowers/handoffs/2026-09-06-ai-v2-readiness-baseline.md`；本轮未实现 gate 或新增代码测试。
+- 本轮仅新增核验文档并追加本记录；没有真实模型请求、生产批准、live 切换、运行数据写入或 Git 提交。
+- 本轮随后按 TDD 新增独立 `production_gate.py`：candidate registry 以非零阻断，临时 production registry 验证三类 canonical caller 可达、caller 唯一性和 `max_model_calls=1`；新增 3 项定向测试通过。该 gate 仍只证明 deterministic contract，不批准 live 或 production Prompt。
+- readiness gate 增加 composition root factory 存在性和 use case/output schema 映射检查；定向测试扩展为 4 项通过。
+- 同步修正 `docs/operations.md` 与 `项目代码地图.md` 的过时描述：正式入口未启用 live 时 fail-closed；candidate model/image 仅由测试显式注入。production gate 与 v2 应用集成定向测试共 10 项通过，`git diff --check` 通过。
+- 图片评测证据核查完成：发现 `finalize_unknown_report.py` 与 `run_image_eval.py` 会写同一路径，现存 JSON 混有 unknown 与另一轮成功字段，状态标为 `evidence_conflicted`；新增 `docs/superpowers/handoffs/2026-09-06-ai-v2-image-evidence-reconciliation.md`，未覆盖或删除任何 scratch 证据。
+- 按用户授权完成新的隔离真实图片评测：`.scratch/ai-v2-real-image-eval-20260906/`，static 1 次提交成功，carousel 2 次提交完成两帧；总提交 3，PNG，1 个轮播 session、revision=2、公开私有字段泄露 0。8791/7896 已停止；未调用文字模型、未改 `.env`/live/registry/真实数据。修正了评测脚本累计提交数报告错误，并保留旧冲突目录不动。
+- 执行正式切换前备份 dry-run：生成 `.scratch/backup-smoke-20260906` 只读 manifest，未复制或修改真实运行数据；临时备份恢复测试 7 项通过，均验证 `verified`/引用完整性和篡改拒绝。production gate、网关回归定向测试 23 项通过。
+- 用户明确批准叙事、静态、轮播三份 Prompt 全部晋级 production；registry 已绑定三个 canonical caller。production readiness gate 通过，candidate contract gate 从临时降级 registry 重建并通过 30 case；未启用 live、未发起新的真实请求。
+- 已创建正式切换前交接：`docs/superpowers/handoffs/2026-09-06-ai-v2-production-cutover-handoff.md`。下一会话从备份/restore smoke、显式 live 传递和本机 smoke 继续；正式切换仍需新会话明确授权。
+# 2026-09-06 AI v2 本机正式切换
+
+## 已完成
+
+- 收到用户明确授权后停止残留启动器，确认 `8775`、`8780` 无监听。
+- 对真实 `data/creative_studio.db`、`data/images/`、`data/uploads/` 完成正式备份：`.scratch/production-cutover-backup-20260906-$(Get-Date -Format HHmmss)/`。
+- 在隔离目录 `.scratch/production-cutover-restore-smoke-20260906/` 完成恢复 smoke，`verified=true`、`references_verified=true`。
+- 启动器环境显式传递 `CREATIVE_STUDIO_AI_V2_LIVE=1`；单实例网页和网关启动成功，网页 health 200，网关 `ok=true`、`has_token=true`。
+- 关闭 live 后组合根返回 `ai_not_enabled`，随后服务已停止，端口均无监听。
+
+## 验证与未完成
+
+- AI v2 网关运行时/生产门禁定向测试 22 项通过；编译、Node 检查和 `git diff --check` 通过。
+- 全量 unittest 运行 184 项，其中 183 项通过，1 项因环境缺少 `curl_cffi` 导入失败（`tests.test_chat2api_web_client`）。
+- 未对真实项目执行文字或图片 smoke，因为本次授权未指定项目 ID；未擅自消耗真实模型额度。
+- 未修改 `chat2api/.env`、真实数据库、图片或上传文件；未提交工作树。
+
+## 2026-09-06 真实 smoke 停止记录
+
+- 按用户选择使用展示类项目 `12`，启动 live 单实例后执行一次真实文字 smoke。
+- 网关返回 HTTP 502，应用分类为 `provider_unavailable`，`phase=text`、`retryable=true`；按停止条件未继续图片调用或重试。
+- 服务已停止，`8775`、`8780` 均无监听；未执行真实图片 smoke。
+
+# 2026-09-06 轮播续帧异步 job 对账修复
+
+- 根因确认：续帧提交返回异步 `job_id` 但本地未写入当前 attempt；后续轮询错误回退到同一会话首帧的 job，导致续帧可能被首帧结果完成。
+- 修复 `store.py`：异步 working 状态即使暂时没有会话游标，也持久化当前 attempt 的 provider job 并标记 generating。
+- 修复 `image_worker.py`：pending/generating attempt 只查询自身 provider job；仅历史 failed attempt 保留会话 job 兼容回退。
+- 新增轮播回归测试，覆盖首帧成功、续帧排队、续帧独立 job 对账；相关 20 项测试通过。
+- 使用本机网关真实验证同一轮播会话的首帧+第二帧（attempt 17/18，共用一个 image session、同一 conversation、两个独立 provider job）和第三帧（attempt 16）均成功；未创建第二个 image session。
+- `/app.js` 实际 HTTP 服务返回已包含 `imageBusyItemId`，Node 检查、compileall、diff-check 通过。
+- 继续生成前端补齐直接 `{attempt_id,status}` 响应的轮询绑定；此前只读取旧 `operation.operation_id`，导致提交成功后前端没有继续跟踪。新增前端回归测试 7 项通过；截图对应方案的 attempt 19 已真实轮询至 success。
+- 继续生成改为复用单帧提交/轮询函数，并将历史刷新失败与图片提交失败分开处理，避免任务已提交却被前端误报为 `AI 请求失败`。
+
+# 2026-09-06 续帧陈旧页面状态修复
+
+- 发现截图中的方案卡仍显示第 2 帧未生成，但真实数据库中对应 attempt 已成功；点击继续时后端返回已完成，前端表现为误导性提示。
+- `static/app.js` 的继续生成入口现在会先刷新历史，再选择下一帧；支持已有 generating 帧，并对无可提交帧和 `state_conflict` 给出明确提示。
+- 页面脚本版本更新为 `/app.js?v=20260906-continue2`，8775 实际返回该版本及新逻辑。
+- 新方案 107 首帧真实提交创建 `attempt_id=25`，状态由 generating 变为 success；定向回归 14 项、Node 检查和 diff-check 通过。
+- 同一方案 107 的第 2 帧通过续帧入口创建 `attempt_id=26` 并最终 success，确认同一 image session 的多轮链路可用。
+- 网页请求日志确认陈旧卡片会对已成功的 105/106/107 首帧重复 POST，并收到旧 attempt 的 200 success；前端单帧提交现在会先刷新历史并跳过该重复提交。
+# 2026-09-06 继续排查网页点击到生成请求
+
+- 复核正式前端发现“确认定位”点击原先吞掉 `saveProject` 异常后仍推进到生成页，可能造成页面状态与服务端项目状态不一致；现改为保存失败立即停止推进。
+- 在定位确认和文字生成入口增加脱敏控制台事件日志，记录项目 ID、步骤、是否排队及 run ID，不记录提示词、Cookie、Token 或完整请求体。
+- `node --check static/app.js` 和 `git diff --check` 通过；真实浏览器多轮图片端到端点击仍待下一步用已登录会话验证。
+- 诊断确认后端真实数据库中的轮播方案 108：首帧 attempt 27 success，续帧 2 通过 attempt 28 success，复用同一 image session 且使用独立 provider job；未发现后端首帧/续帧对账错误。
+- 前端根因修复：图片 operation/poll timer/status 由方案 ID 改为 `scheme_id:frame_index` 键，避免某一帧残留状态静默阻断后续帧；同步 success 路径也会清理“继续生成中”状态。
+- 新增 3 帧同 session 回归测试；轮播、图片 worker、前端回归共 12 项通过。
+- 更新正式脚本缓存版本至 `continue3`，并通过实际 HTTP 读取确认 8775 返回新版本及 `frameOperationKey`/按帧轮询逻辑。
+- 直接相关验证扩大为 16 项通过；全量 unittest 193 项仍有既有 Prompt deterministic fixture 不匹配及 Windows 临时 SQLite 文件锁错误，未归因于本次续帧改动。
+# 2026-09-06 轮播续帧误判已完成修复
+
+- 根据用户截图和“已完成，请刷新页面”提示定位：指定后续 frame 时，状态读取错误回退到首帧 `item.image_status`，首帧 success 会把未生成后续帧误判为已完成。
+- 现已改为指定 frame 时只读取该 frame 状态，缺失按 pending 处理；正式脚本缓存版本更新为 `continue4`。
+
+# 2026-09-08 开发机、部署包和服务器代码基准盘点
+
+- 新增只读代码盘点脚本 `scripts/code_inventory.ps1`，纳入 `src`、`static`、`config`、`chat2api`、`tests` 和关键启动文件；排除 `.env`、私有配置、虚拟环境、数据库、图片、上传、日志、缓存和暂存内容。
+- 开发机当前工作树清单：112 个文件、1,141,279 字节、聚合 SHA-256 `7f29098da58e5ae8a52acd1329ab941976ee8e1a0b07fbe438fdf8e6ba114d9f`。
+- 2026-09-06 部署包清单：112 个文件、1,141,155 字节、聚合 SHA-256 `e0261357199ce918f5429a24e9afe2304ecca924554e2c1d8ce5b13ec33cea88`。
+- 逐文件比较只有 `launcher.py` 不同：开发机候选改为外部私有配置目录并传递 `CHATGPT_ENV_PATH`，部署包仍读取 `chat2api/.env`；服务器当前实际使用后者。本轮只记录差异，未覆盖或回退用户已有修改。
+- 确定开发机 Git 仓库为唯一代码权威源，服务器只作为已发布运行副本；服务器 SQLite、图片、上传和生产 `.env` 则是生产数据/配置权威源。
+- 当前 `HEAD` 为 `1bb6dd1c7a523f2f560af5c74d5d62ec0e7fa49d`，但大量现有开发成果尚未提交，不能把该提交当作当前完整代码基准。
+- 新增 `docs/deployment/code-baseline-20260908.md`；待取得服务器现场聚合哈希、决定 `launcher.py` 配置路径并完成新鲜全量验证后，再创建正式 Git 基准提交/tag。
+- 使用项目 `.venv` 和当前工作树完成新鲜全量 unittest，200 项通过；未发起真实 AI 或图片请求，未修改运行数据和生产配置。
+- 首次服务器执行在 Windows PowerShell 5.1 中因绝对 `OutputPath` 被重复拼接而停止，未写入清单；盘点脚本现已兼容绝对/相对输出路径，服务器可直接改用相对输出路径重跑。
+- 服务器清单为 111 个文件、1,140,416 字节；与部署包逐文件比较后，清单中的 111 个文件全部一致。唯一漏扫项为 739 字节的 `启动AI创意工作台.bat`，原因是 PowerShell 5.1 未正确解码脚本中的中文文件名；脚本改为按根目录 `.bat` 扩展名发现批处理。
+- 仓库规则、运维文档和服务器现实均使用 `chat2api/.env`，因此开发机 `launcher.py` 已移除未落地的外部配置目录选择和 `CHATGPT_ENV_PATH` 注入，与部署包行为收口；未读取或修改任何 `.env` 内容。
+- 收口后开发机候选与部署包均为 112 个文件、1,141,155 字节、聚合 SHA-256 `e0261357199ce918f5429a24e9afe2304ecca924554e2c1d8ce5b13ec33cea88`；新鲜全量 unittest 200 项、compileall、Node 语法和 `git diff --check` 通过。
+- 服务器直接核验漏扫的启动批处理：739 字节、SHA-256 `6390ffc13978d6049fcaffaab6c47c25a81bfb1d0dad0f4d03a2a15e25d60991`，与部署包一致。合入后服务器完整清单同为 112 个文件、1,141,155 字节、聚合 SHA-256 `e0261357199ce918f5429a24e9afe2304ecca924554e2c1d8ce5b13ec33cea88`。
+- 代码盘点完成并封板：开发机 Git 仓库为唯一代码权威源，服务器为已发布运行副本；服务器 SQLite、图片、上传和生产 `.env` 为生产数据/配置权威源。正式 Git 基准提交和 tag 留待下一步。
+- Git 整理将 47 个既有文件修改和 23 个新增代码/测试/文档文件纳入一次基准快照；`.scratch/`、日志、暂存目录和私有配置已加入忽略规则，暂存区未包含 `.env`、数据库、图片、压缩包或日志。
+- 正式基准使用 annotated tag `production-baseline-20260908`；当前仓库未配置远端，提交和 tag 仅保存在开发机，待后续单独配置代码托管和推送流程。

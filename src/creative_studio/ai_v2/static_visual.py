@@ -119,7 +119,7 @@ class StaticTextUseCase:
         """按需提交静态方案唯一图片，并在失败重试前完成供应商对账。"""
 
         if self.image_model is None:
-            raise StaticTextUseCaseError("provider_unavailable", "image provider unavailable")
+            raise StaticTextUseCaseError("provider_unavailable", "image provider unavailable", retryable=True)
         scheme = self.store.read_scheme(scheme_id)
         if scheme["use_case"] != "static":
             raise StaticTextUseCaseError("invalid_use_case", "scheme is not static", retryable=False)
@@ -166,6 +166,7 @@ class StaticTextUseCase:
                     raise StaticTextUseCaseError(
                         submission.error_code or "provider_state_unknown",
                         "image provider state is unknown",
+                        retryable=(submission.error_code or "provider_state_unknown") in {"provider_unavailable", "provider_state_unknown"},
                     )
                 session = self.store.initialize_image_session(session.session_id, submission.cursor, submission.provider_job_id)
                 attempt = self.store.reserve_image_attempt(scheme_id, 1, request_key)
@@ -177,7 +178,7 @@ class StaticTextUseCase:
             if not terminal_failure_confirmed:
                 orphan = self.image_model.reconcile(ReconcileRequest(session_key, request_key, session.cursor, session.provider_job_id))
             if orphan.state == "unknown":
-                raise StaticTextUseCaseError("provider_state_unknown", "image state is unknown")
+                raise StaticTextUseCaseError("provider_state_unknown", "image state is unknown", retryable=True)
             attempt = self.store.reserve_image_attempt(scheme_id, 1, request_key)
             if orphan.state in {"success", "working"}:
                 self._apply_reconcile(attempt, orphan)

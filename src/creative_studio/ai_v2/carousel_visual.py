@@ -44,6 +44,8 @@ def _requested_count(tags: Mapping[str, tuple[str, ...]]) -> int | None:
     selected = str(values[0]).strip()
     if selected.lower() in {"ai", "ai决定"}:
         return None
+    if selected.endswith("屏"):
+        selected = selected[:-1].strip()
     try:
         count = int(selected)
     except ValueError as exc:
@@ -51,6 +53,45 @@ def _requested_count(tags: Mapping[str, tuple[str, ...]]) -> int | None:
     if count not in range(2, 6):
         raise CarouselTextUseCaseError("invalid_carousel_count", "carousel count must be between 2 and 5", retryable=False)
     return count
+
+
+def _normalize_requested_frames(canonical: dict[str, Any], requested_count: int | None) -> None:
+    """Normalize minor model drift in frame indexes/count before strict validation.
+
+    The text model occasionally returns the right plan with non-contiguous indexes
+    or one extra frame. Keep the user's requested count authoritative and keep the
+    private image prompt list aligned with the public frame list.
+    """
+    if requested_count is None or not isinstance(canonical.get("items"), list):
+        return
+    for item in canonical["items"]:
+        if not isinstance(item, dict) or not isinstance(item.get("frames"), list):
+            continue
+        frames = [frame for frame in item["frames"] if isinstance(frame, dict) and isinstance(frame.get("description"), str) and frame["description"].strip()]
+        if len(frames) < 2:
+            continue
+        if len(frames) >= requested_count:
+            frames = frames[:requested_count]
+        else:
+            template = frames[-1]
+            while len(frames) < requested_count:
+                frames.append({"description": template["description"] + "（延续上一画面并展示新的结果）"})
+        for index, frame in enumerate(frames, start=1):
+            frame["index"] = index
+        item["frames"] = frames
+        execution = item.get("execution")
+        if isinstance(execution, dict) and isinstance(execution.get("image_prompts"), list):
+            prompts = [prompt for prompt in execution["image_prompts"] if isinstance(prompt, dict) and isinstance(prompt.get("prompt"), str) and prompt["prompt"].strip()]
+            if prompts:
+                if len(prompts) >= requested_count:
+                    prompts = prompts[:requested_count]
+                else:
+                    template = prompts[-1]
+                    while len(prompts) < requested_count:
+                        prompts.append({"prompt": template["prompt"] + "；延续上一画面并体现本帧的新结果"})
+                for index, prompt in enumerate(prompts, start=1):
+                    prompt["index"] = index
+                execution["image_prompts"] = prompts
 
 
 class CarouselTextUseCase:
@@ -93,6 +134,7 @@ class CarouselTextUseCase:
             ))
             try:
                 canonical = json.loads(response.raw_text)
+                _normalize_requested_frames(canonical, requested_count)
                 validate_json(canonical, load_schema("carousel-text", "v1"))
                 if requested_count is not None:
                     for item in canonical["items"]:
@@ -137,7 +179,7 @@ class CarouselTextUseCase:
         """只生成当前允许的一帧，后续帧必须等待上一帧成功。"""
 
         if self.image_model is None:
-            raise CarouselTextUseCaseError("provider_unavailable", "image provider unavailable")
+            raise CarouselTextUseCaseError("provider_unavailable", "image provider unavailable", retryable=True)
         scheme = self.store.read_scheme(scheme_id)
         if scheme["use_case"] != "carousel":
             raise CarouselTextUseCaseError("invalid_use_case", "scheme is not carousel", retryable=False)
@@ -189,6 +231,7 @@ class CarouselTextUseCase:
                     raise CarouselTextUseCaseError(
                         submission.error_code or "provider_state_unknown",
                         "image provider state is unknown",
+                        retryable=(submission.error_code or "provider_state_unknown") in {"provider_unavailable", "provider_state_unknown"},
                     )
                 session = self.store.initialize_image_session(session.session_id, submission.cursor, submission.provider_job_id)
                 attempt = self.store.reserve_image_attempt(scheme_id, frame_index, request_key)
@@ -200,7 +243,7 @@ class CarouselTextUseCase:
             if not terminal_failure_confirmed and frame_index == 1:
                 orphan = self.image_model.reconcile(ReconcileRequest(session_key, request_key, session.cursor, session.provider_job_id))
             if orphan.state == "unknown":
-                raise CarouselTextUseCaseError("provider_state_unknown", "image state is unknown")
+                raise CarouselTextUseCaseError("provider_state_unknown", "image state is unknown", retryable=True)
             attempt = self.store.reserve_image_attempt(scheme_id, frame_index, request_key)
             if orphan.state in {"success", "working"}:
                 self._apply_reconcile(attempt, orphan)

@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
 
     # 服务
-    port: int = 8700
+    port: int = 8780
     timeout: int = 600  # 秒
     max_concurrent_tasks: int = 3
-    task_queue_timeout: int = 90  # 秒，需短于 ERP 前端 300 秒请求超时
+    task_queue_timeout: int = 90  # 秒，需短于创意工作台前端 300 秒请求超时
 
     # Web 模式图片生成默认模型
     web_image_model: str = "gpt-5-5-thinking"

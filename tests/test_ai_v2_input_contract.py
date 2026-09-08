@@ -54,6 +54,17 @@ class AiV2InputContractTests(unittest.TestCase):
         with self.assertRaises(InputContractError):
             normalize_input({**base, "creative_tags": {"目标人群": "不是序列"}})
 
+    def test_ignores_editor_only_carousel_round_objects(self) -> None:
+        value = normalize_input({
+            "task_description": "任务",
+            "aspect_ratio": "16:9",
+            "creative_tags": {
+                "visual_carousel": ["是"],
+                "visual_carousel_rounds": [{"index": 1, "mode": "base", "overrides": {}}],
+            },
+        })
+        self.assertEqual(value.creative_tags, {"visual_carousel": ("是",)})
+
     def test_requires_all_three_top_level_fields(self) -> None:
         with self.assertRaises(InputContractError):
             normalize_input({"task_description": "任务", "aspect_ratio": "16:9"})

@@ -76,6 +76,7 @@ class CandidateTextModel(TextModelPort):
                     {
                         "title": f"候选轮播方案 {item}",
                         "core_idea": "候选核心创意",
+                        "core_subject": "固定掌门与三名核心弟子",
                         "ad_copy": "候选广告文案",
                         "frames": [
                             {"index": 1, "description": "候选首帧"},
@@ -101,6 +102,8 @@ class CandidateTextModel(TextModelPort):
                         "core_idea": "候选核心创意",
                         "ad_copy": "候选广告文案",
                         "image_description": "候选画面描述",
+                        "content_extensions": ["候选延展内容"],
+                        "reference_sources": [{"name": "候选参考", "note": "候选参考说明"}],
                         "execution": {"image_prompt": "candidate static image"},
                     }
                     for item in range(1, 4)

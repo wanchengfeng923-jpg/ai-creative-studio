@@ -81,8 +81,18 @@ def public_scheme(scheme: Mapping[str, Any]) -> dict[str, Any]:
     if use_case == "narrative":
         return _public_narrative_item(source)
 
-    for key in ("title", "core_idea", "ad_copy", "image_description"):
+    for key in ("title", "core_idea", "core_subject", "ad_copy", "image_description"):
         _copy_text(source, key, result)
+    if use_case == "carousel" and "core_subject" not in result:
+        raw_frames = source.get("frames")
+        if isinstance(raw_frames, Sequence) and raw_frames and isinstance(raw_frames[0], Mapping):
+            subject = raw_frames[0].get("description")
+            if isinstance(subject, str):
+                result["core_subject"] = subject
+    for key in ("content_extensions", "reference_sources"):
+        value = source.get(key)
+        if isinstance(value, list):
+            result[key] = value
 
     if use_case == "carousel":
         frames: list[dict[str, Any]] = []
@@ -92,7 +102,7 @@ def public_scheme(scheme: Mapping[str, Any]) -> dict[str, Any]:
                 if not isinstance(raw_frame, Mapping):
                     continue
                 frame: dict[str, Any] = {}
-                index = raw_frame.get("index")
+                index = raw_frame.get("index", raw_frame.get("frame_index"))
                 if isinstance(index, int) and not isinstance(index, bool):
                     frame["index"] = index
                 _copy_text(raw_frame, "description", frame)
@@ -124,6 +134,9 @@ def public_run(run: Mapping[str, Any]) -> dict[str, Any]:
     status = run.get("status")
     if isinstance(status, str) and status in {"pending", "success", "failed", "accepted", "text_succeeded", "partial", "completed"}:
         result["status"] = status
+    error_code = run.get("error_code")
+    if isinstance(error_code, str) and _SAFE_ERROR_CODE.fullmatch(error_code):
+        result["error_code"] = error_code
 
     canonical = run.get("canonical")
     source = canonical if isinstance(canonical, Mapping) else run

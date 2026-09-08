@@ -594,11 +594,12 @@ class SqliteAiV2Store:
                 raise AiV2StoreConflict("provider success is missing artifact or cursor")
             self.complete_image_attempt_atomic(attempt_id, result.artifact, result.cursor)
             return
-        if result.state == "working" and result.cursor is not None:
+        if result.state == "working":
             self.connection.execute("BEGIN IMMEDIATE")
             try:
                 self._assert_latest_attempt(attempt_id, attempt["scheme_id"], attempt["frame_index"])
-                self._update_session_cursor(attempt["image_session_id"], result.cursor, result.provider_job_id)
+                if result.cursor is not None:
+                    self._update_session_cursor(attempt["image_session_id"], result.cursor, result.provider_job_id)
                 self.connection.execute(
                     "UPDATE ai_v2_image_attempts SET status='generating', provider_job_id=? WHERE attempt_id=? AND status <> 'success'",
                     (result.provider_job_id, attempt_id),

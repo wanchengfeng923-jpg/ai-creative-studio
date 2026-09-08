@@ -34,6 +34,7 @@ def _carousel_result() -> dict[str, object]:
             {
                 "title": "方案",
                 "core_idea": "核心创意",
+                "core_subject": "固定主体",
                 "ad_copy": "广告文案",
                 "frames": [
                     {"index": 1, "description": "首帧"},

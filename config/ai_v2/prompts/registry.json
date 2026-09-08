@@ -5,34 +5,34 @@
       "id": "creative.ai_v2.narrative",
       "version": "v1",
       "path": "narrative-text-v1.txt",
-      "template_sha256": "33f55fb7d3c0c90903a3c879efe3de6a15ccdc4ec83a262a94aa131967392851",
+      "template_sha256": "70b3aa2228b0e6509badc656e9eec96f5e27d77b35aba43e41703729f0cf0e4e",
       "input_schema": "AiV2Input.v1",
       "output_schema": "narrative-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.narrative.NarrativeTextUseCase.generate"
     },
     {
       "id": "creative.ai_v2.static",
       "version": "v1",
       "path": "static-text-v1.txt",
-      "template_sha256": "1eed12efce5e04e505f1e4d4134d8e85ca2c528ad4931cc220278c1736e63f2d",
+      "template_sha256": "c820c9eb6dcf95a444c9ecd490e03b09708e3280341a9f8552ca09a7dc51139b",
       "input_schema": "AiV2Input.v1",
       "output_schema": "static-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.static_visual.StaticTextUseCase.generate"
     },
     {
       "id": "creative.ai_v2.carousel",
       "version": "v1",
       "path": "carousel-text-v1.txt",
-      "template_sha256": "ed85430d70935166cf37d149c77eee1e7f44001fdcdf883764cfd558a81db46b",
+      "template_sha256": "84c220d8dea03e5f036bd92c0536c706ffb88c088dd42acb1c98c63fec15fb08",
       "input_schema": "AiV2Input.v1",
       "output_schema": "carousel-text-v1",
       "max_model_calls": 1,
-      "lifecycle": "candidate",
-      "caller": null
+      "lifecycle": "production",
+      "caller": "creative_studio.ai_v2.carousel_visual.CarouselTextUseCase.generate"
     }
   ]
 }

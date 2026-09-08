@@ -31,11 +31,11 @@ class AiV2ReleaseGateTests(unittest.TestCase):
         self.assertEqual(evidence["cases"]["contract_outcomes_passed"], 29)
         self.assertEqual(evidence["cases"]["quality_cases_not_run"], ["narrative-07"])
         self.assertEqual(evidence["privacy"]["leak_count"], 0)
-        self.assertEqual(evidence["privacy"]["public_payloads_scanned"], 23)
+        self.assertEqual(evidence["privacy"]["public_payloads_scanned"], 25)
         self.assertEqual(evidence.get("schema_validation"), {
             "expected_outcome_pass_rate": 1.0,
-            "invalid_payloads_rejected": 7,
-            "valid_payloads_accepted": 23,
+            "invalid_payloads_rejected": 5,
+            "valid_payloads_accepted": 25,
         })
         self.assertEqual(evidence["model_calls"], {
             "text_model_calls": 30,
@@ -51,7 +51,7 @@ class AiV2ReleaseGateTests(unittest.TestCase):
         self.assertEqual(evidence["failure_classification"], {
             "carousel_operation_failed": 0,
             "image_generation_failed": 0,
-            "model_output_invalid": 7,
+            "model_output_invalid": 5,
             "provider_protocol_invalid": 0,
         })
         self.assertEqual(

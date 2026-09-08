@@ -39,7 +39,7 @@ def _static_json() -> str:
     return json.dumps({
         "schema_version": "static-text-v1",
         "items": [
-            {"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "execution": {"image_prompt": "p"}}
+            {"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "content_extensions": ["e"], "reference_sources": [{"name": "r", "note": "n"}], "execution": {"image_prompt": "p"}}
             for i in range(3)
         ]
     })

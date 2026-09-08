@@ -12,11 +12,15 @@
     operationPollTimers: new Map(),
     operationIds: new Map(),
     operationStatus: new Map(),
+    imageBusyItemId: 0,
     pinnedGeneratedBatch: null,
     generationStartedAt: 0,
     generationTimer: 0,
+    generationQueueTicket: "",
+    generationQueueTimer: 0,
+    queueSummaryTimer: 0,
+    queueSummary: { running: 0, waiting: 0, capacity: 6 },
     activeRunId: 0,
-    continuingSchemes: new Set(),
     carouselIndexes: new Map(),
     saving: false,
     savePromise: null,
@@ -26,6 +30,8 @@
 
   const V2_GENERATION_ENDPOINTS = {
     run: (projectId) => `/api/v2/projects/${projectId}/generate`,
+    queue: (ticketId) => `/api/v2/queue/${ticketId}`,
+    queueSummary: () => "/api/v2/queue",
     history: (projectId) => `/api/v2/projects/${projectId}/history`,
     runStatus: (runId) => `/api/v2/runs/${runId}`,
     adoption: (projectId) => `/api/v2/projects/${projectId}/adopt`,
@@ -57,6 +63,10 @@
 
   let currentStep = 1;
 
+  function frameOperationKey(itemId, frameIndex) {
+    return `${Number(itemId)}:${Number(frameIndex || 1)}`;
+  }
+
   function setProjectDrawer(open) {
     els.sidebar.classList.toggle("drawer-open", open);
     els.projectMenu.setAttribute("aria-expanded", String(open));
@@ -66,6 +76,50 @@
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
   })[char]);
   const displayTagLabel = (value, mode = activeTagMode()) => mode === "narrative" ? String(value ?? "").replace(/[？?]+$/, "") : String(value ?? "");
+
+  const V2_ERROR_MESSAGES = Object.freeze({
+    ai_not_enabled: "AI 尚未启用，请联系维护者完成正式接入",
+    invalid_input: "输入内容不符合要求，请检查创意说明和定位设置",
+    unknown_field: "请求包含暂不支持的字段，请刷新页面后重试",
+    batch_conflict: "当前定位正在生成另一批方案，请稍后再试",
+    provider_unavailable: "AI 网关暂不可用，请检查连接后重试",
+    provider_auth_failed: "AI 网关凭据或控制令牌无效，请检查启动配置",
+    model_output_invalid: "AI 返回的轮播方案格式不完整，请重试生成",
+    provider_state_unknown: "AI 网关状态暂时无法确认，请稍后重试",
+    provider_protocol_invalid: "AI 网关返回了无法识别的结果，请检查网关后重试",
+    model_output_invalid: "AI 返回结果格式无效，请重试本批生成",
+    image_generation_failed: "参考图生成失败，请重试",
+    carousel_operation_failed: "轮播画面生成失败，请检查状态后重试",
+    frame_order_conflict: "请先按顺序完成前面的轮播画面",
+    state_conflict: "图片状态刚刚发生变化，已刷新当前状态",
+    invalid_frame: "轮播画面序号无效，请刷新后重试",
+    attempt_not_found: "图片任务不存在，请刷新后重试",
+    scheme_not_found: "方案不存在，请刷新后重试",
+    project_not_found: "项目不存在，请刷新后重试",
+    csrf_invalid: "页面安全状态已过期，请刷新页面后重试",
+    image_already_successful: "参考图已经完成，无需重复生成",
+    password_change_required: "请先修改密码",
+    unauthorized: "登录已失效，请重新登录",
+    forbidden: "没有权限执行此操作",
+    default: "AI 请求失败，请稍后重试",
+  });
+
+  function createApiError(payload, response) {
+    const errorCode = typeof payload?.error_code === "string" ? payload.error_code : "";
+    const fallback = typeof payload?.error === "string" ? payload.error : "请求失败";
+    const message = errorCode ? (V2_ERROR_MESSAGES[errorCode] || V2_ERROR_MESSAGES.default) : fallback;
+    const traceId = typeof payload?.trace_id === "string" && /^[0-9a-f]{8,64}$/i.test(payload.trace_id)
+      ? payload.trace_id
+      : "";
+    const error = new Error(traceId ? `${message}（追踪 ID：${traceId}）` : message);
+    error.errorCode = errorCode;
+    error.phase = typeof payload?.phase === "string" ? payload.phase : "";
+    error.retryable = payload?.retryable === true;
+    error.traceId = traceId;
+    error.fieldPath = typeof payload?.field_path === "string" ? payload.field_path : "";
+    error.status = response?.status || 0;
+    return error;
+  }
 
   async function api(path, options = {}) {
     const request = { ...options, headers: { ...(options.headers || {}) } };
@@ -79,8 +133,7 @@
     if (response.status === 401 && !path.includes("/auth/status") && !path.includes("/auth/login")) {
       showLogin("登录已失效，请重新登录");
     }
-    if (response.status === 403) throw new Error(payload.error || "没有权限执行此操作");
-    if (!response.ok || payload.success === false) throw new Error(payload.error || "请求失败");
+    if (!response.ok || payload.success === false) throw createApiError(payload, response);
     return payload;
   }
 
@@ -115,6 +168,7 @@
     try {
       const payload = await api("/api/tag-options"); state.tagConfig = payload.config;
       await loadProjects(); if (state.projects.length) await openProject(state.projects[0].id);
+      refreshQueueSummary();
     } catch (error) { toast(error.message, true); }
   }
 
@@ -362,6 +416,15 @@
   function collectTagValues() {
     const draft = ensureTagDraft();
     return JSON.parse(JSON.stringify(draft));
+  }
+
+  function collectGenerationTags() {
+    const draft = collectTagValues();
+    // Carousel round objects are editor state, not part of the v2 string-tag contract.
+    delete draft.visual_carousel_rounds;
+    return Object.fromEntries(Object.entries(draft).filter(([, values]) =>
+      Array.isArray(values) && values.every((value) => typeof value === "string")
+    ));
   }
 
   function carouselCountValue(draft = ensureTagDraft()) {
@@ -626,15 +689,16 @@
       const operation = item.operation || null;
       const operationId = Number(operation?.operation_id || 0);
       if (!operationId || ["completed", "failed", "blocked"].includes(operation.status)) return;
-      state.operationIds.set(Number(item.id), operationId);
-      state.operationStatus.set(Number(item.id), operation);
-      state.continuingSchemes.add(Number(item.id));
-      if (!state.operationPollTimers.has(Number(item.id))) {
-        scheduleOperationPolling(Number(item.id), operationId);
+      const frameIndex = Number(operation?.frame_index || operation?.frameIndex || 1);
+      const operationKey = frameOperationKey(item.id, frameIndex);
+      state.operationIds.set(operationKey, operationId);
+      state.operationStatus.set(operationKey, operation);
+      if (!state.operationPollTimers.has(operationKey)) {
+        scheduleOperationPolling(Number(item.id), frameIndex, operationId);
       }
     }));
     renderHistory();
-    if (history.batches.length && currentStep < 2) { currentStep = 2; applyStep(); }
+    if (selectLatest && history.batches.length && currentStep < 2) { currentStep = 2; applyStep(); }
   }
 
   function normalizeV2History(payload) {
@@ -645,6 +709,7 @@
       batch_index: run.batch_index,
       use_case: run.use_case,
       status: run.status,
+      error_code: run.error_code,
       aspect_ratio: run.aspect_ratio,
       items: (run.items || []).map((item) => ({
         ...item,
@@ -652,7 +717,7 @@
         title: item.title || `方案 ${item.scheme_index || item.item_index || ""}`,
         subtitle: item.core_idea || "",
         creative_description: item.image_description || item.ad_copy || "",
-        core_subject: item.image_description || "",
+        core_subject: item.core_subject || item.image_description || item.frames?.[0]?.description || "",
         layout: item.core_idea || "",
         visual_style: item.ad_copy || "",
         image_status: item.image_state?.status,
@@ -661,11 +726,21 @@
         frames: (item.frames || []).map((frame) => ({
           ...frame,
           frame_index: frame.index ?? frame.frame_index,
+          planned_content: frame.description ?? frame.planned_content ?? "",
+          image_attempt_id: frame.image_state?.attempt_id,
           image_status: frame.image_state?.status,
           image_url: frame.image_state?.image_url,
           image_error: frame.image_state?.error_code,
         })),
       })),
+    }));
+    runs.forEach((run) => (run.items || []).forEach((item) => {
+      if (run.use_case === "carousel" && item.frames.length) {
+        const first = item.frames[0];
+        item.image_status = first.image_status;
+        item.image_url = first.image_url;
+        item.image_error = first.image_error;
+      }
     }));
     return {
       ...payload,
@@ -696,6 +771,10 @@
     if (!batch) {
       els.resultsGrid.className = "results-grid";
       els.resultsGrid.innerHTML = '<div style="grid-column:1/-1;padding:26px;text-align:center;color:#748079">当前定位还没有结果，可生成一批新方案。</div>';
+    } else if (String(batch.status || "").toLowerCase() === "failed") {
+      const message = V2_ERROR_MESSAGES[batch.error_code] || V2_ERROR_MESSAGES.default;
+      els.resultsGrid.className = "results-grid";
+      els.resultsGrid.innerHTML = `<div style="grid-column:1/-1;padding:26px;text-align:center;color:#b42318">本批生成失败：${esc(message)}<br><small>请重新点击“再生成一批”</small></div>`;
     } else if (history.recommendation_kind === "visual") {
       renderVisualBatch(batch);
     } else {
@@ -720,9 +799,10 @@
       const image = visualImageMarkup(item);
       const sources = (item.reference_sources || []).map((source) => `${esc(source.name)}：${esc(source.note)}`).join("<br>");
       const frames = Array.isArray(item.frames) ? item.frames : (Array.isArray(item.carousel?.frames) ? item.carousel.frames : []);
-      const operation = state.operationStatus.get(Number(item.id)) || item.operation || null;
+      const operation = item.operation || Array.from(state.operationStatus.entries())
+        .find(([key]) => String(key).startsWith(`${Number(item.id)}:`))?.[1] || null;
       const operationSummary = operation ? `<div class="operation-status">${esc(operation.status === "completed" ? "已完成" : operation.status === "blocked" ? "需要重试" : "后台生成中")} · ${esc(operation.completed_frame_count)}/${esc(operation.total_frame_count)} 张</div>` : "";
-      const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${operationSummary}${frames.map((frame) => `<div class="display-frame-row"><div>第${esc(frame.frame_index)}张：${esc(frame.planned_content)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frame.frame_index)}张轮播画面">` : ""}</div>`).join("")}</div>` : "";
+      const frameSummary = frames.length > 1 ? `<div class="display-frames"><b>画面路线（${frames.length}张）</b>${operationSummary}${frames.map((frame, framePosition) => { const frameIndex = frame.frame_index ?? frame.index ?? (framePosition + 1); const frameContent = frame.planned_content ?? frame.description ?? ""; return `<div class="display-frame-row"><div>第${esc(frameIndex)}张：${esc(frameContent)} · ${displayFrameStatusLabel(frame.image_status)}</div>${frame.image_status === "success" && frame.image_url ? `<img class="display-frame-image" src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="第${esc(frameIndex)}张轮播画面">` : ""}</div>`; }).join("")}</div>` : "";
       return `<article class="creative-card">
         ${image}
         <div class="card-body">
@@ -738,7 +818,6 @@
           <div class="keywords">${(item.keywords || []).map((key) => `<span>${esc(key)}</span>`).join("")}</div>
           <div class="card-actions">
             ${imageActionMarkup(item)}
-            ${frames.length > 1 ? `<button data-continue-scheme="${item.id}" ${state.continuingSchemes.has(item.id) ? "disabled" : ""}>${state.continuingSchemes.has(item.id) ? "继续生成中…" : "继续生成"}</button>` : ""}
             <button data-adopt-visual="${item.id}">${isAdopted("visual", String(item.id)) ? "已采用" : "采用此方案"}</button>
           </div>
         </div></article>`;
@@ -753,9 +832,8 @@
       state.carouselIndexes.set(itemId, (current + delta + count) % count);
       renderHistory();
     }));
-    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button)));
+    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button, Number(button.dataset.generateFrame || 0) || null)));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
-    els.resultsGrid.querySelectorAll("[data-continue-scheme]").forEach((button) => button.addEventListener("click", () => continueScheme(Number(button.dataset.continueScheme))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
   }
 
@@ -796,7 +874,7 @@
         </div></article>`;
     }).join("");
     els.resultsGrid.querySelectorAll("[data-image-url]").forEach((image) => image.addEventListener("click", () => openImage(image.dataset.imageUrl)));
-    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button)));
+    els.resultsGrid.querySelectorAll("[data-generate-image]").forEach((button) => button.addEventListener("click", () => generateSchemeImage(Number(button.dataset.generateImage), button, Number(button.dataset.generateFrame || 0) || null)));
     els.resultsGrid.querySelectorAll("[data-retry-item]").forEach((button) => button.addEventListener("click", () => retryImage(Number(button.dataset.retryItem))));
     els.resultsGrid.querySelectorAll("[data-adopt-visual]").forEach((button) => button.addEventListener("click", () => adoptVisual(Number(button.dataset.adoptVisual))));
   }
@@ -806,16 +884,31 @@
     const frames = Array.isArray(item.frames) && item.frames.length ? item.frames : [{ frame_index: 1, image_status: item.image_status, image_url: item.image_url, image_error: item.image_error }];
     const currentIndex = Math.min(state.carouselIndexes.get(Number(item.id)) || 0, frames.length - 1);
     const frame = frames[currentIndex];
+    const frameIndex = frame.frame_index ?? frame.index ?? 1;
     const image = frame.image_status === "success" && frame.image_url
-      ? `<img src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="${esc(item.title)} 第${esc(frame.frame_index)}张画面">`
+      ? `<img src="${esc(frame.image_url)}" data-image-url="${esc(frame.image_url)}" alt="${esc(item.title)} 第${esc(frameIndex)}张画面">`
       : frame.image_status === "failed"
         ? `<div class="image-state">生成失败<br><small>${esc(frame.image_error || "可重试")}</small></div>`
         : `<div class="image-state${frame.image_status === "generating" ? " is-generating" : " is-pending"}">${frame.image_status === "generating" ? "AI参考图生成中" : "点击下方按钮生成参考图"}</div>`;
-    const controls = frames.length > 1 ? `<button class="carousel-arrow prev" data-carousel-prev="${esc(item.id)}" aria-label="上一张">‹</button><span class="carousel-index">第${esc(frame.frame_index)}张 / ${frames.length}张</span><button class="carousel-arrow next" data-carousel-next="${esc(item.id)}" aria-label="下一张">›</button>` : "";
+    const controls = frames.length > 1 ? `<button class="carousel-arrow prev" data-carousel-prev="${esc(item.id)}" aria-label="上一张">‹</button><span class="carousel-index">第${esc(frameIndex)}张 / ${frames.length}张</span><button class="carousel-arrow next" data-carousel-next="${esc(item.id)}" aria-label="下一张">›</button>` : "";
     return `<div class="image-frame${portrait} carousel-viewer">${image}${controls ? `<div class="carousel-controls">${controls}</div>` : ""}</div>`;
   }
 
   function imageActionMarkup(item) {
+    const frames = Array.isArray(item.frames) ? item.frames : [];
+    if (frames.length > 1) {
+      const frame = frames.find((candidate) => candidate.image_status !== "success") || frames[0];
+      const frameIndex = frame.frame_index ?? frame.index ?? 1;
+      const status = frame.image_status || "pending";
+      const operation = state.operationStatus.get(frameOperationKey(item.id, frameIndex));
+      const operationStatus = String(operation?.status || "").toLowerCase();
+      if (operation && !["success", "completed", "failed", "blocked", "error"].includes(operationStatus)) {
+        return `<button class="image-action" type="button" disabled>第${esc(frameIndex)}张生成中…</button>`;
+      }
+      if (status === "success") return '<button class="image-action complete" type="button" disabled>参考图已完成</button>';
+      const label = status === "failed" ? "重试参考图" : `生成第${frameIndex}张参考图`;
+      return `<button class="image-action" type="button" data-generate-image="${esc(item.id)}" data-generate-frame="${esc(frameIndex)}">${label}</button>`;
+    }
     const status = item.image_status || "pending";
     if (status === "success") return '<button class="image-action complete" type="button" disabled>参考图已完成</button>';
     if (status === "generating") return '<button class="image-action" type="button" disabled>参考图生成中…</button>';
@@ -875,7 +968,25 @@
 
   function updateGenerationWaitLabel() {
     if (!state.generationStartedAt) return;
-    els.generate.innerHTML = `<span>✦</span> 正在生成文字方案 · 已等待 ${formatGenerationElapsed(Date.now() - state.generationStartedAt)}`;
+    const label = state.generationQueuePosition > 0
+      ? `会话排队中 · 前面还有 ${state.generationQueuePosition} 个 · 当前排队 ${state.queueSummary.waiting} 个`
+      : `会话生成中 · 已等待 ${formatGenerationElapsed(Date.now() - state.generationStartedAt)} · 当前排队 ${state.queueSummary.waiting} 个`;
+    els.resultsMeta.textContent = label;
+  }
+
+  async function refreshQueueSummary() {
+    try {
+      const payload = await api(V2_GENERATION_ENDPOINTS.queueSummary());
+      state.queueSummary = payload.queue || state.queueSummary;
+      const queueText = `当前排队 ${Number(state.queueSummary.waiting || 0)} 个`;
+      if (state.generationStartedAt) updateGenerationWaitLabel();
+      else if (els.generationHint) {
+        const base = els.generationHint.textContent.replace(/\s*[·|｜]\s*当前排队\s*\d+\s*个$/, "");
+        els.generationHint.textContent = `${base} · ${queueText}`;
+      }
+    } catch (_) {}
+    clearTimeout(state.queueSummaryTimer);
+    state.queueSummaryTimer = setTimeout(refreshQueueSummary, 3000);
   }
 
   function startGenerationWait() {
@@ -889,10 +1000,72 @@
     clearInterval(state.generationTimer);
     state.generationTimer = 0;
     state.generationStartedAt = 0;
+    state.generationQueuePosition = 0;
+    clearTimeout(state.generationQueueTimer);
+    state.generationQueueTimer = 0;
+  }
+
+  function scheduleGenerationQueuePolling() {
+    clearTimeout(state.generationQueueTimer);
+    if (!state.generationQueueTicket) return;
+    state.generationQueueTimer = setTimeout(async () => {
+      try {
+        const response = await fetch(V2_GENERATION_ENDPOINTS.queue(state.generationQueueTicket), { credentials: "same-origin" });
+        const payload = await response.json();
+        if (!response.ok && response.status !== 202) throw createApiError(payload, response);
+        const queue = payload.queue || {};
+        if (queue.status === "queued") {
+          state.generationQueuePosition = Number(queue.position || 0);
+          updateGenerationWaitLabel();
+          scheduleGenerationQueuePolling();
+          return;
+        }
+        if (response.status === 202) {
+          state.generationQueuePosition = 0;
+          updateGenerationWaitLabel();
+          scheduleGenerationQueuePolling();
+          return;
+        }
+        state.generationQueueTicket = "";
+        state.generationQueuePosition = 0;
+        await finishGeneration(payload);
+        stopGenerationWait();
+        updateGenerateState();
+      } catch (error) {
+        state.generationQueueTicket = "";
+        stopGenerationWait();
+        els.generate.disabled = false;
+        toast(error.message, true);
+      }
+    }, 1200);
+  }
+
+  async function finishGeneration(generated) {
+    state.activeRunId = Number(generated.run?.id ?? generated.run_id ?? generated.id ?? 0);
+    if (generated?.batches) {
+      state.history = generated;
+      state.activeBatch = Math.max(0, generated.batches.length - 1);
+      state.pinnedGeneratedBatch = generated.batches[generated.batches.length - 1] || null;
+      renderHistory();
+    }
+    try {
+      await loadHistory(true);
+    } catch (error) {
+      toast(`方案已生成，但历史刷新失败：${error.message}`, true);
+      return;
+    }
+    try {
+      await loadProjects();
+    } catch (error) {
+      toast(`方案已生成，但项目列表刷新失败：${error.message}`, true);
+      return;
+    }
+    toast("方案已生成，请点击卡片按钮生成参考图");
   }
 
   async function generate() {
     try {
+      console.info("[ai-v2] generate click", { projectId: Number(state.project?.id || 0), step: currentStep });
       startGenerationWait();
       els.generate.disabled = true;
       await saveProject(true);
@@ -902,26 +1075,23 @@
         body: JSON.stringify({
           task_description: els.description.value,
           aspect_ratio: $("[data-aspect].active")?.dataset.aspect || "16:9",
-          creative_tags: collectTagValues(),
+          creative_tags: collectGenerationTags(),
         }),
       });
-      state.activeRunId = Number(generated.run?.id ?? generated.run_id ?? generated.id ?? 0);
-      // The generate response already contains the validated text schemes.
-      // Paint them immediately; history reload then reconciles image statuses.
-      if (generated?.batches) {
-        state.history = generated;
-        state.activeBatch = Math.max(0, generated.batches.length - 1);
-        state.pinnedGeneratedBatch = generated.batches[generated.batches.length - 1] || null;
-        renderHistory();
+      console.info("[ai-v2] generate response", { projectId: Number(state.project?.id || 0), hasQueue: Boolean(generated?.queue?.ticket_id), runId: Number(generated?.run?.id ?? generated?.run_id ?? 0) });
+      if (generated.queue?.ticket_id) {
+        state.generationQueueTicket = generated.queue.ticket_id;
+        state.generationQueuePosition = Number(generated.queue.position || 0);
+        updateGenerationWaitLabel();
+        scheduleGenerationQueuePolling();
+        return;
       }
-      await loadHistory(true);
-      await loadProjects();
-      toast("方案已生成，请点击卡片按钮生成参考图");
+      await finishGeneration(generated);
     } catch (error) {
       toast(error.message, true);
       await loadHistory(false).catch(() => {});
     } finally {
-      stopGenerationWait();
+      if (!state.generationQueueTicket) stopGenerationWait();
       updateGenerateState();
     }
   }
@@ -930,73 +1100,83 @@
     await generateSchemeImage(itemId);
   }
 
-  async function generateSchemeImage(itemId, button = null) {
-    if (state.operationIds.has(itemId)) return;
+  async function generateSchemeImage(itemId, button = null, frameIndex = null) {
+    const operationKey = frameOperationKey(itemId, frameIndex);
+    if (state.operationIds.has(operationKey)) return;
+    if (state.imageBusyItemId && state.imageBusyItemId !== itemId) {
+      toast("上一张参考图仍在生成，请稍后再试", true);
+      return;
+    }
+    state.imageBusyItemId = itemId;
     if (button) { button.disabled = true; button.textContent = "提交中…"; }
     try {
-      const payload = await api(V2_GENERATION_ENDPOINTS.schemeImage(itemId), { method: "POST" });
+      // A card may be stale after another tab, an earlier retry, or a real smoke run.
+      // Reconcile before POST so an old successful attempt is never presented as a new task.
+      await loadHistory(false);
+      const latestItem = state.history?.batches?.flatMap((batch) => batch.items || [])
+        .find((entry) => Number(entry.id) === Number(itemId));
+      const latestFrames = latestItem?.frames || latestItem?.carousel?.frames || [];
+      const latestFrame = frameIndex == null
+        ? null
+        : latestFrames.find((entry) => Number(entry.frame_index ?? entry.index) === Number(frameIndex));
+      const latestStatus = frameIndex == null
+        ? (latestItem?.image_status || "pending")
+        : (latestFrame?.image_status || "pending");
+      if (latestStatus === "success") {
+        state.operationIds.delete(operationKey);
+        state.operationStatus.delete(operationKey);
+        state.imageBusyItemId = 0;
+        renderHistory();
+        toast("该参考图已完成，页面已刷新");
+        return;
+      }
+      const path = frameIndex == null ? V2_GENERATION_ENDPOINTS.schemeImage(itemId) : V2_GENERATION_ENDPOINTS.frameImage(itemId, frameIndex);
+      const payload = await api(path, { method: "POST" });
       const attempt = payload.attempt || payload;
       const attemptId = Number(payload.attempt_id || attempt.attempt_id || attempt.id || 0);
+      if (!attemptId) {
+        throw new Error("图片任务未创建，请检查服务日志");
+      }
       await loadHistory(false);
-      if (attemptId && !["success", "completed"].includes(String(payload.status || attempt.status || "").toLowerCase())) {
-        state.operationIds.set(itemId, attemptId);
-        state.operationStatus.set(itemId, attempt);
-        pollImageAttempt(itemId, attemptId);
+      if (!["success", "completed"].includes(String(payload.status || attempt.status || "").toLowerCase())) {
+        state.operationIds.set(operationKey, attemptId);
+        state.operationStatus.set(operationKey, attempt);
+        pollImageAttempt(itemId, attemptId, frameIndex);
         toast("参考图生成中");
       } else {
+        state.operationIds.delete(operationKey);
+        state.operationStatus.delete(operationKey);
+        state.imageBusyItemId = 0;
         toast("参考图已完成");
       }
     } catch (error) {
+      state.imageBusyItemId = 0;
       if (button) { button.disabled = false; button.textContent = "重试参考图"; }
       toast(error.message, true);
     }
   }
 
-  async function pollImageAttempt(itemId, attemptId) {
+  async function pollImageAttempt(itemId, attemptId, frameIndex = null) {
+    const operationKey = frameOperationKey(itemId, frameIndex);
     try {
       const payload = await api(V2_GENERATION_ENDPOINTS.imageAttempt(attemptId));
       const attempt = payload.attempt || payload;
-      state.operationStatus.set(itemId, attempt);
+      state.operationStatus.set(operationKey, attempt);
       await loadHistory(false);
       const status = String(attempt.status || "").toLowerCase();
       if (["success", "completed", "failed", "blocked", "error"].includes(status)) {
-        state.operationIds.delete(itemId);
-        state.operationStatus.delete(itemId);
-        state.operationPollTimers.delete(itemId);
+        state.operationIds.delete(operationKey);
+        state.imageBusyItemId = 0;
+        state.operationStatus.delete(operationKey);
+        state.operationPollTimers.delete(operationKey);
         toast(status === "success" || status === "completed" ? "参考图已完成" : "参考图生成失败，请重试", status !== "success" && status !== "completed");
         return;
       }
-      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId), 1200);
-      state.operationPollTimers.set(itemId, timer);
+      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId, frameIndex), 1200);
+      state.operationPollTimers.set(operationKey, timer);
     } catch (_) {
-      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId), 2000);
-      state.operationPollTimers.set(itemId, timer);
-    }
-  }
-
-  async function continueScheme(itemId) {
-    if (state.continuingSchemes.has(itemId)) return;
-    state.continuingSchemes.add(itemId);
-    renderHistory();
-    try {
-      toast("正在按方案路线生成后续画面");
-      const item = state.history?.batches?.flatMap((batch) => batch.items || []).find((entry) => Number(entry.id) === Number(itemId));
-      const frames = item?.frames || item?.carousel?.frames || [];
-      const frame = frames.find((entry) => ["queued", "pending", "failed"].includes(entry.image_status));
-      if (!frame) return;
-      const frameIndex = Number(frame.frame_index ?? frame.index ?? 1);
-      const payload = await api(frameIndex <= 1 ? V2_GENERATION_ENDPOINTS.schemeImage(itemId) : V2_GENERATION_ENDPOINTS.frameImage(itemId, frameIndex), { method: "POST" });
-      const operationId = Number(payload.operation?.operation_id || payload.operation?.id || 0);
-      if (operationId) {
-        state.operationIds.set(itemId, operationId);
-        state.operationStatus.set(itemId, payload.operation);
-        scheduleOperationPolling(itemId, operationId);
-      }
-      await loadHistory(false);
-    } catch (error) {
-      state.continuingSchemes.delete(itemId);
-      toast(error.message, true);
-      await loadHistory(false).catch(() => {});
+      const timer = setTimeout(() => pollImageAttempt(itemId, attemptId, frameIndex), 2000);
+      state.operationPollTimers.set(operationKey, timer);
     }
   }
 
@@ -1038,32 +1218,32 @@
     return;
   }
 
-  function scheduleOperationPolling(itemId, operationId) {
-    const existing = state.operationPollTimers.get(itemId);
+  function scheduleOperationPolling(itemId, frameIndex, operationId) {
+    const operationKey = frameOperationKey(itemId, frameIndex);
+    const existing = state.operationPollTimers.get(operationKey);
     if (existing) clearTimeout(existing);
     const poll = async () => {
       try {
         const payload = await api(V2_GENERATION_ENDPOINTS.imageAttempt(operationId));
         const operation = payload.attempt || payload.operation || payload;
-        state.operationStatus.set(itemId, operation);
+        state.operationStatus.set(operationKey, operation);
         await loadHistory(false);
         if (["completed", "success", "failed", "blocked", "error"].includes(operation.status)) {
-          state.continuingSchemes.delete(itemId);
-          state.operationIds.delete(itemId);
-          state.operationStatus.set(itemId, operation);
-          state.operationPollTimers.delete(itemId);
+          state.operationIds.delete(operationKey);
+          state.operationStatus.set(operationKey, operation);
+          state.operationPollTimers.delete(operationKey);
           await loadHistory(false).catch(() => {});
           return;
         }
         const timer = setTimeout(poll, 2000);
-        state.operationPollTimers.set(itemId, timer);
+        state.operationPollTimers.set(operationKey, timer);
       } catch (_) {
         const timer = setTimeout(poll, 3000);
-        state.operationPollTimers.set(itemId, timer);
+        state.operationPollTimers.set(operationKey, timer);
       }
     };
     const timer = setTimeout(poll, 0);
-    state.operationPollTimers.set(itemId, timer);
+    state.operationPollTimers.set(operationKey, timer);
   }
 
   function stopPolling() {
@@ -1072,7 +1252,7 @@
     state.operationPollTimers.clear();
     state.operationIds.clear();
     state.operationStatus.clear();
-    state.continuingSchemes.clear();
+    state.imageBusyItemId = 0;
   }
 
   function stopImagePolling() { clearTimeout(state.pollTimer); state.pollTimer = 0; }
@@ -1139,7 +1319,17 @@
     });
     els.projectMenu.addEventListener("click", () => setProjectDrawer(!els.sidebar.classList.contains("drawer-open")));
     els.sidebarBackdrop.addEventListener("click", () => setProjectDrawer(false));
-    els.positionNext.addEventListener("click", async () => { await saveProject(true).catch(() => {}); currentStep = 2; applyStep(); await loadHistory(false).catch(() => {}); });
+    els.positionNext.addEventListener("click", async () => {
+      console.info("[ai-v2] position confirm click", { projectId: Number(state.project?.id || 0) });
+      try {
+        await saveProject(true);
+      } catch (_) {
+        return;
+      }
+      currentStep = 2;
+      applyStep();
+      await loadHistory(false).catch(() => {});
+    });
     els.outputEdit.addEventListener("click", () => { currentStep = 1; applyStep(); });
     els.stepper.querySelectorAll("[data-step]").forEach((button) => button.addEventListener("click", () => { currentStep = Number(button.dataset.step); applyStep(); }));
     els.generate.addEventListener("click", generate);

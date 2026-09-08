@@ -16,6 +16,7 @@ from config import settings
 from image_job_store import ImageJobStore
 from image_utils import SIZE_TABLE, resolve_image_size
 from web_client import WebImageClient
+from auth_refresh import ensure_fresh_token
 from task_limiter import AiTaskQueueTimeoutError, ai_task_limiter
 
 router = APIRouter()
@@ -109,7 +110,8 @@ async def _create_image(body: dict[str, Any], edit: bool) -> JSONResponse:
 
 
 async def _generate_image_data(body: dict[str, Any], edit: bool) -> list[dict[str, str]]:
-    token = settings.chatgpt_access_token.strip()
+    # Keep image requests on the same refreshed session path as chat requests.
+    token = (await ensure_fresh_token()).strip()
     if not token:
         raise ImageGenerationError(500, "CHATGPT_ACCESS_TOKEN not configured")
 

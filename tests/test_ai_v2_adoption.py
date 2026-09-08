@@ -18,7 +18,7 @@ class AiV2AdoptionTests(unittest.TestCase):
         self.store.connection.execute("CREATE TABLE adoptions (project_id INTEGER PRIMARY KEY)")
         result = json.dumps({
             "schema_version": "static-text-v1",
-            "items": [{"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "execution": {"image_prompt": "p"}} for i in range(3)],
+            "items": [{"title": str(i), "core_idea": "c", "ad_copy": "a", "image_description": "d", "content_extensions": ["e"], "reference_sources": [{"name": "r", "note": "n"}], "execution": {"image_prompt": "p"}} for i in range(3)],
         })
         self.application = AiV2Application(
             self.store,

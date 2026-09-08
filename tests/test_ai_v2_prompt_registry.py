@@ -39,6 +39,7 @@ class AiV2PromptRegistryTests(unittest.TestCase):
                 '"items"',
                 '"title"',
                 '"core_idea"',
+                '"core_subject"',
                 '"ad_copy"',
                 '"frames"',
                 '"continuity_rules"',
@@ -50,7 +51,27 @@ class AiV2PromptRegistryTests(unittest.TestCase):
             for marker in markers:
                 self.assertIn(marker, prompt, prompt_id)
 
-    def test_default_registry_keeps_prompts_candidate_until_explicit_approval(self) -> None:
+    def test_carousel_prompt_requires_selected_fixed_frame_count(self) -> None:
+        registry = AiV2PromptRegistry()
+        spec = registry.get("creative.ai_v2.carousel", "v1")
+        compiled = compile_prompt(spec, {
+            "task_description": "three screen carousel",
+            "aspect_ratio": "16:9",
+            "creative_tags": '{"visual_carousel":["是"],"visual_carousel_count":["3"],"visual_carousel_form":["同类枚举"]}',
+        })
+        self.assertIn("exactly the selected frame count", compiled)
+        self.assertIn("first non-whitespace character must be {", compiled)
+        self.assertIn("Do not turn retry or session state into frame content", compiled)
+
+    def test_carousel_prompt_prioritizes_visual_anchor_and_executable_frames(self) -> None:
+        prompt = AiV2PromptRegistry().get("creative.ai_v2.carousel", "v1").template_text
+        self.assertIn("每套方案先确定一个可持续识别的总视觉主体", prompt)
+        self.assertIn("core_subject 若输出", prompt)
+        self.assertIn("frames.description", prompt)
+        self.assertIn("image_prompts 必须独立描述", prompt)
+        self.assertNotIn("Keep every string concise", prompt)
+
+    def test_default_registry_exposes_approved_production_callers(self) -> None:
         registry = AiV2PromptRegistry()
         prompt_ids = (
             "creative.ai_v2.narrative",
@@ -60,9 +81,9 @@ class AiV2PromptRegistryTests(unittest.TestCase):
         callers = []
         for prompt_id in prompt_ids:
             spec = registry.get(prompt_id, "v1")
-            self.assertEqual(spec.lifecycle, "candidate")
+            self.assertEqual(spec.lifecycle, "production")
             self.assertEqual(spec.max_model_calls, 1)
-            self.assertIsNone(spec.caller)
+            self.assertIsInstance(spec.caller, str)
 
     def test_missing_file_and_hash_mismatch_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

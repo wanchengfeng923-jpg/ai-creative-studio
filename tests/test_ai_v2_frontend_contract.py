@@ -54,6 +54,16 @@ class AiV2FrontendContractTests(unittest.TestCase):
         self.assertIn("/api/v2/schemes/", js)
         self.assertNotIn("参考图会继续在后台完成", js)
 
+    def test_root_workspace_exposes_v2_error_details_and_refresh_boundaries(self) -> None:
+        js = (ROOT.parent / "app.js").read_text(encoding="utf-8")
+        self.assertIn("ai_not_enabled:", js)
+        self.assertIn("batch_conflict:", js)
+        self.assertIn("provider_unavailable:", js)
+        self.assertIn("traceId", js)
+        self.assertIn("历史刷新失败", js)
+        self.assertIn("项目列表刷新失败", js)
+        self.assertNotIn('throw new Error(payload.error || "请求失败")', js)
+
 
 if __name__ == "__main__":
     unittest.main()
