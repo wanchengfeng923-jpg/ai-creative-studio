@@ -10,6 +10,7 @@
 2. **服务器不是开发源**：`E:\AI-Creative-Studio` 只运行经过测试、打包和校验的发布版本；禁止直接在服务器修改代码后反向覆盖开发机。
 3. **Git 基准身份**：分支 `codex/tag-accordion-prototype` 上的基准提交由 annotated tag `production-baseline-20260908` 固定；后续发布必须从该 tag 或其明确后继提交制作。
 4. **生产数据单独确定权威源**：服务器的 SQLite、`data\images`、`data\uploads` 和生产 `.env` 是上线后的生产权威源。发布程序时不得用开发机同名数据覆盖它们。
+5. **远端代码库**：GitHub 私有仓库 `wanchengfeng923-jpg/ai-creative-studio`；本地 `master` 跟踪 `origin/master`，基准 tag 已推送到远端。
 
 ## 三个候选版本
 

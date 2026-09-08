@@ -2709,3 +2709,4 @@
 - 正式基准使用 annotated tag `production-baseline-20260908`；当前仓库未配置远端，提交和 tag 仅保存在开发机，待后续单独配置代码托管和推送流程。
 - 首次将基准快进到 `master` 后，系统级 `core.autocrlf=true` 把 103 个盘点文本检出为 CRLF，文件字节指纹发生变化；代码语义和 `.bat` 未变化。新增 `.gitattributes` 固定普通文本为 LF、Windows `.bat` 为 CRLF，使 Git 检出稳定并可复现规范化代码指纹。
 - 盘点脚本升级为 `creative-studio-code-inventory.v2`，同时记录原始字节摘要，并对 UTF-8 文本统一换行为 LF 后生成跨平台代码摘要。开发机与部署包规范化结果一致：112 个文件、1,135,704 字节、SHA-256 `b929837a172cb8dfbd7de3eebd62c8c3dab6ff82f933b1bbdbe2918914156e30`；服务器原始字节指纹 `e026...ea88` 继续保留为现场证据。
+- 创建 GitHub 私有仓库 `wanchengfeng923-jpg/ai-creative-studio`，配置为本地 `origin`；`master` 已设置跟踪 `origin/master`，annotated tag `production-baseline-20260908` 已推送。远端不包含 `.env`、数据库、图片、日志、压缩包或 `.scratch` 运行证据。

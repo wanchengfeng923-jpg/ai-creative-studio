@@ -185,5 +185,5 @@
 - 差异收口后开发机候选与部署包均为 112 个文件、1,141,155 字节、聚合 SHA-256 `e0261357199ce918f5429a24e9afe2304ecca924554e2c1d8ce5b13ec33cea88`；新鲜全量 unittest 200 项及静态检查通过。
 - 已直接核验服务器 `启动AI创意工作台.bat`：739 字节，SHA-256 `6390ffc13978d6049fcaffaab6c47c25a81bfb1d0dad0f4d03a2a15e25d60991`。合入首次清单后，服务器完整代码指纹同为 `e0261357199ce918f5429a24e9afe2304ecca924554e2c1d8ce5b13ec33cea88`。
 - 代码盘点正式完成：开发机仓库是唯一代码权威源，服务器是已发布运行副本；生产数据和生产 `.env` 继续以服务器为权威源。
-- Git 基准以 annotated tag `production-baseline-20260908` 固定；仓库当前没有远端，因此该 tag 和提交暂时只保存在开发机。
+- Git 基准以 annotated tag `production-baseline-20260908` 固定；GitHub 私有仓库为 `wanchengfeng923-jpg/ai-creative-studio`，本地 `master` 跟踪 `origin/master`，基准 tag 已推送。
 - 为消除 Windows `core.autocrlf` 对代码身份判断的影响，代码盘点脚本升级为 v2：文本按 LF 规范化后计算内容指纹，`.bat` 保留原始字节。开发机与部署包的规范化结果均为 112 个文件、1,135,704 字节、SHA-256 `b929837a172cb8dfbd7de3eebd62c8c3dab6ff82f933b1bbdbe2918914156e30`。
