@@ -21,6 +21,12 @@ class DeploymentPanelStateTests(unittest.TestCase):
             "postflight",
             "open_workbench",
             "offline",
+            "build_release",
+            "inspect_release",
+            "apply_release",
+            "rollback_release",
+            "code_inventory",
+            "release_workflow",
         }
         self.assertEqual(set(ACTION_DETAILS), expected)
         required = {"title", "purpose", "preconditions", "steps", "ports", "failure", "rollback"}

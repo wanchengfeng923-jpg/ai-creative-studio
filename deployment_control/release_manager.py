@@ -38,12 +38,18 @@ class ReleaseManager:
         self,
         *,
         script_path: str | Path | None = None,
+        build_script_path: str | Path | None = None,
+        inventory_script_path: str | Path | None = None,
+        project_root: str | Path | None = None,
         install_root: str | Path = r"E:\AI-Creative-Studio",
         runner: CommandRunner | None = None,
         powershell: str = "powershell.exe",
     ) -> None:
-        project_root = Path(__file__).resolve().parents[1]
-        self.script_path = Path(script_path) if script_path else project_root / "scripts" / "server_release.ps1"
+        resolved_project_root = Path(project_root) if project_root else Path(__file__).resolve().parents[1]
+        self.project_root = resolved_project_root.resolve()
+        self.script_path = Path(script_path) if script_path else self.project_root / "scripts" / "server_release.ps1"
+        self.build_script_path = Path(build_script_path) if build_script_path else self.project_root / "scripts" / "build_release.ps1"
+        self.inventory_script_path = Path(inventory_script_path) if inventory_script_path else self.project_root / "scripts" / "code_inventory.ps1"
         self.install_root = Path(install_root)
         self._runner = runner or subprocess.run
         self._powershell = powershell
@@ -55,6 +61,30 @@ class ReleaseManager:
     def apply(self, package_path: str | Path, sha256: str) -> dict[str, Any]:
         """Apply a validated package through ``server_release.ps1 -Mode Apply``."""
         return self._run_release("apply", package_path, sha256)
+
+    def build_release(self, ref: str = "HEAD", output_directory: str = ".release", allow_dirty: bool = False) -> dict[str, Any]:
+        """Run the developer-side isolated release builder."""
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", ref or "") or any(part == ".." for part in Path(ref).parts):
+            return {"ok": False, "operation": "build", "error": "Invalid Git ref."}
+        if not output_directory or any(part == ".." for part in Path(output_directory).parts):
+            return {"ok": False, "operation": "build", "error": "Invalid output directory."}
+        arguments = ["-Ref", ref, "-OutputDirectory", output_directory]
+        if allow_dirty:
+            arguments.append("-AllowDirty")
+        return self._run_local_script("build", self.build_script_path, arguments)
+
+    def code_inventory(self, root: str | Path, output_path: str | Path | None = None) -> dict[str, Any]:
+        """Run the canonical code inventory script for a local/server path."""
+        root_path = Path(root)
+        if any(part == ".." for part in root_path.parts):
+            return {"ok": False, "operation": "inventory", "error": "Invalid inventory root."}
+        arguments = ["-Root", str(root_path)]
+        if output_path is not None:
+            output = Path(output_path)
+            if any(part == ".." for part in output.parts):
+                return {"ok": False, "operation": "inventory", "error": "Invalid inventory output path."}
+            arguments.extend(["-OutputPath", str(output)])
+        return self._run_local_script("inventory", self.inventory_script_path, arguments)
 
     def list_valid_rollbacks(self) -> dict[str, Any]:
         """Return only rollback directories with valid, safe manifests."""
@@ -174,6 +204,31 @@ class ReleaseManager:
             "operation": operation,
             "result": _parse_output(raw_stdout),
         }
+
+    def _run_local_script(self, operation: str, script_path: Path, arguments: Sequence[str]) -> dict[str, Any]:
+        command_text = (
+            f"& {_quote_ps(str(script_path))} "
+            f"{' '.join(_quote_ps(argument) if not argument.startswith('-') else argument for argument in arguments)} "
+            "| ConvertTo-Json -Depth 8"
+        )
+        command = [self._powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command_text]
+        try:
+            completed = self._runner(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(self.project_root),
+            )
+        except OSError:
+            return {"ok": False, "operation": operation, "error": "Unable to start the PowerShell script."}
+        stdout = _sanitize(completed.stdout or "")
+        stderr = _sanitize(completed.stderr or "")
+        if completed.returncode != 0:
+            return {"ok": False, "operation": operation, "error": stderr or stdout or "PowerShell script failed."}
+        return {"ok": True, "operation": operation, "result": _parse_output(completed.stdout or "")}
 
     def _validate_package(self, package_path: str | Path) -> Path:
         package = Path(package_path)

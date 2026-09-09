@@ -190,6 +190,60 @@ ACTION_DETAILS: dict[str, dict[str, object]] = {
         ),
         "rollback": "全部下线本身是恢复动作；需要再次运行时，手动点击“打开启动器”并重新走启动前检测和公网上线流程。",
     },
+    "build_release": {
+        "title": "制作发布包",
+        "purpose": "在开发机上从指定 Git 提交生成可上传服务器的 ZIP、SHA-256 和 manifest。",
+        "preconditions": ("提交已存在；默认要求工作树干净。", "当前开发测试和 AI V2 发布门禁可运行。"),
+        "steps": ("创建隔离 worktree。", "运行全部测试和 release gate。", "通过后生成 .release 下的 ZIP、.sha256 和 .manifest.json。", "清理临时 worktree 和临时目录。"),
+        "ports": ("不启动 Web、AI 网关、代理桥，也不修改服务器或防火墙。",),
+        "failure": ("任一测试、门禁、Git ref 或清单步骤失败，都不产生可用的新包。",),
+        "rollback": "删除未完成的本地临时输出即可；不会改变服务器。",
+    },
+    "inspect_release": {
+        "title": "服务器检查",
+        "purpose": "在服务器应用前验证 ZIP 哈希、危险路径、禁止内容、manifest 和代码指纹。",
+        "preconditions": ("已填写服务器上的 ZIP 路径和 64 位 SHA-256。", "服务器工作台已关闭，8775/8780 不再监听。"),
+        "steps": ("再次计算 ZIP SHA-256。", "检查压缩包路径和禁止文件。", "核对 manifest、文件清单和 code inventory。", "只有输出 Status=verified 才允许执行更新。"),
+        "ports": ("只读检查；不会打开端口或修改防火墙。",),
+        "failure": ("校验失败立即停止，不替换任何程序文件。",),
+        "rollback": "无需回滚；修正包路径或哈希后重新检查。",
+    },
+    "apply_release": {
+        "title": "执行更新",
+        "purpose": "关闭工作台后备份当前代码、替换程序、更新依赖并生成 RollbackId。",
+        "preconditions": ("管理员权限有效。", "已填写并确认正确的 ZIP 和 SHA-256。", "服务器 8775/8780 已停止。"),
+        "steps": ("面板先执行全部下线。", "脚本再次检查发布包。", "备份当前程序代码并替换受管程序文件。", "安装 requirements.txt 依赖并输出 RollbackId。"),
+        "ports": ("更新阶段不得有 8775 或 8780 监听；不覆盖 data、.env、.venv、日志和暂存文件。",),
+        "failure": ("校验或依赖安装失败时保持服务关闭，并保留 RollbackId/失败信息。",),
+        "rollback": "保持工作台关闭，使用对应 RollbackId 执行“回滚”，然后重新启动并验收。",
+    },
+    "rollback_release": {
+        "title": "回滚发布",
+        "purpose": "恢复某次更新前的程序代码，并删除该次发布新增的程序文件。",
+        "preconditions": ("管理员权限有效。", "工作台已关闭，8775/8780 不再监听。", "RollbackId 来自对应 Apply 输出。"),
+        "steps": ("验证 RollbackId 格式和回滚清单。", "删除本次新增文件。", "恢复备份文件和旧 release-manifest.json。", "提示需要重新启动并验收。"),
+        "ports": ("回滚期间不启动或修改 8775、8780、7896，也不修改生产数据和 .env。",),
+        "failure": ("找不到清单、端口仍在监听或 ID 不安全时立即停止。",),
+        "rollback": "回滚本身不可通过面板自动反向恢复；先保留现场并核对清单，再由技术人员决定后续发布。",
+    },
+    "code_inventory": {
+        "title": "代码盘点",
+        "purpose": "计算目录内纳入范围的文件数量、大小、单文件 SHA-256 和综合代码指纹。",
+        "preconditions": ("盘点根目录可访问。", "输出路径不包含路径穿越。"),
+        "steps": ("按脚本规则扫描 src、static、config、chat2api、tests 等目录。", "统一文本换行后计算规范化哈希。", "输出 JSON 盘点文件和综合 AggregateSHA256。"),
+        "ports": ("纯文件操作，不访问服务端口，不改变部署状态。",),
+        "failure": ("根目录不可访问或脚本失败时不生成可信盘点结论。",),
+        "rollback": "删除本次生成的盘点 JSON 即可，不影响程序代码。",
+    },
+    "release_workflow": {
+        "title": "发布流程文档",
+        "purpose": "打开项目维护的正式发布、验收和回滚顺序文档。",
+        "preconditions": ("文档文件存在。",),
+        "steps": ("从开发分支测试提交开始，按文档完成打包、上传、检查、备份、更新、验收和回滚。",),
+        "ports": ("文档阅读不改变服务、端口或防火墙。",),
+        "failure": ("文档缺失时提示路径，不会执行任何命令。",),
+        "rollback": "无需回滚；按文档中的回滚章节处理实际发布故障。",
+    },
 }
 
 
@@ -544,19 +598,42 @@ class DeploymentPanel(tk.Tk):
     def _build_release_tab(self) -> None:
         form = ttk.Frame(self.release_tab)
         form.pack(fill="x")
+        self.release_ref_var = tk.StringVar(value="master")
+        self.inventory_root_var = tk.StringVar(value=r"E:\AI-Creative-Studio")
+        self.inventory_output_var = tk.StringVar(value=r"E:\AI-Creative-Studio\staging\code-inventory.json")
+        self.rollback_id_var = tk.StringVar()
         self.package_var = tk.StringVar()
         self.sha_var = tk.StringVar()
-        ttk.Label(form, text="发布 ZIP", width=12).grid(row=0, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.package_var).grid(row=0, column=1, sticky="ew", pady=6)
-        ttk.Button(form, text="选择", command=self._choose_package).grid(row=0, column=2, padx=6)
-        ttk.Label(form, text="SHA-256", width=12).grid(row=1, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.sha_var).grid(row=1, column=1, sticky="ew", pady=6)
-        ttk.Button(form, text="检查发布包", command=self.inspect_release).grid(row=2, column=1, sticky="w", pady=8)
-        self.apply_button = ttk.Button(form, text="执行更新", command=self.apply_release)
-        self.apply_button.grid(row=2, column=1, sticky="e", pady=8)
+        ttk.Label(form, text="Git Ref", width=12).grid(row=0, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.release_ref_var).grid(row=0, column=1, sticky="ew", pady=6)
+        self.build_button = self._release_button(form, 0, 2, "制作发布包", self.build_release, "build_release")
+        ttk.Label(form, text="发布 ZIP", width=12).grid(row=1, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.package_var).grid(row=1, column=1, sticky="ew", pady=6)
+        ttk.Button(form, text="选择", command=self._choose_package).grid(row=1, column=3, padx=6)
+        ttk.Label(form, text="SHA-256", width=12).grid(row=2, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.sha_var).grid(row=2, column=1, sticky="ew", pady=6)
+        self.inspect_button = self._release_button(form, 3, 1, "服务器检查", self.inspect_release, "inspect_release")
+        self.apply_button = self._release_button(form, 3, 2, "执行更新", self.apply_release, "apply_release")
+        ttk.Label(form, text="RollbackId", width=12).grid(row=4, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.rollback_id_var).grid(row=4, column=1, sticky="ew", pady=6)
+        self.rollback_button = self._release_button(form, 4, 2, "回滚发布", self.rollback_release, "rollback_release")
+        ttk.Label(form, text="盘点根目录", width=12).grid(row=5, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.inventory_root_var).grid(row=5, column=1, sticky="ew", pady=6)
+        self.inventory_button = self._release_button(form, 5, 2, "代码盘点", self.run_code_inventory, "code_inventory")
+        ttk.Label(form, text="盘点输出", width=12).grid(row=6, column=0, sticky="w", pady=6)
+        ttk.Entry(form, textvariable=self.inventory_output_var).grid(row=6, column=1, sticky="ew", pady=6)
+        self.workflow_button = self._release_button(form, 6, 2, "打开发布流程", self.open_release_workflow, "release_workflow")
         form.columnconfigure(1, weight=1)
         self.release_result = tk.Text(self.release_tab, height=16, state="disabled", wrap="word", relief="flat", bg="#fbfcfd")
         self.release_result.pack(fill="both", expand=True)
+
+    def _release_button(self, parent: ttk.Frame, row: int, column: int, label: str, command: Callable[[], None], action_id: str) -> ttk.Button:
+        cell = ttk.Frame(parent)
+        cell.grid(row=row, column=column, padx=6, pady=6, sticky="w")
+        button = ttk.Button(cell, text=label, command=command)
+        button.pack(side="left")
+        ttk.Button(cell, text="!", width=2, command=lambda current=action_id: self.show_action_details(current)).pack(side="left", padx=(3, 0))
+        return button
 
     def _build_logs_tab(self) -> None:
         actions = ttk.Frame(self.logs_tab)
@@ -568,14 +645,28 @@ class DeploymentPanel(tk.Tk):
         self.log_view.pack(fill="both", expand=True, pady=(10, 0))
 
     def _apply_permission_state(self) -> None:
-        modifying = (self.open_launcher_button, self.public_button, self.offline_button, self.apply_button)
+        modifying = (
+            self.open_launcher_button,
+            self.public_button,
+            self.offline_button,
+            self.build_button,
+            self.inspect_button,
+            self.apply_button,
+            self.rollback_button,
+            self.inventory_button,
+        )
         for widget in modifying:
             if widget is not None and not self.admin:
                 widget.configure(state="disabled")
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        for widget in (self.open_launcher_button, self.refresh_button, self.preflight_button, self.public_button, self.postflight_button, self.open_workbench_button, self.offline_button):
+        for widget in (
+            self.open_launcher_button, self.refresh_button, self.preflight_button,
+            self.public_button, self.postflight_button, self.open_workbench_button,
+            self.offline_button, self.build_button, self.inspect_button,
+            self.apply_button, self.rollback_button, self.inventory_button,
+        ):
             if self.admin or widget not in (self.public_button, self.offline_button):
                 widget.configure(state="disabled" if busy else "normal")
         self._apply_permission_state()
@@ -822,6 +913,37 @@ class DeploymentPanel(tk.Tk):
             return
         self._run_background("检查发布包", lambda: self.release_manager.inspect_package(package, digest), lambda result: self._show_release_result(result))
 
+    def build_release(self) -> None:
+        ref = self.release_ref_var.get().strip()
+        if not ref:
+            self._append_result("请先填写 Git Ref。")
+            return
+        self._run_background("制作发布包", lambda: self.release_manager.build_release(ref), self._show_release_result)
+
+    def run_code_inventory(self) -> None:
+        root = self.inventory_root_var.get().strip()
+        output = self.inventory_output_var.get().strip()
+        if not root:
+            self._append_result("请先填写代码盘点根目录。")
+            return
+        self._run_background(
+            "代码盘点",
+            lambda: self.release_manager.code_inventory(root, output or None),
+            self._show_release_result,
+        )
+
+    def rollback_release(self) -> None:
+        rollback_id = self.rollback_id_var.get().strip()
+        if not rollback_id or not messagebox.askyesno(
+            "确认回滚",
+            "回滚前必须保持工作台关闭；确认使用此 RollbackId 恢复程序代码？",
+        ):
+            return
+        self._run_background("回滚发布", lambda: self.release_manager.rollback(rollback_id), self._show_release_result)
+
+    def open_release_workflow(self) -> None:
+        self._open_path(self.project_root / "docs" / "deployment" / "release-workflow.md")
+
     def apply_release(self) -> None:
         if not self.admin:
             return
@@ -832,7 +954,7 @@ class DeploymentPanel(tk.Tk):
         self._run_background("执行更新", lambda: (self._take_offline_impl(), self.release_manager.apply(package, digest)), lambda result: self._show_release_result(result[-1]))
 
     def _show_release_result(self, result: Any) -> None:
-        text = sanitize_status_message(str(result))
+        text = sanitize_status_message(json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else str(result))
         self.release_result.configure(state="normal")
         self.release_result.insert("end", text + "\n")
         self.release_result.see("end")

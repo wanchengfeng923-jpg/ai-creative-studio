@@ -39,9 +39,31 @@ class ReleaseManagerTests(unittest.TestCase):
     def manager(self, runner):
         return ReleaseManager(
             script_path=self.script_path,
+            build_script_path=self.root / "scripts" / "build_release.ps1",
+            inventory_script_path=self.root / "scripts" / "code_inventory.ps1",
+            project_root=self.root,
             install_root=self.install_root,
             runner=runner,
         )
+
+    def test_build_release_uses_requested_ref_and_returns_script_output(self):
+        runner = FakeRunner(json.dumps({"ReleaseId": "release-1", "PackageSHA256": "a" * 64}))
+
+        result = self.manager(runner).build_release("master")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual("build", result["operation"])
+        command = " ".join(runner.calls[0][0])
+        self.assertIn("build_release.ps1", command)
+        self.assertIn("-Ref 'master'", command)
+
+    def test_code_inventory_rejects_unsafe_output_path(self):
+        runner = FakeRunner("{}")
+
+        result = self.manager(runner).code_inventory(self.root, self.root / ".." / "inventory.json")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual([], runner.calls)
 
     def test_inspect_package_calls_existing_script_and_returns_structured_result(self):
         runner = FakeRunner(
