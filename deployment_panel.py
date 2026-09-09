@@ -318,7 +318,11 @@ class _SystemProcessRunner:
         )
 
     def launch_batch(self, path: Path, cwd: Path) -> Any:
-        return subprocess.Popen(["cmd.exe", "/c", str(path)], cwd=cwd)
+        return subprocess.Popen(
+            ["cmd.exe", "/c", str(path)],
+            cwd=cwd,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
 
     def terminate(self, pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, check=False)
@@ -341,13 +345,25 @@ class _SystemFirewallRunner:
         from deployment_control.firewall_manager import FirewallRule
 
         command = f"Get-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue | Get-NetFirewallPortFilter"
-        completed = subprocess.run(["powershell.exe", "-NoProfile", "-Command", command], capture_output=True, text=True, check=False)
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
         if completed.returncode != 0 or not completed.stdout.strip():
             return []
         return [FirewallRule(name, 8775, "TCP", "Inbound", "Allow", True)]
 
     def _run(self, command: str) -> None:
-        subprocess.run(["powershell.exe", "-NoProfile", "-Command", command], capture_output=True, text=True, check=False)
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
 
     def create_rule(self, name: str, local_port: int, protocol: str, direction: str, action: str) -> None:
         self._run(f"New-NetFirewallRule -DisplayName '{name}' -Direction {direction} -Protocol {protocol} -LocalPort {local_port} -Action {action} -Profile Any")
@@ -450,6 +466,19 @@ def find_offline_blockers(status: dict[str, Any], *, launcher_open: bool) -> lis
         if enabled:
             blockers.append("8775 公网防火墙规则仍在启用")
     return blockers
+
+
+def collect_launcher_open(service_manager: Any) -> bool:
+    """Read launcher ownership at the worker boundary, never from Tk callbacks."""
+    launcher_running = getattr(service_manager, "launcher_running", None)
+    if callable(launcher_running) and launcher_running():
+        return True
+    runner = getattr(service_manager, "runner", None)
+    if runner is None or not hasattr(runner, "enumerate_processes"):
+        return False
+    processes = runner.enumerate_processes()
+    checker = getattr(service_manager, "is_owned_process", None)
+    return bool(callable(checker) and any(checker(process, "launcher") for process in processes))
 
 
 def sanitize_status_message(message: str) -> str:
@@ -789,7 +818,11 @@ class DeploymentPanel(tk.Tk):
         if hasattr(self.service_manager, "start_launcher"):
             self.service_manager.start_launcher()
         else:
-            subprocess.Popen(["cmd.exe", "/c", str(self.project_root / "启动AI创意工作台.bat")], cwd=self.project_root)
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(self.project_root / "启动AI创意工作台.bat")],
+                cwd=self.project_root,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         self.state = PanelState.LAUNCHER_OPEN
         self.state_var.set(self.state.value)
         self._append_result("已打开现有启动器，请在启动器中点击“启动”。")
@@ -802,12 +835,21 @@ class DeploymentPanel(tk.Tk):
 
     def _collect_status(self) -> dict[str, Any]:
         ports: list[Any] = []
-        for port in MANAGED_PORTS:
-            if hasattr(self.port_inspector, "inspect"):
-                ports.extend(self.port_inspector.inspect(port))
-            else:
-                ports.extend(self.port_inspector.inspect_port(port))
-        return {"ports": ports, "firewall": self.firewall_manager.inspect() if hasattr(self.firewall_manager, "inspect") else None}
+        if hasattr(self.port_inspector, "inspect_ports"):
+            grouped = self.port_inspector.inspect_ports(MANAGED_PORTS)
+            for items in grouped.values():
+                ports.extend(items)
+        else:
+            for port in MANAGED_PORTS:
+                if hasattr(self.port_inspector, "inspect"):
+                    ports.extend(self.port_inspector.inspect(port))
+                else:
+                    ports.extend(self.port_inspector.inspect_port(port))
+        return {
+            "ports": ports,
+            "launcher_open": collect_launcher_open(self.service_manager),
+            "firewall": self.firewall_manager.inspect() if hasattr(self.firewall_manager, "inspect") else None,
+        }
 
     def _apply_status(self, status: dict[str, Any]) -> None:
         for item in self.port_tree.get_children():
@@ -835,13 +877,7 @@ class DeploymentPanel(tk.Tk):
             gateway_running = gateway_running or port == 8780 and running
             bridge_running = bridge_running or port == 7896 and running
             web_public = web_public or port == 8775 and address in {"0.0.0.0", "::"}
-        launcher_open = bool(getattr(self.service_manager, "launcher_running", lambda: False)())
-        if not launcher_open and hasattr(self.service_manager, "runner"):
-            processes = self.service_manager.runner.enumerate_processes()
-            launcher_open = any(
-                self.service_manager.is_owned_process(process, "launcher")
-                for process in processes
-            )
+        launcher_open = bool(status.get("launcher_open", False))
         self.state = determine_panel_state(launcher_open=launcher_open, web_running=web_running, web_public=web_public, gateway_running=gateway_running, bridge_running=bridge_running, has_unknown_conflict=unknown)
         self.state_var.set(self.state.value)
         self.control_summary.set("状态已刷新；未知占用不会由面板结束。")

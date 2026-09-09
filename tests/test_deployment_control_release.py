@@ -56,6 +56,10 @@ class ReleaseManagerTests(unittest.TestCase):
         command = " ".join(runner.calls[0][0])
         self.assertIn("build_release.ps1", command)
         self.assertIn("-Ref 'master'", command)
+        self.assertEqual(
+            getattr(__import__('subprocess'), 'CREATE_NO_WINDOW', 0),
+            runner.calls[0][1]["creationflags"],
+        )
 
     def test_build_release_can_explicitly_ignore_uncommitted_files(self):
         runner = FakeRunner("{}")
@@ -72,6 +76,17 @@ class ReleaseManagerTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual([], runner.calls)
+
+    def test_server_release_script_runs_without_creating_a_console_window(self):
+        runner = FakeRunner(json.dumps({"Status": "verified"}))
+
+        result = self.manager(runner).inspect_package(self.package, self.sha256)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            getattr(__import__('subprocess'), 'CREATE_NO_WINDOW', 0),
+            runner.calls[0][1]["creationflags"],
+        )
 
     def test_inspect_package_calls_existing_script_and_returns_structured_result(self):
         runner = FakeRunner(

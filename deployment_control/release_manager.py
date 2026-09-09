@@ -170,6 +170,7 @@ class ReleaseManager:
         command = [
             self._powershell,
             "-NoProfile",
+            "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
@@ -183,6 +184,7 @@ class ReleaseManager:
                 check=False,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError:
             return {
@@ -213,7 +215,7 @@ class ReleaseManager:
             f"{' '.join(_quote_ps(argument) if not argument.startswith('-') else argument for argument in arguments)} "
             "| ConvertTo-Json -Depth 8"
         )
-        command = [self._powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command_text]
+        command = [self._powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command_text]
         try:
             completed = self._runner(
                 command,
@@ -222,6 +224,7 @@ class ReleaseManager:
                 check=False,
                 encoding="utf-8",
                 errors="replace",
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 cwd=str(self.project_root),
             )
         except OSError:

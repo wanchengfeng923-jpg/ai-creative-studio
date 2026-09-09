@@ -1,6 +1,9 @@
 import unittest
+from unittest.mock import patch
 from pathlib import Path
+from subprocess import CompletedProcess
 
+import deployment_panel
 from deployment_panel import (
     ACTION_DETAILS,
     DeploymentPanel,
@@ -11,10 +14,23 @@ from deployment_panel import (
     sanitize_status_message,
     format_preflight_port_check,
     find_offline_blockers,
+    collect_launcher_open,
 )
 
 
 class DeploymentPanelStateTests(unittest.TestCase):
+    def test_firewall_powershell_runs_without_creating_a_console_window(self):
+        with patch(
+            "deployment_panel.subprocess.run",
+            return_value=CompletedProcess([], 0, "", ""),
+        ) as run:
+            deployment_panel._SystemFirewallRunner()._run("Get-NetFirewallRule")
+
+        kwargs = run.call_args.kwargs
+        command = run.call_args.args[0]
+        self.assertIn("-NonInteractive", command)
+        self.assertEqual(getattr(__import__('subprocess'), "CREATE_NO_WINDOW", 0), kwargs["creationflags"])
+
     def test_each_control_action_has_technical_details(self):
         expected = {
             "open_launcher",
@@ -174,6 +190,19 @@ class DeploymentPanelStateTests(unittest.TestCase):
 
     def test_offline_verification_accepts_no_listeners_and_closed_launcher(self):
         self.assertEqual([], find_offline_blockers({"ports": []}, launcher_open=False))
+
+    def test_launcher_state_is_collected_before_ui_callback(self):
+        process = type("Process", (), {"pid": 10})()
+        manager = type(
+            "Manager",
+            (),
+            {
+                "launcher_running": lambda _self: False,
+                "runner": type("Runner", (), {"enumerate_processes": lambda _self: [process]})(),
+                "is_owned_process": lambda _self, item, role: item is process and role == "launcher",
+            },
+        )()
+        self.assertTrue(collect_launcher_open(manager))
 
     def test_offline_verification_blocks_enabled_public_firewall_rule(self):
         rule = type("Rule", (), {"enabled": True})()
