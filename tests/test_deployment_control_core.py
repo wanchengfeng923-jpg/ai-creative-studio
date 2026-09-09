@@ -164,6 +164,22 @@ class DeploymentControlCoreTests(unittest.TestCase):
 
         self.assertTrue(inspector.inspect(8780)[0].is_manageable)
 
+    def test_project_service_grandchild_of_launcher_is_manageable(self) -> None:
+        root = Path(r"E:\AI-Creative-Studio")
+        listener = PortListener(port=8775, address="127.0.0.1", pid=30)
+        processes = {
+            10: ProcessInfo(10, "pythonw.exe", r"C:\Python311\pythonw.exe", f'pythonw.exe "{root / "launcher.py"}"'),
+            20: ProcessInfo(20, "cmd.exe", r"C:\Windows\System32\cmd.exe", "cmd.exe /c start-service.cmd", parent_pid=10),
+            30: ProcessInfo(30, "python.exe", r"C:\Python311\python.exe", "python.exe -m creative_studio.app", parent_pid=20),
+        }
+        inspector = PortInspector(
+            listeners_provider=lambda: [listener],
+            process_provider=processes.get,
+            project_root=root,
+        )
+
+        self.assertTrue(inspector.inspect(8775)[0].is_manageable)
+
     def test_project_launcher_can_own_in_process_proxy_bridge(self) -> None:
         root = Path(r"E:\AI-Creative-Studio")
         listener = PortListener(port=7896, address="127.0.0.1", pid=10)

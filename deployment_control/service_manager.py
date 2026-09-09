@@ -90,10 +90,12 @@ class ServiceManager:
         executable = _normalise_path(process.executable)
         command = _normalise_text(process.command_line)
         venv = _normalise_path(self.project_root / ".venv")
+        executable_location_matches = bool(executable) and (
+            not _path_is_within(executable, root) or _path_is_within(executable, venv)
+        )
         executable_name = Path(process.executable).name.lower()
         is_python = executable_name in {"python.exe", "pythonw.exe", "python", "pythonw"}
-        parent = self._process_by_pid(process.parent_pid) if process.parent_pid else None
-        controlled_by_project = parent is not None and self._is_project_controller(parent)
+        controlled_by_project = self._has_project_controller_ancestor(process)
 
         if role == "launcher":
             return self._is_project_controller(process, entry="launcher.py")
@@ -101,14 +103,14 @@ class ServiceManager:
             return (
                 is_python
                 and "creative_studio.app" in command
-                and ((cwd == root and _path_is_within(executable, venv)) or controlled_by_project)
+                and (executable_location_matches and ((cwd == root) or controlled_by_project))
             )
         if role == "gateway":
             return (
                 is_python
                 and "main.py" in command
                 and (
-                    (cwd == _normalise_path(self.project_root / "chat2api") and _path_is_within(executable, venv))
+                    (executable_location_matches and (cwd == _normalise_path(self.project_root / "chat2api")))
                     or controlled_by_project
                 )
             )
@@ -136,6 +138,19 @@ class ServiceManager:
         cwd = _normalise_path(process.cwd)
         venv = _normalise_path(self.project_root / ".venv")
         return cwd == _normalise_path(self.project_root) and _path_is_within(executable, venv) and any(name in command for name in entries)
+
+    def _has_project_controller_ancestor(self, process: ProcessRecord) -> bool:
+        seen: set[int] = set()
+        current = process
+        while current.parent_pid and current.parent_pid not in seen:
+            seen.add(current.parent_pid)
+            parent = self._process_by_pid(current.parent_pid)
+            if parent is None:
+                return False
+            if self._is_project_controller(parent):
+                return True
+            current = parent
+        return False
 
     def switch_web_to_public(self, environment: Mapping[str, str]) -> Any:
         """重启已确认的本地 Web，并只改变其监听主机。"""

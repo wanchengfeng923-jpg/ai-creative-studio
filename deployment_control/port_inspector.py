@@ -86,6 +86,13 @@ class PortInspector:
         executable = _resolve_optional_path(process.executable)
         project_python = self.project_root / ".venv" / "Scripts" / "python.exe"
         executable_matches = executable == project_python
+        executable_location_matches = (
+            executable is not None
+            and (
+                not _is_within(executable, self.project_root)
+                or _is_within(executable, self.project_root / ".venv")
+            )
+        )
         working_directory_matches = _is_within(
             _resolve_optional_path(process.working_directory),
             self.project_root,
@@ -93,13 +100,12 @@ class PortInspector:
         expected_entry = _expected_entry(listener.port)
         command_line = process.command_line.lower().replace("\\", "/")
         command_line_matches = expected_entry in command_line
-        if executable_matches and working_directory_matches and command_line_matches:
+        if executable_location_matches and working_directory_matches and command_line_matches:
             return ProcessOwnership.PROJECT, "虚拟环境、工作目录和入口命令均匹配"
 
         executable_name = Path(process.executable).name.lower()
         is_python = executable_name in {"python.exe", "pythonw.exe", "python", "pythonw"}
-        parent = self._process_provider(process.parent_pid) if process.parent_pid else None
-        controlled_by_project = parent is not None and self._is_project_controller(parent)
+        controlled_by_project = self._has_project_controller_ancestor(process)
         if listener.port == 8775 and is_python and "creative_studio.app" in command_line and controlled_by_project:
             return ProcessOwnership.PROJECT, "入口命令匹配，父进程是本项目控制程序"
         if listener.port == 8780 and is_python and _is_main_entry(command_line) and controlled_by_project:
@@ -135,6 +141,19 @@ class PortInspector:
             and _is_within(_resolve_optional_path(process.working_directory), self.project_root)
             and any(name in command for name in entries)
         )
+
+    def _has_project_controller_ancestor(self, process: ProcessInfo) -> bool:
+        seen: set[int] = set()
+        current = process
+        while current.parent_pid and current.parent_pid not in seen:
+            seen.add(current.parent_pid)
+            parent = self._process_provider(current.parent_pid)
+            if parent is None:
+                return False
+            if self._is_project_controller(parent):
+                return True
+            current = parent
+        return False
 
 
 def _expected_entry(port: int) -> str:

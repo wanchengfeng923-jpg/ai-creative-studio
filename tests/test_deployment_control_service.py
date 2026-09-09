@@ -131,6 +131,17 @@ class ServiceManagerTests(unittest.TestCase):
 
         self.assertTrue(manager.is_owned_process(owned, "web"))
 
+    def test_owned_web_process_accepts_system_python_when_project_cwd_and_entry_match(self):
+        owned = ProcessRecord(
+            16,
+            r"C:\Program Files\Python311\python.exe",
+            "python.exe -m creative_studio.app",
+            str(self.root),
+        )
+        manager = ServiceManager(self.root, FakeProcessRunner([owned]), FakePortInspector())
+
+        self.assertTrue(manager.is_owned_process(owned, "web"))
+
     def test_public_switch_refuses_unknown_web_occupant(self):
         runner = FakeProcessRunner()
         inspector = FakePortInspector(
