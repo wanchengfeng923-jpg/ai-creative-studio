@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from subprocess import CompletedProcess
 
@@ -19,6 +19,27 @@ from deployment_panel import (
 
 
 class DeploymentPanelStateTests(unittest.TestCase):
+    def test_status_refresh_does_not_lock_controls_for_other_actions(self):
+        panel = object.__new__(DeploymentPanel)
+        panel._busy = False
+        panel._status_refresh_active = False
+        panel._set_busy = Mock()
+        panel._append_result = Mock()
+        panel.after = lambda _delay, callback: callback()
+
+        panel._run_background("刷新状态", lambda: {"ok": True}, lambda _result: None, block_controls=False)
+
+        panel._set_busy.assert_not_called()
+
+    def test_process_scan_limits_wmi_to_relevant_process_names(self):
+        completed = __import__("subprocess").CompletedProcess([], 0, "[]", "")
+        with patch("deployment_panel.subprocess.run", return_value=completed) as run:
+            deployment_panel._SystemProcessRunner(Path("D:/code/ai_creative_studio")).enumerate_processes()
+
+        query = run.call_args.args[0][-1]
+        self.assertIn("-Filter", query)
+        self.assertIn("python.exe", query)
+
     def test_firewall_powershell_runs_without_creating_a_console_window(self):
         with patch(
             "deployment_panel.subprocess.run",

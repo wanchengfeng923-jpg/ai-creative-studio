@@ -262,7 +262,7 @@ class _SystemProcessRunner:
     def enumerate_processes(self) -> list[Any]:
         from deployment_control.service_manager import ProcessRecord
 
-        query = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
+        query = "Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe' OR Name='mihomo.exe'\" | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
         try:
             completed = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", query],
@@ -478,12 +478,15 @@ def find_offline_blockers(status: dict[str, Any], *, launcher_open: bool) -> lis
 
 def collect_launcher_open(service_manager: Any, processes: Iterable[Any] | None = None) -> bool:
     """Read launcher ownership at the worker boundary, never from Tk callbacks."""
-    launcher_running = getattr(service_manager, "launcher_running", None)
-    if callable(launcher_running) and launcher_running():
-        return True
     runner = getattr(service_manager, "runner", None)
     if runner is None or not hasattr(runner, "enumerate_processes"):
         return False
+    if processes is None:
+        launcher_running = getattr(service_manager, "launcher_running", None)
+        if callable(launcher_running) and launcher_running():
+            return True
+    else:
+        processes = list(processes)
     if processes is None:
         processes = runner.enumerate_processes()
     checker = getattr(service_manager, "is_owned_process", None)
@@ -568,6 +571,7 @@ class DeploymentPanel(tk.Tk):
         self.release_verified_package = ""
         self.release_verified_sha = ""
         self._busy = False
+        self._status_refresh_active = False
         self.title("AI 创意工作台部署控制面板")
         self.geometry("980x700")
         self.minsize(820, 600)
@@ -804,10 +808,22 @@ class DeploymentPanel(tk.Tk):
         else:
             self.operation_log.record(action="panel", result="info", details={"message": safe})
 
-    def _run_background(self, action: str, worker: Callable[[], Any], done: Callable[[Any], None] | None = None) -> None:
-        if self._busy:
+    def _run_background(
+        self,
+        action: str,
+        worker: Callable[[], Any],
+        done: Callable[[Any], None] | None = None,
+        *,
+        block_controls: bool = True,
+    ) -> None:
+        if block_controls and self._busy:
             return
-        self._set_busy(True)
+        if not block_controls and self._status_refresh_active:
+            return
+        if block_controls:
+            self._set_busy(True)
+        else:
+            self._status_refresh_active = True
         self._append_result(f"开始：{action}")
 
         def run() -> None:
@@ -818,7 +834,10 @@ class DeploymentPanel(tk.Tk):
                 safe = sanitize_status_message(f"{action}失败：{type(exc).__name__}: {exc}")
                 self.after(0, lambda: self._append_result(safe))
             finally:
-                self.after(0, lambda: self._set_busy(False))
+                if block_controls:
+                    self.after(0, lambda: self._set_busy(False))
+                else:
+                    self.after(0, lambda: setattr(self, "_status_refresh_active", False))
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -842,7 +861,7 @@ class DeploymentPanel(tk.Tk):
         def worker() -> Any:
             return self._collect_status()
 
-        self._run_background("刷新状态", worker, self._apply_status)
+        self._run_background("刷新状态", worker, self._apply_status, block_controls=False)
 
     def _collect_status(self) -> dict[str, Any]:
         runner = getattr(self.service_manager, "runner", self._system_runner)
