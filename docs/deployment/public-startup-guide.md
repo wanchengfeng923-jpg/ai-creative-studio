@@ -6,7 +6,7 @@
 网页端口：`8775`
 AI 网关端口：`8780`（只允许服务器本机访问）
 
-本文按小白操作编写。每次开机后照着“启动公网”执行；停止使用时照着“下线公网”执行。
+本文按小白操作编写。每次 Windows 重启后都必须手动打开部署控制面板并执行“上线公网”；面板不会自动恢复公网。
 
 ## 启动公网
 
@@ -14,21 +14,35 @@ AI 网关端口：`8780`（只允许服务器本机访问）
 
 在自己的电脑打开 Windows“远程桌面连接”，连接服务器公网 IP，使用已有 Windows 账号登录。
 
-### 2. 启动网关和代理
+### 2. 打开部署控制面板
 
 打开服务器上的：
 
 ```text
-E:\AI-Creative-Studio\启动AI创意工作台.bat
+E:\AI-Creative-Studio\启动部署控制面板.bat
 ```
 
-在启动器中点击“启动”。启动器负责读取 `chat2api\.env`、启动 AI 网关和代理桥。
+如果弹出 UAC，请点击“是”。普通权限只能查看状态，不能上线或下线。
+
+### 3. 打开启动器并启动本地服务
+
+在面板点击“打开启动器”，再在现有启动器中点击“启动”。启动器负责读取 `chat2api\.env`、启动 AI 网关和代理桥。
 
 不要同时在 PowerShell 里再启动第二个 `main.py`，否则会发生端口冲突。
 
-### 3. 检查网关
+### 4. 启动前检测
 
-打开 PowerShell，执行：
+回到部署控制面板，点击“启动前检测”。确认关键项全部通过后，再点击“上线公网”。面板会自动切换 Web 到 `0.0.0.0:8775` 并启用固定防火墙规则 `AI Creative Studio Web 8775`；`8780` 和 `7896` 仍只监听 `127.0.0.1`。
+
+### 5. 上线后检测和打开工作台
+
+点击“上线后检测”，关键项全部通过后点击“打开工作台”。公网地址为：
+
+```text
+http://42.194.220.18:8775/
+```
+
+如需故障排查，可在服务器 PowerShell 执行只读检查：
 
 ```powershell
 Invoke-WebRequest "http://127.0.0.1:8780/health" -UseBasicParsing
@@ -38,9 +52,9 @@ Invoke-WebRequest "http://127.0.0.1:8780/health" -UseBasicParsing
 
 如果这里失败，先回到启动器检查网关状态，不要重复点击多个启动器。
 
-### 4. 启动公网网页
+### 备用恢复命令：手动启动公网网页
 
-启动器可能已经启动网页，但为了确保网页拿到图片功能需要的控制令牌，使用下面命令重启网页进程。它不会修改 `.env`，也不会打印 Token。
+仅在面板无法使用且已确认服务完全停止时，才使用下面的恢复命令。它不会修改 `.env`，也不会打印 Token。
 
 ```powershell
 Set-Location "E:\AI-Creative-Studio"
@@ -76,7 +90,7 @@ Start-Process `
   -WindowStyle Hidden
 ```
 
-### 5. 检查网页
+### 备用恢复命令：检查网页
 
 ```powershell
 Invoke-WebRequest "http://127.0.0.1:8775/api/health" -UseBasicParsing
@@ -92,7 +106,9 @@ http://42.194.220.18:8775/
 
 ## 下线公网
 
-在服务器 PowerShell 执行：
+正常情况下回到部署控制面板，点击“全部下线”。该按钮会按顺序关闭 Web、撤销 8775 防火墙放行、请求现有启动器正常退出，并清理 AI 网关和代理桥。
+
+仅在面板不可用时，才在服务器 PowerShell 执行恢复命令：
 
 ```powershell
 Get-NetTCPConnection -State Listen -LocalPort 8775 -ErrorAction SilentlyContinue |

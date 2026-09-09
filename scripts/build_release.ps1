@@ -52,9 +52,11 @@ $releasePaths = @(
     "CHANGELOG.md",
     "requirements.txt",
     "launcher.py",
+    "deployment_panel.py",
     "proxy_relay.py",
     "proxy_workbench.py",
     ":(top,glob)*.bat",
+    "deployment_control",
     "src",
     "static",
     "config",
@@ -66,7 +68,7 @@ $releasePaths = @(
     "docs/deployment/public-startup-guide.md",
     "docs/deployment/release-workflow.md"
 )
-$requiredReleasePaths = @("requirements.txt", "launcher.py", "src", "static", "config", "chat2api", "tests")
+$requiredReleasePaths = @("requirements.txt", "launcher.py", "deployment_panel.py", "deployment_control", "src", "static", "config", "chat2api", "tests")
 $availableReleasePaths = @()
 foreach ($path in $releasePaths) {
     if ($path.StartsWith(":(")) {

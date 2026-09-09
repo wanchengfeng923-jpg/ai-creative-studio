@@ -99,6 +99,23 @@ class ServiceManagerTests(unittest.TestCase):
         self.assertTrue(manager.is_owned_process(owned, "web"))
         self.assertFalse(manager.is_owned_process(unknown, "web"))
 
+    def test_owned_web_process_rejects_virtualenv_path_prefix_collision(self):
+        impostor = ProcessRecord(
+            14,
+            str(self.root / ".venv-evil" / "Scripts" / "python.exe"),
+            "python.exe -m creative_studio.app",
+            str(self.root),
+        )
+        manager = ServiceManager(self.root, FakeProcessRunner([impostor]), FakePortInspector())
+
+        self.assertFalse(manager.is_owned_process(impostor, "web"))
+
+    def test_missing_process_paths_do_not_default_to_current_directory(self):
+        missing = ProcessRecord(15, "", "python.exe -m creative_studio.app", "")
+        manager = ServiceManager(self.root, FakeProcessRunner([missing]), FakePortInspector())
+
+        self.assertFalse(manager.is_owned_process(missing, "web"))
+
     def test_owned_web_process_can_use_project_cwd_as_path_evidence(self):
         owned = ProcessRecord(
             11,

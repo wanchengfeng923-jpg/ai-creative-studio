@@ -93,19 +93,19 @@ class ServiceManager:
         if role == "launcher":
             return (
                 cwd == root
-                and executable.startswith(venv)
+                and _path_is_within(executable, venv)
                 and "launcher.py" in command
             )
         if role == "web":
             return (
                 cwd == root
-                and executable.startswith(venv)
+                and _path_is_within(executable, venv)
                 and "creative_studio.app" in command
             )
         if role == "gateway":
             return (
                 cwd == _normalise_path(self.project_root / "chat2api")
-                and executable.startswith(venv)
+                and _path_is_within(executable, venv)
                 and "main.py" in command
             )
         if role == "bridge":
@@ -208,11 +208,18 @@ class ServiceManager:
 
 
 def _normalise_path(value: str | Path) -> str:
+    if not str(value):
+        return ""
     return os.path.normcase(str(Path(value).resolve())).replace("\\", "/").rstrip("/")
 
 
 def _normalise_text(value: str) -> str:
     return value.replace("\\", "/").lower()
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    """Match a path component boundary, avoiding ``.venv-evil`` collisions."""
+    return path == root or path.startswith(root + "/")
 
 
 def _contains_path(command: str, path: str | Path) -> bool:

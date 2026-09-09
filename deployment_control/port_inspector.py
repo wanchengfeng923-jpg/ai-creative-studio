@@ -116,11 +116,11 @@ def _expected_entry(port: int) -> str:
     return ""
 
 
-def _resolve_optional_path(value: str) -> Path:
-    return Path(value).resolve() if value else Path()
+def _resolve_optional_path(value: str) -> Path | None:
+    return Path(value).resolve() if value else None
 
 
-def _is_within(path: Path, root: Path) -> bool:
+def _is_within(path: Path | None, root: Path) -> bool:
     if not path:
         return False
     try:
