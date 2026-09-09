@@ -23,6 +23,7 @@ class DeploymentPanelStateTests(unittest.TestCase):
         panel = object.__new__(DeploymentPanel)
         panel._busy = False
         panel._status_refresh_active = False
+        panel.refresh_button = Mock()
         panel._set_busy = Mock()
         panel._append_result = Mock()
         panel.after = lambda _delay, callback: callback()
@@ -30,6 +31,22 @@ class DeploymentPanelStateTests(unittest.TestCase):
         panel._run_background("刷新状态", lambda: {"ok": True}, lambda _result: None, block_controls=False)
 
         panel._set_busy.assert_not_called()
+
+    def test_status_refresh_indicator_only_disables_refresh_button(self):
+        panel = object.__new__(DeploymentPanel)
+        panel._status_refresh_active = False
+        panel.refresh_button = Mock()
+
+        panel._set_status_refresh_active(True)
+
+        panel.refresh_button.configure.assert_called_once_with(state="disabled")
+        self.assertTrue(panel._status_refresh_active)
+
+        panel.refresh_button.reset_mock()
+        panel._set_status_refresh_active(False)
+
+        panel.refresh_button.configure.assert_called_once_with(state="normal")
+        self.assertFalse(panel._status_refresh_active)
 
     def test_process_scan_limits_wmi_to_relevant_process_names(self):
         completed = __import__("subprocess").CompletedProcess([], 0, "[]", "")

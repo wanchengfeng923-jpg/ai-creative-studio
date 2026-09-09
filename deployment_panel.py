@@ -797,6 +797,10 @@ class DeploymentPanel(tk.Tk):
                 widget.configure(state="disabled" if busy else "normal")
         self._apply_permission_state()
 
+    def _set_status_refresh_active(self, active: bool) -> None:
+        self._status_refresh_active = active
+        self.refresh_button.configure(state="disabled" if active else "normal")
+
     def _append_result(self, message: str) -> None:
         safe = sanitize_status_message(message)
         self.result_text.configure(state="normal")
@@ -823,7 +827,7 @@ class DeploymentPanel(tk.Tk):
         if block_controls:
             self._set_busy(True)
         else:
-            self._status_refresh_active = True
+            self._set_status_refresh_active(True)
         self._append_result(f"开始：{action}")
 
         def run() -> None:
@@ -833,11 +837,13 @@ class DeploymentPanel(tk.Tk):
             except Exception as exc:  # noqa: BLE001 - UI boundary converts to safe message
                 safe = sanitize_status_message(f"{action}失败：{type(exc).__name__}: {exc}")
                 self.after(0, lambda: self._append_result(safe))
+                if not block_controls and action == "刷新状态":
+                    self.after(0, lambda: self.control_summary.set("状态刷新失败，请查看结果和日志。"))
             finally:
                 if block_controls:
                     self.after(0, lambda: self._set_busy(False))
                 else:
-                    self.after(0, lambda: setattr(self, "_status_refresh_active", False))
+                    self.after(0, lambda: self._set_status_refresh_active(False))
 
         threading.Thread(target=run, daemon=True).start()
 
@@ -858,6 +864,8 @@ class DeploymentPanel(tk.Tk):
         self._append_result("已打开现有启动器，请在启动器中点击“启动”。")
 
     def refresh_status(self) -> None:
+        self.control_summary.set("正在刷新状态：端口、进程和防火墙...")
+
         def worker() -> Any:
             return self._collect_status()
 
