@@ -1016,7 +1016,11 @@ class DeploymentPanel(tk.Tk):
         self.state_var.set(self.state.value)
         self._append_result("公网 Web 已切换并放行 8775；8780/7896 仍只允许回环地址。")
         if result:
-            self._append_result(str(result))
+            pid = getattr(result, "pid", None)
+            if isinstance(pid, int) and pid > 0:
+                self._append_result(f"公网 Web 进程已启动，PID {pid}。")
+            elif isinstance(result, dict):
+                self._append_result("公网 Web 启动结果已返回。")
         self.run_postflight()
 
     def run_postflight(self) -> None:

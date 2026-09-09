@@ -48,6 +48,19 @@ class DeploymentPanelStateTests(unittest.TestCase):
         panel.refresh_button.configure.assert_called_once_with(state="normal")
         self.assertFalse(panel._status_refresh_active)
 
+    def test_public_result_shows_pid_instead_of_popen_repr(self):
+        panel = object.__new__(DeploymentPanel)
+        panel.state = PanelState.ALL_CLOSED
+        panel.state_var = Mock()
+        panel._append_result = Mock()
+        panel.run_postflight = Mock()
+
+        panel._finish_public(type("Process", (), {"pid": 4321})())
+
+        messages = [call.args[0] for call in panel._append_result.call_args_list]
+        self.assertIn("公网 Web 进程已启动，PID 4321。", messages)
+        self.assertFalse(any("<Popen" in message for message in messages))
+
     def test_process_scan_limits_wmi_to_relevant_process_names(self):
         completed = __import__("subprocess").CompletedProcess([], 0, "[]", "")
         with patch("deployment_panel.subprocess.run", return_value=completed) as run:
