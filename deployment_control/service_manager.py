@@ -23,6 +23,7 @@ class ProcessRecord:
     command_line: str
     cwd: str
     create_time: float | None = None
+    parent_pid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -89,28 +90,31 @@ class ServiceManager:
         executable = _normalise_path(process.executable)
         command = _normalise_text(process.command_line)
         venv = _normalise_path(self.project_root / ".venv")
+        executable_name = Path(process.executable).name.lower()
+        is_python = executable_name in {"python.exe", "pythonw.exe", "python", "pythonw"}
+        parent = self._process_by_pid(process.parent_pid) if process.parent_pid else None
+        controlled_by_project = parent is not None and self._is_project_controller(parent)
 
         if role == "launcher":
-            return (
-                cwd == root
-                and _path_is_within(executable, venv)
-                and "launcher.py" in command
-            )
+            return self._is_project_controller(process, entry="launcher.py")
         if role == "web":
             return (
-                cwd == root
-                and _path_is_within(executable, venv)
+                is_python
                 and "creative_studio.app" in command
+                and ((cwd == root and _path_is_within(executable, venv)) or controlled_by_project)
             )
         if role == "gateway":
             return (
-                cwd == _normalise_path(self.project_root / "chat2api")
-                and _path_is_within(executable, venv)
+                is_python
                 and "main.py" in command
+                and (
+                    (cwd == _normalise_path(self.project_root / "chat2api") and _path_is_within(executable, venv))
+                    or controlled_by_project
+                )
             )
         if role == "bridge":
             bridge_config = _normalise_path(self.project_root / ".runtime" / "proxy-bridge.yaml")
-            return (
+            return self._is_project_controller(process, entry="launcher.py") or (
                 "mihomo" in command
                 and bridge_config in command
                 and (
@@ -119,6 +123,19 @@ class ServiceManager:
                 )
             )
         return False
+
+    def _is_project_controller(self, process: ProcessRecord, *, entry: str | None = None) -> bool:
+        executable_name = Path(process.executable).name.lower()
+        if executable_name not in {"python.exe", "pythonw.exe", "python", "pythonw"}:
+            return False
+        command = _normalise_text(process.command_line)
+        entries = (entry,) if entry else ("launcher.py", "deployment_panel.py")
+        if any(_normalise_path(self.project_root / name) in command for name in entries):
+            return True
+        executable = _normalise_path(process.executable)
+        cwd = _normalise_path(process.cwd)
+        venv = _normalise_path(self.project_root / ".venv")
+        return cwd == _normalise_path(self.project_root) and _path_is_within(executable, venv) and any(name in command for name in entries)
 
     def switch_web_to_public(self, environment: Mapping[str, str]) -> Any:
         """重启已确认的本地 Web，并只改变其监听主机。"""

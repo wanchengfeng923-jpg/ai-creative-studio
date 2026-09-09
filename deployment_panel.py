@@ -262,7 +262,7 @@ class _SystemProcessRunner:
     def enumerate_processes(self) -> list[Any]:
         from deployment_control.service_manager import ProcessRecord
 
-        query = "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
+        query = "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
         try:
             completed = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", query],
@@ -286,15 +286,24 @@ class _SystemProcessRunner:
             command = str(item.get("CommandLine") or "")
             normalized = command.replace("\\", "/").lower()
             root = str(self.project_root).replace("\\", "/").lower()
-            if "chat2api/main.py" in normalized or "chat2api\\main.py" in command.lower():
+            if "chat2api/main.py" in normalized:
                 cwd = str(self.project_root / "chat2api")
             elif "proxy-bridge.yaml" in normalized:
                 cwd = str(self.project_root / ".runtime")
-            elif root in normalized or "launcher.py" in normalized or "creative_studio.app" in normalized:
+            elif root in normalized:
                 cwd = str(self.project_root)
             else:
                 cwd = ""
-            records.append(ProcessRecord(int(item["ProcessId"]), str(item.get("ExecutablePath") or ""), command, cwd))
+            parent = item.get("ParentProcessId")
+            records.append(
+                ProcessRecord(
+                    int(item["ProcessId"]),
+                    str(item.get("ExecutablePath") or ""),
+                    command,
+                    cwd,
+                    parent_pid=int(parent) if str(parent or "").isdigit() else None,
+                )
+            )
         return records
 
     def launch(self, command: Any, cwd: Path, env: dict[str, str]) -> Any:
@@ -494,6 +503,7 @@ class DeploymentPanel(tk.Tk):
                     command_line=record.command_line,
                     working_directory=record.cwd,
                     create_time=record.create_time,
+                    parent_pid=record.parent_pid,
                 )
 
             self.port_inspector = PortInspector(project_root=self.project_root, process_provider=process_provider)

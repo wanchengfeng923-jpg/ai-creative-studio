@@ -56,6 +56,7 @@ class ProcessInfo:
     command_line: str = ""
     working_directory: str = ""
     create_time: float | None = None
+    parent_pid: int | None = None
 
 
 @dataclass(frozen=True)

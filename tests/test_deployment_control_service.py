@@ -233,6 +233,45 @@ class ServiceManagerTests(unittest.TestCase):
         self.assertNotIn(("terminate", 51), runner.calls)
         self.assertEqual(firewall.runner.calls[-1], ("disable", FIREWALL_RULE_NAME))
 
+    def test_shutdown_accepts_system_python_children_of_project_launcher(self):
+        launcher = ProcessRecord(
+            21,
+            r"C:\Program Files\Python311\pythonw.exe",
+            f'pythonw.exe "{self.root / "launcher.py"}"',
+            "",
+        )
+        web = ProcessRecord(
+            11,
+            r"C:\Program Files\Python311\python.exe",
+            "python.exe -m creative_studio.app",
+            "",
+            parent_pid=21,
+        )
+        gateway = ProcessRecord(
+            31,
+            r"C:\Program Files\Python311\python.exe",
+            "python.exe main.py",
+            "",
+            parent_pid=21,
+        )
+        runner = FakeProcessRunner([launcher, web, gateway])
+        inspector = FakePortInspector(
+            {
+                8775: [PortBinding(8775, "127.0.0.1", 11)],
+                8780: [PortBinding(8780, "127.0.0.1", 31)],
+                7896: [PortBinding(7896, "127.0.0.1", 21)],
+            }
+        )
+        firewall = FirewallManager(FakeFirewallRunner())
+        manager = ServiceManager(self.root, runner, inspector)
+
+        manager.shutdown(firewall)
+
+        self.assertEqual(
+            [call for call in runner.calls if call[0] in {"terminate", "launcher_close"}],
+            [("terminate", 11), ("launcher_close", 21), ("terminate", 31), ("terminate", 21)],
+        )
+
 
 class FirewallManagerTests(unittest.TestCase):
     def test_enable_uses_only_fixed_rule_parameters(self):

@@ -131,6 +131,59 @@ class DeploymentControlCoreTests(unittest.TestCase):
 
         self.assertTrue(inspector.inspect(8780)[0].is_manageable)
 
+    def test_system_python_web_child_of_project_launcher_is_manageable(self) -> None:
+        root = Path(r"E:\AI-Creative-Studio")
+        listener = PortListener(port=8775, address="127.0.0.1", pid=20)
+        processes = {
+            10: ProcessInfo(10, "pythonw.exe", r"C:\Python311\pythonw.exe", f'pythonw.exe "{root / "launcher.py"}"'),
+            20: ProcessInfo(20, "python.exe", r"C:\Python311\python.exe", "python.exe -m creative_studio.app", parent_pid=10),
+        }
+        inspector = PortInspector(
+            listeners_provider=lambda: [listener],
+            process_provider=processes.get,
+            project_root=root,
+        )
+
+        self.assertTrue(inspector.inspect(8775)[0].is_manageable)
+
+    def test_system_python_gateway_child_of_project_launcher_is_manageable(self) -> None:
+        root = Path(r"E:\AI-Creative-Studio")
+        listener = PortListener(port=8780, address="127.0.0.1", pid=30)
+        processes = {
+            10: ProcessInfo(10, "pythonw.exe", r"C:\Python311\pythonw.exe", f'pythonw.exe "{root / "launcher.py"}"'),
+            30: ProcessInfo(30, "python.exe", r"C:\Python311\python.exe", "python.exe main.py", parent_pid=10),
+        }
+        inspector = PortInspector(
+            listeners_provider=lambda: [listener],
+            process_provider=processes.get,
+            project_root=root,
+        )
+
+        self.assertTrue(inspector.inspect(8780)[0].is_manageable)
+
+    def test_project_launcher_can_own_in_process_proxy_bridge(self) -> None:
+        root = Path(r"E:\AI-Creative-Studio")
+        listener = PortListener(port=7896, address="127.0.0.1", pid=10)
+        launcher = ProcessInfo(10, "pythonw.exe", r"C:\Python311\pythonw.exe", f'pythonw.exe "{root / "launcher.py"}"')
+        inspector = PortInspector(
+            listeners_provider=lambda: [listener],
+            process_provider=lambda _pid: launcher,
+            project_root=root,
+        )
+
+        self.assertTrue(inspector.inspect(7896)[0].is_manageable)
+
+    def test_system_python_without_project_controller_remains_unknown(self) -> None:
+        listener = PortListener(port=8775, address="127.0.0.1", pid=40)
+        process = ProcessInfo(40, "python.exe", r"C:\Python311\python.exe", "python.exe -m creative_studio.app")
+        inspector = PortInspector(
+            listeners_provider=lambda: [listener],
+            process_provider=lambda _pid: process,
+            project_root=Path(r"E:\AI-Creative-Studio"),
+        )
+
+        self.assertFalse(inspector.inspect(8775)[0].is_manageable)
+
     def test_health_checker_checks_local_gateway_and_public_url_with_injected_opener(self) -> None:
         requested: list[str] = []
 

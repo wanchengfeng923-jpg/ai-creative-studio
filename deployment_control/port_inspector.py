@@ -96,6 +96,20 @@ class PortInspector:
         if executable_matches and working_directory_matches and command_line_matches:
             return ProcessOwnership.PROJECT, "虚拟环境、工作目录和入口命令均匹配"
 
+        executable_name = Path(process.executable).name.lower()
+        is_python = executable_name in {"python.exe", "pythonw.exe", "python", "pythonw"}
+        parent = self._process_provider(process.parent_pid) if process.parent_pid else None
+        controlled_by_project = parent is not None and self._is_project_controller(parent)
+        if listener.port == 8775 and is_python and "creative_studio.app" in command_line and controlled_by_project:
+            return ProcessOwnership.PROJECT, "入口命令匹配，父进程是本项目控制程序"
+        if listener.port == 8780 and is_python and _is_main_entry(command_line) and controlled_by_project:
+            return ProcessOwnership.PROJECT, "网关入口匹配，父进程是本项目控制程序"
+        if listener.port == 7896 and self._is_project_controller(process, entry="launcher.py"):
+            return ProcessOwnership.PROJECT, "代理桥由本项目启动器进程内运行"
+        bridge_config = _normalise_path(self.project_root / ".runtime" / "proxy-bridge.yaml")
+        if listener.port == 7896 and "mihomo" in command_line and bridge_config in command_line:
+            return ProcessOwnership.PROJECT, "Mihomo 使用本项目代理桥配置"
+
         evidence = []
         if not executable_matches:
             evidence.append("可执行文件不匹配")
@@ -104,6 +118,23 @@ class PortInspector:
         if not command_line_matches:
             evidence.append("入口命令不匹配")
         return ProcessOwnership.UNKNOWN, "；".join(evidence) or "证据不足"
+
+    def _is_project_controller(self, process: ProcessInfo, *, entry: str | None = None) -> bool:
+        executable_name = Path(process.executable).name.lower()
+        if executable_name not in {"python.exe", "pythonw.exe", "python", "pythonw"}:
+            return False
+        command = process.command_line.lower().replace("\\", "/")
+        entries = (entry,) if entry else ("launcher.py", "deployment_panel.py")
+        if any(_normalise_path(self.project_root / name) in command for name in entries):
+            return True
+        executable = _resolve_optional_path(process.executable)
+        venv = self.project_root / ".venv"
+        return (
+            executable is not None
+            and _is_within(executable, venv)
+            and _is_within(_resolve_optional_path(process.working_directory), self.project_root)
+            and any(name in command for name in entries)
+        )
 
 
 def _expected_entry(port: int) -> str:
@@ -114,6 +145,14 @@ def _expected_entry(port: int) -> str:
     if port == 7896:
         return "proxy"
     return ""
+
+
+def _is_main_entry(command_line: str) -> bool:
+    return bool(re.search(r"(?:^|[\s\"'])main\.py(?:[\s\"']|$)", command_line))
+
+
+def _normalise_path(path: Path) -> str:
+    return str(path.resolve()).replace("\\", "/").lower()
 
 
 def _resolve_optional_path(value: str) -> Path | None:
