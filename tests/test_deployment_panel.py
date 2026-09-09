@@ -3,11 +3,14 @@ from pathlib import Path
 
 from deployment_panel import (
     ACTION_DETAILS,
+    DeploymentPanel,
     PanelState,
     determine_panel_state,
     get_action_details,
     public_action_allowed,
     sanitize_status_message,
+    format_preflight_port_check,
+    find_offline_blockers,
 )
 
 
@@ -123,6 +126,91 @@ class DeploymentPanelStateTests(unittest.TestCase):
         self.assertNotIn("pwd", message)
         self.assertNotIn("Bearer abc", message)
         self.assertNotIn("user:pass@", message)
+
+    def test_preflight_port_result_exposes_ownership_and_evidence(self):
+        line, failure = format_preflight_port_check(
+            {
+                "port": 8775,
+                "address": "0.0.0.0",
+                "pid": 1234,
+                "ownership": "unknown",
+                "evidence_summary": "工作目录不匹配",
+            }
+        )
+        self.assertIn("8775", line)
+        self.assertIn("0.0.0.0", line)
+        self.assertIn("PID 1234", line)
+        self.assertIn("未知占用", line)
+        self.assertIn("工作目录不匹配", line)
+        self.assertEqual("端口 8775 未知占用（PID 1234）：工作目录不匹配", failure)
+
+    def test_preflight_port_result_does_not_duplicate_identical_records(self):
+        line, failure = format_preflight_port_check(
+            {
+                "port": 7896,
+                "address": "127.0.0.1",
+                "pid": 4321,
+                "ownership": "project",
+                "evidence_summary": "入口命令匹配",
+            }
+        )
+        self.assertEqual("端口 7896 127.0.0.1（PID 4321）：本项目，可管理；入口命令匹配", line)
+        self.assertIsNone(failure)
+
+    def test_offline_verification_blocks_any_remaining_listener_or_launcher(self):
+        blockers = find_offline_blockers(
+            {
+                "ports": [
+                    {"port": 8780, "address": "127.0.0.1", "pid": 22},
+                    {"port": 7896, "address": "127.0.0.1", "pid": 33},
+                ]
+            },
+            launcher_open=True,
+        )
+        self.assertEqual(
+            ["端口 8780 仍由 PID 22 监听", "端口 7896 仍由 PID 33 监听", "启动器仍在运行"],
+            blockers,
+        )
+
+    def test_offline_verification_accepts_no_listeners_and_closed_launcher(self):
+        self.assertEqual([], find_offline_blockers({"ports": []}, launcher_open=False))
+
+    def test_offline_verification_blocks_enabled_public_firewall_rule(self):
+        rule = type("Rule", (), {"enabled": True})()
+        self.assertEqual(
+            ["8775 公网防火墙规则仍在启用"],
+            find_offline_blockers({"ports": [], "firewall": rule}, launcher_open=False),
+        )
+
+    def test_apply_does_not_call_release_script_when_offline_verification_fails(self):
+        panel = object.__new__(DeploymentPanel)
+        calls = []
+        panel.release_manager = type(
+            "ReleaseManager",
+            (),
+            {"apply": lambda _self, package, digest: calls.append((package, digest))},
+        )()
+        panel._take_offline_and_verify = lambda: (_ for _ in ()).throw(RuntimeError("still online"))
+
+        with self.assertRaisesRegex(RuntimeError, "still online"):
+            panel._apply_release_impl("release.zip", "a" * 64)
+
+        self.assertEqual([], calls)
+
+    def test_rollback_does_not_call_release_script_when_offline_verification_fails(self):
+        panel = object.__new__(DeploymentPanel)
+        calls = []
+        panel.release_manager = type(
+            "ReleaseManager",
+            (),
+            {"rollback": lambda _self, rollback_id: calls.append(rollback_id)},
+        )()
+        panel._take_offline_and_verify = lambda: (_ for _ in ()).throw(RuntimeError("still online"))
+
+        with self.assertRaisesRegex(RuntimeError, "still online"):
+            panel._rollback_release_impl("rollback-1")
+
+        self.assertEqual([], calls)
 
 
 if __name__ == "__main__":

@@ -407,6 +407,41 @@ def public_action_allowed(state: PanelState, preflight_passed: bool, admin: bool
     return admin and preflight_passed and state == PanelState.LOCAL_READY
 
 
+def format_preflight_port_check(data: dict[str, Any]) -> tuple[str, str | None]:
+    """Format one listener with enough evidence to explain a blocking result."""
+    port = data.get("port", "?")
+    address = data.get("address", data.get("local_address", "-"))
+    pid = data.get("pid", "-")
+    ownership = data.get("ownership", data.get("owner", "unknown"))
+    evidence = str(data.get("evidence_summary", data.get("note", ""))).strip()
+    owner_label = "本项目，可管理" if ownership == "project" else "未知占用"
+    line = f"端口 {port} {address}（PID {pid}）：{owner_label}"
+    if evidence:
+        line += f"；{evidence}"
+    if ownership in {"unknown", "未知占用"}:
+        reason = evidence or "进程归属证据不足"
+        return line, f"端口 {port} 未知占用（PID {pid}）：{reason}"
+    return line, None
+
+
+def find_offline_blockers(status: dict[str, Any], *, launcher_open: bool) -> list[str]:
+    """Return concrete evidence that project services are not fully offline."""
+    blockers: list[str] = []
+    for item in status.get("ports", []):
+        data = item.to_dict() if hasattr(item, "to_dict") else item if isinstance(item, dict) else getattr(item, "__dict__", {})
+        pid = data.get("pid", "-")
+        if data.get("listening", data.get("is_listening", data.get("pid"))) and data.get("port"):
+            blockers.append(f"端口 {data['port']} 仍由 PID {pid} 监听")
+    if launcher_open:
+        blockers.append("启动器仍在运行")
+    firewall = status.get("firewall")
+    if firewall is not None:
+        enabled = firewall.get("enabled") if isinstance(firewall, dict) else getattr(firewall, "enabled", False)
+        if enabled:
+            blockers.append("8775 公网防火墙规则仍在启用")
+    return blockers
+
+
 def sanitize_status_message(message: str) -> str:
     """脱敏界面和日志中的常见凭据形态。"""
     value = str(message)
@@ -822,17 +857,31 @@ class DeploymentPanel(tk.Tk):
                 if level and not level.endswith("pass"):
                     failures.append(label)
         status = self._collect_status()
+        seen_ports: set[tuple[Any, ...]] = set()
         for item in status["ports"]:
             data = item.to_dict() if hasattr(item, "to_dict") else item if isinstance(item, dict) else getattr(item, "__dict__", {})
-            checks.append(f"端口 {data.get('port', '?')}：已读取")
-            if data.get("ownership") in {"unknown", "未知占用"}:
-                failures.append(f"端口 {data.get('port', '?')} 未知占用")
+            identity = (
+                data.get("port"),
+                data.get("address", data.get("local_address")),
+                data.get("pid"),
+                data.get("ownership", data.get("owner")),
+                data.get("evidence_summary", data.get("note")),
+            )
+            if identity in seen_ports:
+                continue
+            seen_ports.add(identity)
+            line, failure = format_preflight_port_check(data)
+            checks.append(line)
+            if failure:
+                failures.append(failure)
         return {"passed": not failures, "checks": checks, "failures": failures}
 
     def _finish_preflight(self, result: dict[str, Any]) -> None:
         self.preflight_passed = bool(result.get("passed"))
         for line in result.get("checks", []):
             self._append_result(line)
+        for failure in result.get("failures", []):
+            self._append_result(f"阻断原因：{failure}")
         self._append_result("启动前检测通过，可以上线公网。" if self.preflight_passed else "启动前检测存在关键失败，已阻止上线公网。")
 
     def go_public(self) -> None:
@@ -924,6 +973,21 @@ class DeploymentPanel(tk.Tk):
             self.firewall_manager.remove()
         return result
 
+    def _take_offline_and_verify(self) -> Any:
+        result = self._take_offline_impl()
+        status = self._collect_status()
+        launcher_open = bool(getattr(self.service_manager, "launcher_running", lambda: False)())
+        if not launcher_open and hasattr(self.service_manager, "runner"):
+            processes = self.service_manager.runner.enumerate_processes()
+            launcher_open = any(
+                self.service_manager.is_owned_process(process, "launcher")
+                for process in processes
+            )
+        blockers = find_offline_blockers(status, launcher_open=launcher_open)
+        if blockers:
+            raise RuntimeError("下线复查失败，已阻止后续操作：" + "；".join(blockers))
+        return result
+
     def _finish_offline(self, result: Any) -> None:
         self.preflight_passed = False
         self._append_result("已执行全部下线：Web、AI 网关、代理桥、启动器和 8775 公网放行均已请求关闭。")
@@ -1003,7 +1067,15 @@ class DeploymentPanel(tk.Tk):
             "回滚前必须保持工作台关闭；确认使用此 RollbackId 恢复程序代码？",
         ):
             return
-        self._run_background("回滚发布", lambda: self.release_manager.rollback(rollback_id), self._show_release_result)
+        self._run_background(
+            "回滚发布",
+            lambda: self._rollback_release_impl(rollback_id),
+            self._show_release_result,
+        )
+
+    def _rollback_release_impl(self, rollback_id: str) -> Any:
+        self._take_offline_and_verify()
+        return self.release_manager.rollback(rollback_id)
 
     def open_release_workflow(self) -> None:
         self._open_path(self.project_root / "docs" / "deployment" / "release-workflow.md")
@@ -1018,7 +1090,11 @@ class DeploymentPanel(tk.Tk):
             return
         if not package or not digest or not messagebox.askyesno("确认更新", "更新会先全部下线并创建回滚点，是否继续？"):
             return
-        self._run_background("执行更新", lambda: (self._take_offline_impl(), self.release_manager.apply(package, digest)), lambda result: self._finish_apply_release(result[-1]))
+        self._run_background("执行更新", lambda: self._apply_release_impl(package, digest), self._finish_apply_release)
+
+    def _apply_release_impl(self, package: str, digest: str) -> Any:
+        self._take_offline_and_verify()
+        return self.release_manager.apply(package, digest)
 
     def _finish_apply_release(self, result: Any) -> None:
         self.release_verified_package = ""
