@@ -14,7 +14,7 @@ $includedFiles = @(
 )
 $excludedPattern = "\\(?:\.venv|__pycache__|\.pytest_cache|node_modules|dist|images|image_job_state|private)(?:\\|$)|\\\.env$|\.pyc$"
 $canonicalTextExtensions = @(
-    ".css", ".html", ".js", ".json", ".md", ".ps1", ".py",
+    ".bat", ".css", ".html", ".js", ".json", ".md", ".ps1", ".py",
     ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"
 )
 $utf8 = [Text.UTF8Encoding]::new($false, $true)

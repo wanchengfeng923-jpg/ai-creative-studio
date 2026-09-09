@@ -2,6 +2,7 @@
 .runtime/
 .runtime*/
 .scratch/
+.release/
 logs/
 staging/
 config/private/
