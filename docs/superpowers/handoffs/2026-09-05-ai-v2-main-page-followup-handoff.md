@@ -1,6 +1,6 @@
 # AI v2 主页面接入后续交接
 
-> 交给下一执行会话的工作文档。本文记录当前真实代码和验证边界，不代替 `AGENTS.md`、`progress.md`、`docs/operations.md` 或 AI v2 正式实施计划。
+> 交给下一执行会话的工作文档。本文记录当前真实代码和验证边界，不代替 `AGENTS.md`、`progress.md`、`docs/project-rules/operations.md` 或 AI v2 正式实施计划。
 
 ## 先看结论
 
@@ -20,11 +20,11 @@
 
 1. `AGENTS.md`
 2. `progress.md`
-3. `项目代码地图.md`
-4. `docs/operations.md`
+3. `docs/project-rules/项目代码地图.md`
+4. `docs/project-rules/operations.md`
 5. `docs/ai-rebuild-master-plan.md`
-6. `CODE_STYLE.md`
-7. `CONTEXT.md`
+6. `docs/project-rules/CODE_STYLE.md`
+7. `docs/project-rules/CONTEXT.md`
 8. `docs/superpowers/specs/2026-09-04-ai-v2-text-first-preview-design.md`
 9. `docs/superpowers/plans/2026-09-04-ai-v2-text-first-implementation.md`
 10. 相关 ADR、测试和本 handoff，至少包括：

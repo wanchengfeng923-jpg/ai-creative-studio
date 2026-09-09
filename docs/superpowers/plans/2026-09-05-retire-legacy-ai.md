@@ -143,9 +143,9 @@ Expected: PASS；`rg` 只允许历史文档和显式退役守卫出现旧名称�
 
 **Files:**
 - Modify: `AGENTS.md`
-- Modify: `CODE_STYLE.md`
-- Modify: `项目代码地图.md`
-- Modify: `docs/operations.md`
+- Modify: `docs/project-rules/CODE_STYLE.md`
+- Modify: `docs/project-rules/项目代码地图.md`
+- Modify: `docs/project-rules/operations.md`
 - Modify: `docs/ai/README.md`
 - Modify: `CHANGELOG.md`
 - Modify: `progress.md`

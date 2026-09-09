@@ -20,7 +20,7 @@
 - 数据库只保存密码/会话/CSRF 的哈希，不保存明文密码或会话令牌；日志不得记录秘密、完整请求、模型回复或文件内容。
 - 所有业务 API 必须认证；所有写请求（登录除外）必须验证 CSRF；资源授权必须防止 IDOR。
 - 测试只使用临时数据库和脱敏夹具，不访问真实 `data/`，不发起真实 AI 请求。
-- 完成后更新 `CHANGELOG.md`、`progress.md`、`README.md`、`docs/operations.md` 和变更卡验证记录。
+- 完成后更新 `CHANGELOG.md`、`progress.md`、`README.md`、`docs/project-rules/operations.md` 和变更卡验证记录。
 
 ---
 
@@ -147,7 +147,7 @@
 **Files:**
 - Modify: `launcher.py`（仅增加初始化提示/命令调用所需的非秘密状态，不显示密码）
 - Modify: `README.md`
-- Modify: `docs/operations.md`
+- Modify: `docs/project-rules/operations.md`
 - Modify: `CHANGELOG.md`
 - Modify: `progress.md`
 - Modify: `.scratch/auth-permissions/spec.md`

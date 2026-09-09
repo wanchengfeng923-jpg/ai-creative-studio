@@ -13,7 +13,7 @@
 当前最重要的事实：
 
 - HEAD 为 `9e911e9`；实现检查点为 `5ad827c`。
-- 工作树已经有两组先于本次 handoff 的未提交修改。第一组是用户保留的 `launcher.py`：`WEB_BIND_HOST = "0.0.0.0"`。第二组是独立的普通创意标签可选任务：`config/creative_tag_options.json`、`static/app.js`、`tests/test_tag_options.py`、`tests/test_frontend_tag_reports.py`、`CHANGELOG.md`、`progress.md`、`项目代码地图.md`、`docs/adr/0004-optional-tag-groups.md` 和 `.scratch/optional-tag-selection/`。两组都要保留，不能混入 P5 提交。
+- 工作树已经有两组先于本次 handoff 的未提交修改。第一组是用户保留的 `launcher.py`：`WEB_BIND_HOST = "0.0.0.0"`。第二组是独立的普通创意标签可选任务：`config/creative_tag_options.json`、`static/app.js`、`tests/test_tag_options.py`、`tests/test_frontend_tag_reports.py`、`CHANGELOG.md`、`progress.md`、`docs/project-rules/项目代码地图.md`、`docs/adr/0004-optional-tag-groups.md` 和 `.scratch/optional-tag-selection/`。两组都要保留，不能混入 P5 提交。
 - 全量 deterministic unittest 最近一次结果为 `220` 项通过；标签可选任务的定向测试和完整门禁应由其原任务继续收尾。
 - 默认运行库只做过只读 scrub：`scanned_rows=3`、`changed_rows=2`、`private_field_occurrences=6`。真实库未达到 fixed point，不能 `--apply`。
 - 真实 AI、真实图片网关、认证浏览器、多进程生产竞态、真实数据库写入和备份恢复尚未验证。
@@ -24,8 +24,8 @@
 
 1. `AGENTS.md`
 2. `progress.md`
-3. `项目代码地图.md`
-4. `docs/operations.md`
+3. `docs/project-rules/项目代码地图.md`
+4. `docs/project-rules/operations.md`
 5. 本文档
 6. `docs/ai-rebuild-master-plan.md`
 7. `docs/ai/quality-evaluation.md`
@@ -152,8 +152,8 @@ python -m creative_studio.projection_scrub --database .scratch\\projection-scrub
 
 - `progress.md`：追加事实、验证命令、结果、提交哈希和未验证项；
 - `docs/ai-rebuild-master-plan.md`：更新 Phase 5 当前状态和删除门禁；
-- `docs/operations.md`：更新 scrub/备份/恢复实际演练结果；
-- `项目代码地图.md`：caller、入口或表变化时更新；
+- `docs/project-rules/operations.md`：更新 scrub/备份/恢复实际演练结果；
+- `docs/project-rules/项目代码地图.md`：caller、入口或表变化时更新；
 - `docs/ai/quality-evaluation.md`：更新评测报告状态。
 
 不要把历史 handoff 改成当前事实，也不要为了“完成 Phase 5”删除仍有兼容用途的代码。

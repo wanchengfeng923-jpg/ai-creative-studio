@@ -4,15 +4,15 @@
 
 当前目标是先验证创意生成流程，再逐步准备公司内网多人使用。当前代码已经包含应用内登录、用户表、管理员角色和项目所有权隔离，但默认仍只监听回环地址，尚未达到公网或正式多人部署的安全、备份和运维标准。
 
-开始任何分析或修改前先完整阅读本文档，再按以下顺序阅读项目事实和运维边界：
+开始任何分析或修改前先读取本文档。接着按任务选择最小入口，不把整套资料作为默认必读：
 
-1. `progress.md`：当前状态、已验证内容和待办。
-2. `项目代码地图.md`：真实入口、调用链和文件职责。
-3. `docs/operations.md`：启动、数据、备份和故障边界。
-4. AI 相关工作必须再读 `docs/ai-rebuild-master-plan.md`：当前真实 AI 链路、问题台账、目标架构和分阶段迁移门禁的唯一实施基线。
-5. `docs/research/`：需要设计工程流程、AI评估、安全或发布方案时读取对应研究笔记。
+- 日常代码或前端任务：先读 `docs/current-state.md` 的相关事实和 `docs/project-rules/项目代码地图.md` 的对应入口；修改代码时再读 `docs/project-rules/CODE_STYLE.md`，涉及启动、数据或备份时补读 `docs/project-rules/operations.md`。
+- AI v2 任务：先读 `docs/current-state.md` 的 registry/runtime 段，再读相关 `src/creative_studio/ai_v2/`、registry、schema、validator、caller 和测试；只有需要理解迁移目标、阶段门禁或 ADR 时才读 `docs/ai-rebuild-master-plan.md` 及对应决策资料。
+- 文档或规则整理：读本文档、`docs/current-state.md` 和目标文档；历史报告、handoff、ADR 或研究笔记只在需要追溯来源或决策时读取。
+- 启动、备份、部署或公网任务：先读 `docs/current-state.md`，再读 `docs/project-rules/operations.md` 或 `docs/deployment/` 中与目标动作对应的记录；高风险动作仍须遵守本文件的确认、备份和回滚门禁。
+- 历史回顾：按需读取 `progress.md`、`CHANGELOG.md`、`docs/repo-audit/` 和 handoff。它们解释过去发生过什么，不替代当前源码、配置和验证输出。
 
-修改代码前再读 `CODE_STYLE.md`，按其中的技术边界、命名、注释和验证规则执行；若规范与本文件冲突，以本文件的项目安全和工作流门禁为准。
+`docs/research/` 仅在需要设计工程流程、AI 评估、安全或发布方案时读取。若规则与本文件冲突，以本文件的项目安全和工作流门禁为准。
 
 ## 工作方式
 
@@ -20,7 +20,7 @@
 - 动手前先写清目标、非目标、验收例子和回滚办法；需求有多种解释且会改变范围时先提问。
 - 一个变更只解决一个明确问题。低风险局部修改优先直接完成；涉及认证、权限、数据库、部署、密钥、数据删除或公网时先停下确认。
 - 先确认真实入口和直接调用方，再修改；不要在看起来相关但未接线的文件中试改。
-- `progress.md` 是追加式时间线，不是当前架构事实；当前事实必须由运行代码、配置 registry、本文档和总纲交叉核验。
+- `progress.md` 是简洁的历史/维护指针，不是当前架构事实；当前事实必须由运行代码、配置 registry、本文档和定向验证交叉核验。
 - 保留现有用户改动，不使用重置、覆盖或批量删除命令。
 - 使用 `apply_patch` 编辑源码和文档。默认 ASCII；项目已有中文文档可继续使用 UTF-8。
 - 功能修改走短分支 `codex/<short-name>`；主分支保持可运行。提交信息说明业务影响。
@@ -57,10 +57,17 @@
 
 - 每个 AI 用例必须有明确的 input schema、prompt spec、output contract、validator、持久化 mapper、公开 DTO、生产 caller 和测试 seam；不能只改提示词或只加字段。
 - 新 prompt 必须登记在 AI v2 registry，声明 owner contract、版本、hash、输入/输出 schema、调用阶段、预算和评测集；没有 production caller 的 prompt 不得继续作为“已实现功能”。
+- registry 中的 `lifecycle`、`caller` 和版本字段是可追溯声明，不单独构成运行就绪或真实质量验收；模板文件缺失、hash 不匹配、schema/validator 失败时必须 fail closed，并保留失败证据。
 - Agent 探索阶段只读并报告 production/test/dead 证据；设计阶段必须写目标、非目标、不变量、接口、依赖、迁移和回滚；实施阶段一责任域一变更卡，禁止多个 Agent 同时修改同一文件；评审阶段按当前事实和生产引用复核。
 - 先用 deterministic fake 和生产入口 contract harness 验证，再在用户授权后做真实 AI/图片冒烟。测试通过只代表指定 seam 通过，不代表模型质量或真实网关已验证。
 - 旧 adapter、旧 schema、旧字段映射和兼容开关必须写明 `deprecated_since`、替代项、禁止新调用和删除条件；禁止无限期双写、双读或“临时”分支。
 - 业务流程、首帧/后续帧、第二批策略、参考资料输入和公开字段边界的改变必须记录 ADR，并写明 `supersedes`、迁移和回滚。
+
+### 启动器与 live 边界
+
+- 直接运行 `create_application()` 时，未显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 且未注入测试模型，必须保持 `ai_not_enabled` 的 fail-closed 行为。
+- 当前 `launcher.py` 会为其子进程注入 `CREATIVE_STUDIO_AI_V2_LIVE=1`；这是启动器的实现路径，不等同于 Prompt 批准、生产发布或真实能力验收。启动器启动不得绕过 registry/hash/schema 门禁，也不得把 deterministic fake、静态页面、health check 或历史部署记录表述为真实 AI 通过。
+- 任何 live 文字/图片请求仍需独立的用户授权、备份/回滚记录和受控验证；在授权记录缺失或 registry 无法加载时，不得把 GUI 的“启动”视为生产批准。
 
 ## 验证和收尾
 

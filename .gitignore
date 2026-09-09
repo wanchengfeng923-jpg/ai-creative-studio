@@ -5,6 +5,8 @@
 .release/
 logs/
 staging/
+.server-test/
+docs/repo-audit*.zip
 config/private/
 __pycache__/
 *.py[cod]

@@ -1,5 +1,7 @@
 # AI 创意工作台实时部署记录
 
+> 历史过程提示：本文保留多个日期和步骤的原始部署证据，包含未开始、进行中、已上传及历史验证记录。它不是当前服务器状态或发布批准；当前事实和未解决限制以 [`docs/current-state.md`](../current-state.md) 为准。
+
 状态：步骤 0 完成；步骤 1 盘点进行中
 建立日期：2026-09-06
 仓库：`D:\code\ai_creative_studio`
@@ -167,7 +169,7 @@
 ## 相关文档
 
 - `AGENTS.md`
-- `docs/operations.md`
+- `docs/project-rules/operations.md`
 - `docs/deployment/code-baseline-20260908.md`
 - `docs/ai-rebuild-master-plan.md`
 - `docs/superpowers/handoffs/2026-09-06-ai-v2-current-state-handoff.md`

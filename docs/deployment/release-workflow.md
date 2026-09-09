@@ -98,7 +98,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\server_release.ps1" `
 
 ### 1. 更新前备份生产数据
 
-先按 `docs/operations.md` 使用 SQLite backup 工具生成一致性备份，并在新目录执行恢复 smoke。必须看到：
+先按 `docs/project-rules/operations.md` 使用 SQLite backup 工具生成一致性备份，并在新目录执行恢复 smoke。必须看到：
 
 ```text
 verified=true
@@ -169,3 +169,9 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\server_release.ps1" `
 | 回滚编号 | `Apply` 输出的 `RollbackId` |
 | 验收 | 网关 health、网页 health、登录、文字、图片 |
 | 未验证项 | 明确记录没有执行的检查 |
+
+## 八、部署面板补丁验收
+
+部署面板服务器测试补丁只允许覆盖 `deployment_panel.py`、`deployment_control\` 和 `启动部署控制面板.bat`，不得包含数据库、图片、上传目录、`chat2api\.env`、`.venv` 或日志。
+
+面板补丁替换后，先验证状态刷新提示、PowerShell 窗口隐藏、项目进程归属和上线结果 PID 展示，再进行公网、更新和回滚人工验收。面板专项测试通过不等于真实公网或 AI 链路已经验收。

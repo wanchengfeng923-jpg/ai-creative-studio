@@ -23,7 +23,7 @@
 
 只执行总纲 Phase 2 叙事类重构，不进入 Phase 3。建立 `NarrativeGeneration` Module 和 `NarrativeResult.v1`；明确注入游戏资料/参考资料；format repair 必须携带校验错误；第二批必须有显式去重上下文；公开 DTO 只消费 canonical narrative contract；prompt、validator、DTO、persistence 必须来自同一 registry 项。保持现有 UI 基本形状、HTTP URL、错误状态码和视觉 production 分支不变；不接入静态 candidate、轮播重构、真实 AI、真实数据库迁移或删除 legacy adapter。
 
-开始前完整阅读 `AGENTS.md`、`progress.md`、`项目代码地图.md`、`docs/operations.md`、`docs/ai-rebuild-master-plan.md`、`CODE_STYLE.md`、`CONTEXT.md`、Phase 1 变更卡和本文件。先建立 `.scratch/ai-phase-2/spec.md`，再从 `create_application()` 用 deterministic fake 写 red tests。至少覆盖 5 个故事、每个 2 个不同钩子、每钩子 3 个场景、游戏资料进入 prompt、第二批去重、错误字段路径、递归私有字段扫描和元数据持久化。质量评测使用固定脱敏集；真实 AI 未授权时明确未验证。
+开始前完整阅读 `AGENTS.md`、`progress.md`、`docs/project-rules/项目代码地图.md`、`docs/project-rules/operations.md`、`docs/ai-rebuild-master-plan.md`、`docs/project-rules/CODE_STYLE.md`、`docs/project-rules/CONTEXT.md`、Phase 1 变更卡和本文件。先建立 `.scratch/ai-phase-2/spec.md`，再从 `create_application()` 用 deterministic fake 写 red tests。至少覆盖 5 个故事、每个 2 个不同钩子、每钩子 3 个场景、游戏资料进入 prompt、第二批去重、错误字段路径、递归私有字段扫描和元数据持久化。质量评测使用固定脱敏集；真实 AI 未授权时明确未验证。
 
 ## Phase 2 门禁
 

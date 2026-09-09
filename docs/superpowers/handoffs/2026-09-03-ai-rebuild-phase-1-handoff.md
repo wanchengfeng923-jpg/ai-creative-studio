@@ -35,11 +35,11 @@ git log -3 --oneline
 
 1. `D:\code\ai_creative_studio\AGENTS.md`
 2. `D:\code\ai_creative_studio\progress.md`
-3. `D:\code\ai_creative_studio\项目代码地图.md`
-4. `D:\code\ai_creative_studio\docs\operations.md`
+3. `D:\code\ai_creative_studio\docs\project-rules\项目代码地图.md`
+4. `D:\code\ai_creative_studio\docs\project-rules\operations.md`
 5. `D:\code\ai_creative_studio\docs\ai-rebuild-master-plan.md`
-6. `D:\code\ai_creative_studio\CODE_STYLE.md`
-7. `D:\code\ai_creative_studio\CONTEXT.md`
+6. `D:\code\ai_creative_studio\docs\project-rules\CODE_STYLE.md`
+7. `D:\code\ai_creative_studio\docs\project-rules\CONTEXT.md`
 8. `D:\code\ai_creative_studio\.scratch\ai-phase-0\spec.md`
 9. `D:\code\ai_creative_studio\docs\adr\0001-public-result-projection.md`
 10. `D:\code\ai_creative_studio\docs\ai\README.md`
@@ -214,8 +214,8 @@ harness 必须证明 production caller 选择的 PromptSpec、compiler、validat
 
 - `.scratch/ai-phase-1/spec.md` 的状态与完成证据；
 - `docs/ai-rebuild-master-plan.md` 中仅与新事实直接相关的矩阵/允许文件；
-- `项目代码地图.md` 中 registry、contract、port 和 harness 的真实位置；
-- `docs/operations.md` 中启动校验和加法迁移边界；
+- `docs/project-rules/项目代码地图.md` 中 registry、contract、port 和 harness 的真实位置；
+- `docs/project-rules/operations.md` 中启动校验和加法迁移边界；
 - `progress.md` 顶部 Phase 1 记录；
 - `CHANGELOG.md` 仅在确有用户可见变化时更新。
 
@@ -237,7 +237,7 @@ harness 必须证明 production caller 选择的 PromptSpec、compiler、validat
 10. retired/legacy 项具有 `deprecated_since`、replacement、允许读取场景、禁止新调用和删除条件。
 11. 现有 UI、HTTP URL、公开 DTO 形状和错误 envelope 没有被破坏。
 12. 所有确定性测试、语法/编译检查和 `git diff --check` 通过。
-13. 至少执行一次独立的双轴只读 review：规格轴对照 Phase 1 变更卡和总纲，规范轴对照 `AGENTS.md`/`CODE_STYLE.md`；所有 Critical/Important 必须修复并重新验证，最终保留 review 结论。
+13. 至少执行一次独立的双轴只读 review：规格轴对照 Phase 1 变更卡和总纲，规范轴对照 `AGENTS.md`/`docs/project-rules/CODE_STYLE.md`；所有 Critical/Important 必须修复并重新验证，最终保留 review 结论。
 14. `progress.md`、代码地图、运维手册、总纲和 Phase 1 变更卡已同步当前事实。
 15. 真实 AI、图片网关、浏览器和真实数据库写入均明确记录为已验证或未验证，不能含糊推断。
 

@@ -24,7 +24,7 @@
 
 ### 2. 备份恢复完整性
 
-文件：`src/creative_studio/backup.py`、`tests/test_backup.py`、`docs/operations.md`、`docs/release/runbook.md`
+文件：`src/creative_studio/backup.py`、`tests/test_backup.py`、`docs/project-rules/operations.md`、`docs/release/runbook.md`
 
 - manifest 在恢复前检查相对路径、禁止 `..`、重复路径、非负整数大小和 64 位小写 SHA-256。
 - 恢复写入目标同级 staging 目录；manifest/hash/SQLite/引用检查任一失败都会清理 staging，不留下半成品目标。

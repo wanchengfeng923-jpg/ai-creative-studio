@@ -109,8 +109,8 @@
 
 **Files:**
 - Modify: `progress.md`
-- Modify: `项目代码地图.md`
-- Modify: `docs/operations.md`
+- Modify: `docs/project-rules/项目代码地图.md`
+- Modify: `docs/project-rules/operations.md`
 - Modify: `CHANGELOG.md` if user-visible polling behavior is recorded there
 
 - [x] Document Operation lifecycle, lease recovery, public fields, endpoint behavior and rollback.

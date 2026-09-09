@@ -1,17 +1,16 @@
 # 运维手册
 
+本手册只负责本机启动、数据位置、备份恢复、故障处理和运行验证。规则与高风险授权看 [`AGENTS.md`](../../AGENTS.md)，当前 registry/hash、审批和部署事实看 [`docs/current-state.md`](../current-state.md)，代码入口看 [`项目代码地图.md`](项目代码地图.md)。本手册不单独授权 live、生产发布或服务器写入。
+
 ## 当前边界
 
-当前默认只允许本机访问：网页服务监听 `127.0.0.1:8775`，AI 网关监听 `127.0.0.1:8780`。网页已有登录和项目归属控制，备份工具和临时恢复演练已具备，但仍不具备正式多人部署所需的自动调度、外部限流和公网安全能力。此前的局域网共享已撤回；再次开放局域网或公网必须单独走高风险变更卡，不得只修改监听地址。
+当前默认只允许本机访问：网页服务监听 `127.0.0.1:8775`，AI 网关监听 `127.0.0.1:8780`。网页已有登录和项目归属控制，备份工具和临时恢复演练已具备，但仍不具备正式多人部署所需的自动调度、外部限流和公网安全能力。此前的局域网共享已撤回；再次开放局域网或公网必须另开高风险变更卡，同时完成认证、HTTPS、限流、防火墙和回滚评审，不得只修改监听地址。
 
-网页默认只绑定 `127.0.0.1`。如需局域网或公网访问，必须另开高风险变更卡并同时完成认证、HTTPS、限流、防火墙和回滚评审；不得只修改监听地址。
+服务器公网日常操作统一使用 `启动部署控制面板.bat`：打开现有启动器、启动前检测、上线公网、上线后检测和全部下线。面板关闭窗口不会自动下线，Windows 重启后也不会自动恢复公网；只有“全部下线”会同时关闭 `8775`、`8780`、`7896`、启动器并撤销固定 8775 防火墙规则。
 
 ## 启动
 
-AI v2 Prompt registry 位于 `config/ai_v2/prompts/registry.json`。当前三份 Prompt 均为
-`candidate` 且 `caller=null`；网页组合根在未显式注入测试模型且未启用 live 时 fail-closed，
-返回 `ai_not_enabled`，不会把 deterministic candidate text/image 当作正式结果。只有经过独立审批并显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1`，
-才会通过保留的 `chat2api` 构造文字和图片 adapter。
+启动前先看 [`docs/current-state.md`](../current-state.md) 的 registry/runtime 状态；该索引维护 Prompt lifecycle、hash、审批和可加载性，本手册不复制这些动态事实。若索引显示 registry 未加载或审批/验证未完成，不得把启动器点击当作生产就绪。网页组合根在未显式注入测试模型且未启用 live 时 fail-closed，返回 `ai_not_enabled`。
 1. 确认 `chat2api/.env` 存在，并且令牌仍有效。
 2. 双击 `启动AI创意工作台.bat`，等待启动控制台出现。
 3. 在“登录配置”中填写 Access Token 或 Session Cookie，点击“保存配置”；代理配置请使用独立的“网络代理工作台”。
@@ -110,7 +109,7 @@ session，轮播同一方案的全部帧复用该 session。图片重试必须�
 
 ## AI v2 验证
 
-代码或 Prompt 变化后运行：
+代码、Prompt、schema、registry 或运行配置变化后运行；只修改文档时使用文档链接和 `git diff --check` 检查，不必执行本节全量命令：
 
 ```powershell
 $env:PYTHONPATH = "D:\code\ai_creative_studio\src"
@@ -125,6 +124,7 @@ git diff --check
 
 release gate 的 deterministic 结果只证明 contract、schema、隐私和调用预算边界；真实模型
 质量与供应商稳定性仍需单独审批和受控评测。
+
 ## 故障处理
 
 ### 账号初始化与会话
@@ -155,7 +155,7 @@ release gate 的 deterministic 结果只证明 contract、schema、隐私和调�
 
 ## 升级门禁
 
-涉及数据库、端口、令牌、多人访问、自动启动、HTTPS、内网或公网时，先写变更卡，确认备份和回滚，再执行。当前文档不授权任何生产或服务器写入动作。
+涉及数据库、端口、令牌、多人访问、自动启动、HTTPS、内网或公网时，先按 [`AGENTS.md`](../../AGENTS.md) 写变更卡，确认备份和回滚，再执行。当前文档不授权任何生产或服务器写入动作。
 
 ## 临时内网撤回
 

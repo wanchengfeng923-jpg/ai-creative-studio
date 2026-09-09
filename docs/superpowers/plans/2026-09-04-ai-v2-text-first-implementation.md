@@ -899,8 +899,8 @@ v2 页面只显示 v2 adoption；不把新旧采用结果合并成一个列表�
 
 **Files:**
 - Modify: `docs/ai-rebuild-master-plan.md`
-- Modify: `docs/operations.md`
-- Modify: `项目代码地图.md`
+- Modify: `docs/project-rules/operations.md`
+- Modify: `docs/project-rules/项目代码地图.md`
 - Modify: `progress.md`
 - Create: `docs/superpowers/handoffs/2026-09-04-ai-v2-release.md`
 

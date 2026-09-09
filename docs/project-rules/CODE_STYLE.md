@@ -1,10 +1,10 @@
 # 代码规范
 
-本文档约束 `D:\code\ai_creative_studio` 中新增和修改的代码。目标是让正式应用保持可读、可测试和容易回滚，同时避免把隔离原型的技术选择误带入生产入口。
+本文档约束 `D:\code\ai_creative_studio` 中新增和修改的代码。目标是让正式应用保持可读、可测试和容易回滚，同时避免把隔离原型的技术选择误带入生产入口。它只维护代码边界、命名、实现风格和与代码风险相称的检查，不维护当前版本、审批、部署状态或审计台账。
 
 规则中的“必须”用于代码审查门禁；“建议”允许在变更卡中说明理由后调整。已有代码不要求一次性格式化，修改旧文件时只整理本次触及的局部，避免产生与业务无关的大面积差异。
 
-变更卡使用 [`docs/变更卡模板.md`](docs/变更卡模板.md)，保存在 `.scratch/<feature-slug>/spec.md`。涉及 `AGENTS.md` 高风险门禁的变更，必须取得用户明确确认；其他变更由维护者在卡中完成范围、验收和回滚自检。
+变更卡使用 [`docs/变更卡模板.md`](../变更卡模板.md)，保存在 `.scratch/<feature-slug>/spec.md`。高风险确认、任务阅读入口和收尾记录由 [`AGENTS.md`](../../AGENTS.md) 维护；本文件只规定代码变更需要满足的技术约束。当前版本和运行边界以 [`docs/current-state.md`](../current-state.md) 为准。
 
 ## 1. 技术栈与边界
 
@@ -241,7 +241,7 @@ def reserve_generation(project_id: int, kind: str) -> dict[str, object]:
 - AI 结构/提示词：固定脱敏样例和结构校验；未发真实请求时明确标记“未验证”。
 - 前端：关键步骤、项目抽屉、真实历史、控制台错误、键盘操作和响应式溢出。
 
-当前最小检查：
+代码修改的最小检查（按影响范围选择；纯文档/规则修改不因本文件自动触发全量代码测试）：
 
 ```powershell
 $env:PYTHONPATH = "D:\code\ai_creative_studio\src"
@@ -250,6 +250,8 @@ node --check static\app.js
 python -m compileall -q src chat2api
 git diff --check
 ```
+
+只修改规则或文档时，至少检查限定路径的 Markdown 链接、关键事实引用和 `git diff --check`；若同时改变代码、Prompt、schema、registry 或运行配置，按上表补齐对应的定向测试和门禁。
 
 修改 `frontend/` 时另执行：
 
@@ -272,4 +274,4 @@ npm run build
 - [ ] API/数据库/生成结构变化有兼容、测试和回滚方案。
 - [ ] 没有提交 `.env`、令牌、Cookie、运行数据库、生成图片或真实上传；确需提交的最小测试夹具已脱敏、用途明确并经过审查。
 - [ ] 已执行影响范围内的检查，并如实记录未验证项。
-- [ ] 用户可见行为变化已更新 `CHANGELOG.md`；任务收尾已更新 `progress.md`。
+- [ ] 用户可见行为变化已更新 `CHANGELOG.md`；任务范围、未验证项和交接记录按 [`AGENTS.md`](../../AGENTS.md) 的任务规则保存。

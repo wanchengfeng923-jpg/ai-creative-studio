@@ -24,7 +24,7 @@
 1. 检查本次真实 run/image 的公开历史和图片状态，记录调用数、耗时、错误码和 trace id；确认无私有字段泄露。
 2. 启动完整应用后使用浏览器检查根页面 `1280x720` 和 `390x844`：步骤流、项目抽屉、真实历史、控制台错误、横向溢出。
 3. 验证关闭 live 后重启返回 `ai_not_enabled`，且不会生成 candidate 假结果。
-4. 将本次成功 smoke、UI 检查和回滚证据更新到本 handoff、`progress.md`，必要时同步 `docs/operations.md`。
+4. 将本次成功 smoke、UI 检查和回滚证据更新到本 handoff、`progress.md`，必要时同步 `docs/project-rules/operations.md`。
 5. 最终检查 `git status --short --branch`，保留所有用户既有未提交修改；不要提交工作树，除非用户另行要求。
 
 ## 2026-09-06 后续复核记录

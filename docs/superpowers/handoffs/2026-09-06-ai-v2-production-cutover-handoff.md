@@ -1,5 +1,7 @@
 # AI v2 正式切换前交接
 
+> 历史切换快照：本文保留 2026-09-06 的 production/cutover 记录，不能单独证明当前 registry 可加载、服务器已切换或正式发布已获授权。先读取 [`docs/current-state.md`](../../current-state.md) 并按当前 ref 重新验证。
+
 日期：2026-09-06
 
 ## 当前结论

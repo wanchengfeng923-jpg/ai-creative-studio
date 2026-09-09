@@ -1,7 +1,7 @@
 # AI v2 正式版接入交接
 
 > 交给下一执行会话的工作文档。本文定义从 candidate 模式进入正式 AI 接入的执行顺序，
-> 不代替 `AGENTS.md`、`docs/operations.md`、ADR 或后续实施计划。
+> 不代替 `AGENTS.md`、`docs/project-rules/operations.md`、ADR 或后续实施计划。
 
 ## 先看结论
 
@@ -50,9 +50,9 @@
 
 1. `AGENTS.md`
 2. `progress.md`
-3. `项目代码地图.md`
-4. `docs/operations.md`
-5. `CODE_STYLE.md`
+3. `docs/project-rules/项目代码地图.md`
+4. `docs/project-rules/operations.md`
+5. `docs/project-rules/CODE_STYLE.md`
 6. `docs/ai/README.md`
 7. `docs/ai/ai-v2-prompt-approval.md`
 8. `docs/ai/quality-evaluation.md`

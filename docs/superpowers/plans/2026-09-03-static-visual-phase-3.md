@@ -157,8 +157,8 @@
 
 **Files:**
 - Modify: `progress.md`
-- Modify: `项目代码地图.md`
-- Modify: `docs/operations.md`
+- Modify: `docs/project-rules/项目代码地图.md`
+- Modify: `docs/project-rules/operations.md`
 - Create: `docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md`
 
 **Interfaces:**
@@ -171,7 +171,7 @@
 
 - [ ] **Step 2: Run test to verify it fails**
 
-  Run: `rg -n "static-v1|StaticVisualGeneration|complete_static_generation|Phase 4" progress.md 项目代码地图.md docs/operations.md`
+  Run: `rg -n "static-v1|StaticVisualGeneration|complete_static_generation|Phase 4" progress.md docs/project-rules/项目代码地图.md docs/project-rules/operations.md`
   Expected: current docs do not contain final implementation evidence.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -184,4 +184,4 @@
 
 - [ ] **Step 5: Commit**
 
-  `git add progress.md 项目代码地图.md docs/operations.md docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md; git commit -m "docs: hand off AI rebuild phase 4"`
+  `git add progress.md docs/project-rules/项目代码地图.md docs/project-rules/operations.md docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-4-handoff.md; git commit -m "docs: hand off AI rebuild phase 4"`

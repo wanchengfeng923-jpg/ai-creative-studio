@@ -5,6 +5,8 @@
 > 适用对象：负责本项目 AI 能力、提示词、网关、图片任务、前端结果和测试的后续 Agent 及维护者
 > Supersedes：`docs/superpowers/specs/2026-09-01-ai-generation-architecture-design.md` 和 `docs/superpowers/specs/2026-09-02-display-frame-flow-design.md` 中与本文“当前真实事实”和“目标决策”冲突的段落；旧文档保留为历史背景，不再作为实施依据。
 
+> 当前状态提示：本文是 AI 重构事实/目标/门禁的实施基线；测试数量、registry 可加载性、审批和部署状态按当前仓库实际证据读取 [`docs/current-state.md`](current-state.md)，不能仅凭本文历史段落或阶段完成描述判定当前通过。
+
 本文严格区分两类内容：第 1、2 节是已由代码/配置/测试证据确认的当前事实和问题；第 3 至第 10 节是本次批准的重构目标、接口和迁移门禁。特别地，“一次共享 planner + 图片直出”的轮播 v1 是批准的目标决策，不是对当前所有实现细节的宣称；当前代码与提示词之间的首帧会话漂移必须按 Phase 3/4 收口。独立文字首帧会话只作为未来 v2 `GenerationPolicy` 的评测候选。
 
 ## 0. 先读这里：执行协议
@@ -13,10 +15,10 @@
 
 1. `AGENTS.md`
 2. `progress.md`（只用于了解历史，不作为当前事实）
-3. `项目代码地图.md`
-4. `docs/operations.md`
+3. `docs/project-rules/项目代码地图.md`
+4. `docs/project-rules/operations.md`
 5. 本文档
-6. `CODE_STYLE.md`、`CONTEXT.md`，以及本次涉及目录中的 ADR
+6. `docs/project-rules/CODE_STYLE.md`、`docs/project-rules/CONTEXT.md`，以及本次涉及目录中的 ADR
 
 然后必须完成一次“事实确认”：从 `src/creative_studio/app.py` 的 composition root 追到实际生产调用者，确认当前代码、配置文件、数据库结构和测试是否一致。任何文档与运行代码冲突时，先在变更卡中记录冲突；不得通过新增兼容分支掩盖冲突。
 
@@ -384,13 +386,13 @@ failed -> blocked (达到策略上限)
 
 迁移按“先止血、再立契约、再替换功能、最后清理”执行。每阶段完成前不能进入下一阶段。
 
-每一阶段都必须有开始条件、允许修改的目录、禁止动作、定向命令、验收例子、失败回滚和旧实现删除条件。以下是最低要求。`AGENTS.md`、代码地图、`docs/operations.md` 和本总纲只能在阶段收尾同步当前事实；实现中发现冲突先记录证据，不在多个文档里追加互相矛盾的临时解释。
+每一阶段都必须有开始条件、允许修改的目录、禁止动作、定向命令、验收例子、失败回滚和旧实现删除条件。以下是最低要求。`AGENTS.md`、代码地图、`docs/project-rules/operations.md` 和本总纲只能在阶段收尾同步当前事实；实现中发现冲突先记录证据，不在多个文档里追加互相矛盾的临时解释。
 
 ### Phase 0：冻结事实和安全止血
 
 范围：只修确定的安全/数据边界，不改创意输出目标。
 
-允许修改：`docs/`、`AGENTS.md`、`progress.md`、`CHANGELOG.md`、`项目代码地图.md`、`.scratch/ai-phase-0/spec.md`，以及 `src/creative_studio/` 下与止血边界直接相关的 `app.py`、`repository.py`、`prompting.py`、`image_jobs.py`、`model_client.py`、`ai_creative.py`、`carousel.py`、`generation_models.py`、`generation_service.py`、`public_projection.py`、`projection_scrub.py` 和对应测试。禁止新增 AI 业务字段或改变创意输出目标。
+允许修改：`docs/`、`AGENTS.md`、`progress.md`、`CHANGELOG.md`、`docs/project-rules/项目代码地图.md`、`.scratch/ai-phase-0/spec.md`，以及 `src/creative_studio/` 下与止血边界直接相关的 `app.py`、`repository.py`、`prompting.py`、`image_jobs.py`、`model_client.py`、`ai_creative.py`、`carousel.py`、`generation_models.py`、`generation_service.py`、`public_projection.py`、`projection_scrub.py` 和对应测试。禁止新增 AI 业务字段或改变创意输出目标。
 
 动作：
 
@@ -409,7 +411,7 @@ failed -> blocked (达到策略上限)
 
 范围：先不替换 UI，建立唯一事实和生产契约测试。
 
-开始条件：Phase 0 全部通过。允许修改：`config/`、`.scratch/ai-phase-1/spec.md`、新增 contract/registry/port 模块，以及接入 registry、port、生成元数据和 production contract harness 所必需的 `app.py`、`generation_service.py`、`generation_models.py`、`repository.py`、`model_client.py`、`image_jobs.py`、`ai_creative.py`、`prompting.py` 和对应测试；阶段收尾可同步 `docs/`、`progress.md` 与 `项目代码地图.md`。不修改正式 UI，不切换用户可见生产输出。
+开始条件：Phase 0 全部通过。允许修改：`config/`、`.scratch/ai-phase-1/spec.md`、新增 contract/registry/port 模块，以及接入 registry、port、生成元数据和 production contract harness 所必需的 `app.py`、`generation_service.py`、`generation_models.py`、`repository.py`、`model_client.py`、`image_jobs.py`、`ai_creative.py`、`prompting.py` 和对应测试；阶段收尾可同步 `docs/`、`progress.md` 与 `docs/project-rules/项目代码地图.md`。不修改正式 UI，不切换用户可见生产输出。
 
 动作：
 
@@ -572,8 +574,8 @@ failed -> blocked (达到策略上限)
 
 1. 运行代码和 registry；
 2. 本文档的“当前真实事实”和已批准 ADR；
-3. `CODE_STYLE.md` 与 `AGENTS.md` 的工程规则；
-4. `docs/operations.md` 的可执行运维步骤；
+3. `docs/project-rules/CODE_STYLE.md` 与 `AGENTS.md` 的工程规则；
+4. `docs/project-rules/operations.md` 的可执行运维步骤；
 5. `progress.md`、`CHANGELOG.md` 的历史记录。
 
 若前两级冲突，停止实现并记录冲突；若历史文档与当前代码冲突，更新历史文档的指针或标记，不新增解释性兼容代码。

@@ -1,13 +1,13 @@
 # AI 文档入口
 
-当前 AI 业务实现只保留 `creative_studio.ai_v2`。后续处理 Prompt、模型调用、图片任务、历史、公开 DTO 或相关测试时，以 `项目代码地图.md`、`operations.md`、AI v2 ADR 和当前代码为事实来源；旧重建总纲保留为迁移审计记录，不再作为待执行队列。
+当前 AI 业务实现只保留 `creative_studio.ai_v2`。后续处理 Prompt、模型调用、图片任务、历史、公开 DTO 或相关测试时，以 `../project-rules/项目代码地图.md`、`../project-rules/operations.md`、AI v2 ADR 和当前代码为事实来源；旧重建总纲保留为迁移审计记录，不再作为待执行队列。
 
 ## 文档职责
 
 - `../ai-rebuild-master-plan.md`：旧 AI 到 AI v2 的历史迁移总纲和决策记录。
 - `../../AGENTS.md`：项目级安全边界、工作方式、验证和高风险操作门禁。
-- `../../项目代码地图.md`：当前代码入口、生产调用链、API、数据表和修改导航。
-- `../operations.md`：启动、停止、备份、恢复和故障处置步骤。
+- `../project-rules/项目代码地图.md`：当前代码入口、生产调用链、API、数据表和修改导航。
+- `../project-rules/operations.md`：启动、停止、备份、恢复和故障处置步骤。
 - `../../progress.md`：按日期追加的历史记录，不覆盖、不作为当前架构事实。
 - [`quality-evaluation.md`](quality-evaluation.md)：固定脱敏评测集、当前 deterministic 证据和真实质量评测边界。
 - [`ai-v2-prompt-approval.md`](ai-v2-prompt-approval.md)：AI v2 候选 Prompt、registry hash、contract 证据和审批边界。

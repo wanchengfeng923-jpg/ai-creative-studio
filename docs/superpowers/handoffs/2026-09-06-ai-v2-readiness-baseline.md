@@ -1,5 +1,7 @@
 # AI v2 接手核验与 readiness gate 设计输入
 
+> 历史核验提示：本文基于 `1bb6dd1` 的 2026-09-06 快照，保留设计输入和当时的 candidate 状态。先读取 [`docs/current-state.md`](../../current-state.md)；不要把本文件的 gate 结果或审批段落直接当作当前可加载/可发布结论。
+
 - 日期：2026-09-06
 - 范围：交接读取、离线基线、审批状态与门禁设计；本轮未实现新 gate。
 - 分支：`codex/tag-accordion-prototype`

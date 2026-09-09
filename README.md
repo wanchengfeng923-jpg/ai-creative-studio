@@ -33,26 +33,34 @@
 - AI 网关配置：`chat2api/.env`
 - 标签配置：`config/creative_tag_options.json`（由叙事类和展示类标签表整理，运行时只读）
 
-备份与恢复使用 `python -m creative_studio.backup --dry-run --output .scratch/backup-smoke` 做只读检查；正式备份和恢复步骤见 [`docs/operations.md`](docs/operations.md)，AI v2 门禁使用 `python -m creative_studio.ai_v2.release_gate`。
+备份与恢复使用 `python -m creative_studio.backup --dry-run --output .scratch/backup-smoke` 做只读检查；正式备份和恢复步骤见 [`docs/project-rules/operations.md`](docs/project-rules/operations.md)，AI v2 门禁使用 `python -m creative_studio.ai_v2.release_gate`。
 
 这些运行数据和敏感配置均被 Git 忽略。当前 `.env` 是从本机原项目复制的配置，仅用于让这台电脑直接启动；不会进入提交。
 
 ## 开发验证
 
-开始修改代码前先阅读根目录的 [`CODE_STYLE.md`](CODE_STYLE.md)。它记录正式原生前端、Python 后端和隔离 React 原型各自适用的技术栈与编码约定。
+开始修改代码前先阅读 [`docs/project-rules/CODE_STYLE.md`](docs/project-rules/CODE_STYLE.md)。它记录正式原生前端、Python 后端和隔离 React 原型各自适用的技术栈与编码约定。
 
 ```powershell
 $env:PYTHONPATH = "D:\code\ai_creative_studio\src"
 python -m unittest discover -s tests -v
 node --check static\app.js
 python -m compileall -q src chat2api
+git diff --check
 ```
 
 ## 当前技术边界
 
 正式生成链路只保留 `creative_studio.ai_v2`。默认组合根使用 deterministic candidate models；只有显式设置 `CREATIVE_STUDIO_AI_V2_LIVE=1` 才连接本项目 `chat2api` 网关。旧 AI 模块、Prompt、评测资产和新库建表逻辑已经删除，已有数据库中的旧表与记录不会被清理或迁移。
 
-AI 能力的生产链路、问题台账和重构实施顺序以 [`docs/ai-rebuild-master-plan.md`](docs/ai-rebuild-master-plan.md) 为准；`progress.md` 是历史时间线，不替代当前事实文档。
+AI 能力的生产链路、问题台账和重构实施顺序以 [`docs/ai-rebuild-master-plan.md`](docs/ai-rebuild-master-plan.md) 为准；当前版本、registry 可加载性和部署/审批状态以 [`docs/current-state.md`](docs/current-state.md) 为准；`progress.md` 是历史时间线，不替代当前事实文档。
+
+## 阅读入口
+
+- 当前版本、registry/hash、部署/审批边界：先看 [`docs/current-state.md`](docs/current-state.md)。
+- 修改规则、代码或 AI 用例：先看 [`AGENTS.md`](AGENTS.md)，再按其中的任务路由读取 [`docs/project-rules/CODE_STYLE.md`](docs/project-rules/CODE_STYLE.md)、代码地图或 AI v2 资料。
+- 启动、数据、备份和故障处理：看 [`docs/project-rules/operations.md`](docs/project-rules/operations.md)；部署动作再看对应的 [`docs/deployment/`](docs/deployment/) 记录。
+- 历史时间线和旧决策：按需看 [`progress.md`](progress.md)、ADR、handoff 或审计报告；这些资料不替代当前事实，也不自动构成批准或通过证据。
 
 ## 账号登录
 

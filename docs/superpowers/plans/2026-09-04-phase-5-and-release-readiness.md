@@ -51,7 +51,7 @@
 
 ## 任务 6：备份、恢复和 scrub 临时演练
 
-- **文件**：`src/creative_studio/backup.py`（create/restore CLI）、测试、`docs/operations.md`。
+- **文件**：`src/creative_studio/backup.py`（create/restore CLI）、测试、`docs/project-rules/operations.md`。
 - **先测**：manifest/hash、SQLite backup、图片/上传归档、恢复到新目录、坏 manifest 拒绝。
 - **实现**：dry-run 默认；显式输出目录；不允许目标为默认运行库；保留策略可配置。
 - **验收**：临时副本 backup -> restore -> read smoke -> projection scrub fixed point。

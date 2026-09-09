@@ -16,18 +16,18 @@
 
 1. `AGENTS.md`
 2. `progress.md`
-3. `项目代码地图.md`
-4. `docs/operations.md`
+3. `docs/project-rules/项目代码地图.md`
+4. `docs/project-rules/operations.md`
 5. `docs/superpowers/handoffs/2026-09-03-ai-rebuild-phase-2-handoff.md`
 6. `docs/ai-rebuild-master-plan.md`
-7. `CODE_STYLE.md`、`CONTEXT.md`
+7. `docs/project-rules/CODE_STYLE.md`、`docs/project-rules/CONTEXT.md`
 8. `docs/superpowers/specs/2026-09-01-ai-generation-architecture-design.md`
 9. `docs/superpowers/specs/2026-09-02-display-frame-flow-design.md`
 10. `docs/research/2026-09-02-creative-prompt-engineering-research.md`
 11. `docs/adr/0001-public-result-projection.md`
 12. 本文及本次涉及目录中的测试、`.scratch` 变更卡和提示词文件
 
-事实优先级为：运行代码和 registry、本文及已批准 ADR、`AGENTS.md`/`CODE_STYLE.md`、运维手册、历史进度记录。若历史文档与代码不一致，以代码和 registry 为准，并在 `.scratch/ai-phase-3/spec.md` 的“当前事实冲突”小节记录，不用新增兼容分支遮盖冲突。
+事实优先级为：运行代码和 registry、本文及已批准 ADR、`AGENTS.md`/`docs/project-rules/CODE_STYLE.md`、运维手册、历史进度记录。若历史文档与代码不一致，以代码和 registry 为准，并在 `.scratch/ai-phase-3/spec.md` 的“当前事实冲突”小节记录，不用新增兼容分支遮盖冲突。
 
 ## 2. 祖先和工作树门禁
 
@@ -482,7 +482,7 @@ HTTP 兼容：输入错误沿用 422，资源不存在沿用 404，状态冲突�
 5. 实现 canonical persistence mapper 和 `StaticVisualPublicDTO.v1`；停止新写旧 alias，保留明确的历史读取兼容。
 6. 接入图片 Port 的首图请求和状态测试；不改变轮播逐帧代码。
 7. 用固定评估集完成离线硬约束/质量检查，更新 registry hash 和相关文档事实。
-8. 更新 `progress.md`、代码地图、`docs/operations.md`；只有用户可见字段真正变更时才更新 `CHANGELOG.md`。
+8. 更新 `progress.md`、代码地图、`docs/project-rules/operations.md`；只有用户可见字段真正变更时才更新 `CHANGELOG.md`。
 9. 运行定向测试、全量测试、前端语法、Python 编译和 diff 检查。
 10. 将实现、测试、配置和变更卡按一个业务切片提交；随后另建 docs-only 的 Phase 4 交接文档，并在提交前后核对 `launcher.py` 未被暂存。
 

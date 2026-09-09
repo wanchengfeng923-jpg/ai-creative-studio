@@ -108,7 +108,7 @@ HTTP -> StudioApplication -> CreativeGenerationService
 
 - `docs/release/` 发布 runbook、回滚 runbook、变更卡和验收记录模板。
 - CI/local gate：全量 unittest、Node syntax、compileall、diff check、registry audit、evaluation schema、backup smoke。
-- `README.md`、`项目代码地图.md`、`docs/operations.md`、`progress.md` 只引用当前事实；历史内容转为链接。
+- `README.md`、`docs/project-rules/项目代码地图.md`、`docs/project-rules/operations.md`、`progress.md` 只引用当前事实；历史内容转为链接。
 - 发布步骤明确 additive migration、切读/停旧写、观察周期、失败分类、回滚点和数据不可覆盖边界。
 
 **门禁**：文档互相不矛盾；所有检查命令可在干净临时环境复现；未验证的真实外部能力明确列出。

@@ -4,7 +4,7 @@
 
 ## 交接目的
 
-本文档用于下一次对话直接接手仓库。当前工作重点是 AI v2 正式入口、启动器/代理桥、旧 v1 清理和真实 smoke 结果。除本文档外，先读 `AGENTS.md`、`progress.md`、`项目代码地图.md`、`docs/operations.md` 和 `docs/ai-rebuild-master-plan.md`。
+本文档用于下一次对话直接接手仓库。当前工作重点是 AI v2 正式入口、启动器/代理桥、旧 v1 清理和真实 smoke 结果。除本文档外，先读 `AGENTS.md`、`progress.md`、`docs/project-rules/项目代码地图.md`、`docs/project-rules/operations.md` 和 `docs/ai-rebuild-master-plan.md`。
 
 ## 仓库与工作树
 

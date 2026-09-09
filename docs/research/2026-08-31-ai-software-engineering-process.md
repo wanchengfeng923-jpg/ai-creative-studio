@@ -129,7 +129,7 @@ Anthropic 的 agent 工程总结建议先采用最简单的提示词链或工作
 
 ## 9. 文档和日常节奏
 
-- 仓库最少维护四份短文档：`README.md`（安装/启动/边界）、`docs/research/`（依据）、`CHANGELOG.md`（发布记录）、`docs/operations.md`（备份/回滚/故障处理）。提示词和评估样例也要有版本号。
+- 仓库最少维护四份短文档：`README.md`（安装/启动/边界）、`docs/research/`（依据）、`CHANGELOG.md`（发布记录）、`docs/project-rules/operations.md`（备份/回滚/故障处理）。提示词和评估样例也要有版本号。
 - 每次变更卡关闭前补三行记录：做了什么、测试/评估结果、遗留风险。文档与代码同分支提交，避免“代码已变、说明未变”。
 - 每日 10 分钟：看失败/超时/磁盘和未处理评估；每周 30 分钟：回顾 DORA 四项趋势、依赖更新、备份恢复抽检和新失败样例；每月一次：轮换令牌、检查监听地址和清理过期数据。DORA 建议用持续改进和小批量交付降低风险（[DORA capabilities](https://dora.dev/capabilities/)）。
 

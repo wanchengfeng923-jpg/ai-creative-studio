@@ -12,8 +12,8 @@
 
 1. `D:/code/ai_creative_studio/AGENTS.md`
 2. `D:/code/ai_creative_studio/progress.md`
-3. `D:/code/ai_creative_studio/项目代码地图.md`
-4. `D:/code/ai_creative_studio/docs/operations.md`
+3. `D:/code/ai_creative_studio/docs/project-rules/项目代码地图.md`
+4. `D:/code/ai_creative_studio/docs/project-rules/operations.md`
 5. `D:/code/ai_creative_studio/docs/superpowers/specs/2026-09-01-ai-generation-architecture-design.md`
 6. `D:/code/ai_creative_studio/docs/superpowers/specs/2026-09-02-display-frame-flow-design.md`
 7. 与任务相关的 `D:/code/ai_creative_studio/docs/research/` 文档
