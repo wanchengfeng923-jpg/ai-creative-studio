@@ -10,6 +10,9 @@ from deployment_control.health_checker import HealthChecker
 from deployment_control.models import CheckLevel, CheckResult, PortListener, ProcessInfo
 from deployment_control.operation_log import OperationLogger, sanitize_sensitive
 from deployment_control.port_inspector import PortInspector, ProcessOwnership
+from deployment_control.port_inspector import _read_netstat_listeners
+
+from unittest.mock import patch
 
 
 class DeploymentControlCoreTests(unittest.TestCase):
@@ -183,6 +186,10 @@ class DeploymentControlCoreTests(unittest.TestCase):
         )
 
         self.assertFalse(inspector.inspect(8775)[0].is_manageable)
+
+    def test_netstat_timeout_returns_without_blocking_status_refresh(self) -> None:
+        with patch("deployment_control.port_inspector.subprocess.run", side_effect=__import__("subprocess").TimeoutExpired("netstat", 5)):
+            self.assertEqual([], _read_netstat_listeners())
 
     def test_health_checker_checks_local_gateway_and_public_url_with_injected_opener(self) -> None:
         requested: list[str] = []

@@ -270,8 +270,9 @@ class _SystemProcessRunner:
                 text=True,
                 check=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=5,
             )
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             return []
         try:
             payload = json.loads(completed.stdout or "[]")

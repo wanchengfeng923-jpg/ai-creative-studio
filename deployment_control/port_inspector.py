@@ -171,14 +171,18 @@ def _is_within(path: Path | None, root: Path) -> bool:
 
 def _read_netstat_listeners() -> list[PortListener]:
     """Read TCP listeners without adding a dependency on a process library."""
-    completed = subprocess.run(
-        ["netstat", "-ano", "-p", "tcp"],
-        capture_output=True,
-        text=True,
-        check=False,
-        encoding="oem",
-        errors="replace",
-    )
+    try:
+        completed = subprocess.run(
+            ["netstat", "-ano", "-p", "tcp"],
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="oem",
+            errors="replace",
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
     listeners: list[PortListener] = []
     pattern = re.compile(
         r"^\s*TCP\s+(?P<address>[^ ]+):(?P<port>\d+)\s+"
