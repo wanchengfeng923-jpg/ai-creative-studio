@@ -13,7 +13,7 @@ from enum import Enum
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 import tkinter as tk
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from deployment_control.firewall_manager import FirewallManager
 from deployment_control.health_checker import HealthChecker
@@ -345,25 +345,33 @@ class _SystemFirewallRunner:
         from deployment_control.firewall_manager import FirewallRule
 
         command = f"Get-NetFirewallRule -DisplayName '{name}' -ErrorAction SilentlyContinue | Get-NetFirewallPortFilter"
-        completed = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        try:
+            completed = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return []
         if completed.returncode != 0 or not completed.stdout.strip():
             return []
         return [FirewallRule(name, 8775, "TCP", "Inbound", "Allow", True)]
 
     def _run(self, command: str) -> None:
-        subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True,
-            text=True,
-            check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        try:
+            subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return
 
     def create_rule(self, name: str, local_port: int, protocol: str, direction: str, action: str) -> None:
         self._run(f"New-NetFirewallRule -DisplayName '{name}' -Direction {direction} -Protocol {protocol} -LocalPort {local_port} -Action {action} -Profile Any")
@@ -468,7 +476,7 @@ def find_offline_blockers(status: dict[str, Any], *, launcher_open: bool) -> lis
     return blockers
 
 
-def collect_launcher_open(service_manager: Any) -> bool:
+def collect_launcher_open(service_manager: Any, processes: Iterable[Any] | None = None) -> bool:
     """Read launcher ownership at the worker boundary, never from Tk callbacks."""
     launcher_running = getattr(service_manager, "launcher_running", None)
     if callable(launcher_running) and launcher_running():
@@ -476,7 +484,8 @@ def collect_launcher_open(service_manager: Any) -> bool:
     runner = getattr(service_manager, "runner", None)
     if runner is None or not hasattr(runner, "enumerate_processes"):
         return False
-    processes = runner.enumerate_processes()
+    if processes is None:
+        processes = runner.enumerate_processes()
     checker = getattr(service_manager, "is_owned_process", None)
     return bool(callable(checker) and any(checker(process, "launcher") for process in processes))
 
@@ -519,11 +528,13 @@ class DeploymentPanel(tk.Tk):
         self.project_root = Path(root or Path(__file__).resolve().parent)
         self.admin = bool(admin_checker())
         system_runner = _SystemProcessRunner(self.project_root)
+        self._system_runner = system_runner
+        self._process_snapshot: dict[int, Any] = {}
         if port_inspector is None:
             from deployment_control.models import ProcessInfo
 
             def process_provider(pid: int) -> Any:
-                record = next((item for item in system_runner.enumerate_processes() if item.pid == pid), None)
+                record = self._process_snapshot.get(pid)
                 if record is None:
                     return None
                 return ProcessInfo(
@@ -834,6 +845,9 @@ class DeploymentPanel(tk.Tk):
         self._run_background("刷新状态", worker, self._apply_status)
 
     def _collect_status(self) -> dict[str, Any]:
+        runner = getattr(self.service_manager, "runner", self._system_runner)
+        process_snapshot = list(runner.enumerate_processes()) if hasattr(runner, "enumerate_processes") else []
+        self._process_snapshot = {item.pid: item for item in process_snapshot if hasattr(item, "pid")}
         ports: list[Any] = []
         if hasattr(self.port_inspector, "inspect_ports"):
             grouped = self.port_inspector.inspect_ports(MANAGED_PORTS)
@@ -847,7 +861,7 @@ class DeploymentPanel(tk.Tk):
                     ports.extend(self.port_inspector.inspect_port(port))
         return {
             "ports": ports,
-            "launcher_open": collect_launcher_open(self.service_manager),
+            "launcher_open": collect_launcher_open(self.service_manager, process_snapshot),
             "firewall": self.firewall_manager.inspect() if hasattr(self.firewall_manager, "inspect") else None,
         }
 

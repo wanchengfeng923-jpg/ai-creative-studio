@@ -31,6 +31,15 @@ class DeploymentPanelStateTests(unittest.TestCase):
         self.assertIn("-NonInteractive", command)
         self.assertEqual(getattr(__import__('subprocess'), "CREATE_NO_WINDOW", 0), kwargs["creationflags"])
 
+    def test_firewall_status_query_is_bounded(self):
+        with patch(
+            "deployment_panel.subprocess.run",
+            side_effect=__import__("subprocess").TimeoutExpired("powershell.exe", 5),
+        ) as run:
+            self.assertEqual([], deployment_panel._SystemFirewallRunner().inspect_rule("rule"))
+
+        self.assertEqual(5, run.call_args.kwargs["timeout"])
+
     def test_each_control_action_has_technical_details(self):
         expected = {
             "open_launcher",
@@ -193,16 +202,18 @@ class DeploymentPanelStateTests(unittest.TestCase):
 
     def test_launcher_state_is_collected_before_ui_callback(self):
         process = type("Process", (), {"pid": 10})()
+        calls = []
         manager = type(
             "Manager",
             (),
             {
                 "launcher_running": lambda _self: False,
-                "runner": type("Runner", (), {"enumerate_processes": lambda _self: [process]})(),
+                "runner": type("Runner", (), {"enumerate_processes": lambda _self: calls.append(True) or []})(),
                 "is_owned_process": lambda _self, item, role: item is process and role == "launcher",
             },
         )()
-        self.assertTrue(collect_launcher_open(manager))
+        self.assertTrue(collect_launcher_open(manager, processes=[process]))
+        self.assertEqual([], calls)
 
     def test_offline_verification_blocks_enabled_public_firewall_rule(self):
         rule = type("Rule", (), {"enabled": True})()
