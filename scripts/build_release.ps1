@@ -64,7 +64,7 @@ $releasePaths = @(
     "tests",
     "scripts/code_inventory.ps1",
     "scripts/server_release.ps1",
-    "docs/operations.md",
+    "docs/project-rules/operations.md",
     "docs/deployment/public-startup-guide.md",
     "docs/deployment/release-workflow.md"
 )
