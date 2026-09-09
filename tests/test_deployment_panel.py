@@ -2,14 +2,43 @@ import unittest
 from pathlib import Path
 
 from deployment_panel import (
+    ACTION_DETAILS,
     PanelState,
     determine_panel_state,
+    get_action_details,
     public_action_allowed,
     sanitize_status_message,
 )
 
 
 class DeploymentPanelStateTests(unittest.TestCase):
+    def test_each_control_action_has_technical_details(self):
+        expected = {
+            "open_launcher",
+            "refresh_status",
+            "preflight",
+            "public",
+            "postflight",
+            "open_workbench",
+            "offline",
+        }
+        self.assertEqual(set(ACTION_DETAILS), expected)
+        required = {"title", "purpose", "preconditions", "steps", "ports", "failure", "rollback"}
+        for action_id in expected:
+            details = get_action_details(action_id)
+            self.assertTrue(required.issubset(details))
+            self.assertTrue(details["purpose"])
+            for field in ("preconditions", "steps", "ports", "failure"):
+                self.assertIsInstance(details[field], tuple)
+                self.assertTrue(details[field])
+            self.assertTrue(details["rollback"])
+
+    def test_action_details_are_unknown_action_safe_and_do_not_expose_secrets(self):
+        self.assertIsNone(get_action_details("missing"))
+        text = repr(ACTION_DETAILS)
+        for secret in ("token=", "cookie=", "password=", "Bearer ", "user:pass@"):
+            self.assertNotIn(secret, text)
+
     def test_admin_batch_passes_script_path_without_nested_quotes(self):
         batch_path = Path(__file__).resolve().parents[1] / "启动部署控制面板.bat"
         raw = batch_path.read_bytes()

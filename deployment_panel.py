@@ -11,7 +11,7 @@ import threading
 import webbrowser
 from enum import Enum
 from pathlib import Path
-from tkinter import messagebox, filedialog, ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 import tkinter as tk
 from typing import Any, Callable
 
@@ -26,6 +26,177 @@ from deployment_control.service_manager import ServiceManager
 PUBLIC_URL = "http://42.194.220.18:8775/"
 LOCAL_URL = "http://127.0.0.1:8775/"
 MANAGED_PORTS = (7896, 8775, 8780)
+
+
+# Static operator guidance only. It deliberately describes boundaries and
+# recovery actions without embedding credentials, cookies, or request data.
+ACTION_DETAILS: dict[str, dict[str, object]] = {
+    "open_launcher": {
+        "title": "打开启动器",
+        "purpose": "打开现有启动器，让操作员在原有入口中启动本项目服务；面板本身不替代或改写启动器。",
+        "preconditions": (
+            "已使用管理员权限启动控制面板（普通权限只能查看）。",
+            "项目目录和启动器文件仍位于当前安装目录。",
+            "确认不是在处理另一套项目实例。",
+        ),
+        "steps": (
+            "检查已识别的项目启动器进程；若已运行则不重复拉起。",
+            "通过现有“启动AI创意工作台.bat”打开启动器。",
+            "操作员在启动器中点击原有“启动”，由启动器创建 AI 网关、代理桥和本地 Web。",
+            "面板把顶层状态置为“启动器已打开”，后续用“刷新状态”或“启动前检测”确认服务事实。",
+        ),
+        "ports": (
+            "本动作不直接监听或切换端口。后续服务边界：7896 代理桥、8780 AI 网关、8775 Web。",
+            "不会创建 8775 防火墙放行规则。",
+        ),
+        "failure": (
+            "启动器已存在时只记录“不重复启动”，不结束任何进程。",
+            "批处理或启动器失败时保留原状态，查看启动器窗口和面板日志。",
+        ),
+        "rollback": "关闭启动器窗口或使用“全部下线”；该动作本身没有服务回滚步骤。",
+    },
+    "refresh_status": {
+        "title": "刷新状态",
+        "purpose": "重新读取项目端口、进程归属和 8775 防火墙规则，更新面板状态和端口诊断表。",
+        "preconditions": ("无需管理员权限；普通权限也可以执行只读检查。",),
+        "steps": (
+            "读取 7896、8775、8780 的监听地址、PID、进程名和项目归属证据。",
+            "读取固定防火墙规则“AI Creative Studio Web 8775”的存在和启用状态。",
+            "根据监听地址、服务组合和未知占用计算顶层状态。",
+            "把摘要写入界面；敏感值按统一脱敏规则处理。",
+        ),
+        "ports": (
+            "只读检查 7896（代理桥）、8780（AI 网关）、8775（Web）。",
+            "不会绑定、开放、关闭或修改任何端口。",
+        ),
+        "failure": (
+            "查询失败会保留可获得的诊断结果并标记异常，不据此结束进程。",
+            "未知归属占用只显示为异常，绝不按 PID 强制结束。",
+        ),
+        "rollback": "无需回滚；再次点击即可重新读取当前事实。",
+    },
+    "preflight": {
+        "title": "启动前检测",
+        "purpose": "在允许公网切换前确认安装文件、依赖、服务健康和端口归属满足上线前条件。",
+        "preconditions": (
+            "启动器已打开并已在启动器中启动服务。",
+            "chat2api/.env、项目虚拟环境和运行数据目录存在；面板不会显示其内容。",
+            "没有未知进程占用受管端口。",
+        ),
+        "steps": (
+            "检查 .env 文件存在性、Python 虚拟环境和受保护数据目录存在性。",
+            "检查本地 Web 健康接口和回环 AI 网关健康接口。",
+            "核对 7896、8775、8780 的监听者是否属于本项目。",
+            "只有全部关键检查通过，才把最近一次启动前检测标记为可上线。",
+        ),
+        "ports": (
+            "8775 必须是本项目 Web；8780 必须保持 127.0.0.1；7896 必须是本项目代理桥。",
+            "本动作不会打开防火墙，也不会把 Web 切到公网。",
+        ),
+        "failure": (
+            "任一关键文件、健康检查或归属检查失败，立即阻止“上线公网”。",
+            "失败只显示检查项和摘要，不读取或输出令牌、Cookie、密码或 AI 请求内容。",
+        ),
+        "rollback": "无需回滚；修复启动器或服务问题后重新运行检测。",
+    },
+    "public": {
+        "title": "上线公网",
+        "purpose": "将已确认健康的 Web 服务切换到公网监听，并仅放行固定 TCP 8775 入站规则。",
+        "preconditions": (
+            "管理员权限有效。",
+            "当前状态是“本地服务就绪”，且最近一次启动前检测通过。",
+            "复查时仍无未知端口占用；AI 网关和代理桥保持回环边界。",
+        ),
+        "steps": (
+            "后台再次执行启动前检测，避免使用过期结果。",
+            "以受控环境启动或重启 Web，使 8775 监听地址切换为 0.0.0.0。",
+            "启用固定防火墙规则“AI Creative Studio Web 8775”，仅对应 TCP 8775。",
+            "更新状态为公网切换中，并自动进入“上线后检测”。",
+        ),
+        "ports": (
+            "8775：允许公网访问；8780：仍只允许 127.0.0.1；7896：仍只允许 127.0.0.1。",
+            "只操作 8775 防火墙规则，不开放 8780 或 7896。",
+        ),
+        "failure": (
+            "复查失败时不切换公网。",
+            "切换或防火墙操作失败时状态保持异常；不要手动结束未知 PID，先查看诊断和日志。",
+        ),
+        "rollback": "管理员执行“全部下线”关闭 Web、撤销 8775 放行，并关闭其他项目服务；随后可重新打开启动器。",
+    },
+    "postflight": {
+        "title": "上线后检测",
+        "purpose": "确认公网切换完成后，外部 Web 健康检查可达，同时内部依赖仍保持回环限制。",
+        "preconditions": (
+            "已执行“上线公网”，且 8775 已切换并启用固定规则。",
+            "服务器网络和 DNS/公网地址由外部环境提供；面板不修改路由器或服务器配置。",
+        ),
+        "steps": (
+            "请求配置的公网 Web 健康地址并记录脱敏后的结果摘要。",
+            "结合本地端口诊断确认 8775 为公网监听，8780/7896 未扩大监听范围。",
+            "通过则保持“公网运行中”；失败则置为“存在异常”，等待人工处理。",
+        ),
+        "ports": (
+            "验证公网入口 8775；内部依赖仍为 127.0.0.1:8780 和 127.0.0.1:7896。",
+            "本动作只检查，不改端口和防火墙。",
+        ),
+        "failure": (
+            "公网健康检查失败不会自动重试式地扩大权限，也不会结束进程。",
+            "先查看端口诊断、启动器和面板日志，再决定下线或人工修复。",
+        ),
+        "rollback": "确认异常或不再需要公网时执行“全部下线”，恢复到全部关闭状态。",
+    },
+    "open_workbench": {
+        "title": "打开工作台",
+        "purpose": "在浏览器打开与当前状态匹配的本地或公网 Web 地址，不改变部署状态。",
+        "preconditions": (
+            "状态为“本地服务就绪”或“公网运行中”。",
+            "浏览器可访问对应地址。",
+        ),
+        "steps": (
+            "本地服务就绪时打开 127.0.0.1:8775。",
+            "公网运行中时打开配置的公网 8775 地址。",
+            "浏览器启动失败只提示错误，不影响后台服务。",
+        ),
+        "ports": (
+            "只访问 8775；不会访问或展示 8780、7896 的管理接口。",
+        ),
+        "failure": (
+            "服务未处于可打开状态时拒绝打开并提示先完成启动流程。",
+            "浏览器错误不被当作服务已下线，需用“刷新状态”确认。",
+        ),
+        "rollback": "无需回滚；关闭浏览器标签页即可。",
+    },
+    "offline": {
+        "title": "全部下线",
+        "purpose": "按固定顺序撤销公网入口并关闭本项目全部受管服务，恢复到手动上线前的关闭状态。",
+        "preconditions": (
+            "管理员权限有效。",
+            "确认要停止本项目服务；未知归属进程不会被触碰。",
+        ),
+        "steps": (
+            "先停止或切回 Web 8775，撤销并移除固定公网防火墙规则。",
+            "关闭现有启动器，等待其子进程退出。",
+            "按项目归属关闭 AI 网关 8780 和代理桥 7896。",
+            "重新读取端口、进程和防火墙状态，确认没有项目服务残留。",
+            "清除最近一次启动前检测结果，状态回到“全部关闭”或明确异常。",
+        ),
+        "ports": (
+            "必须关闭 8775 Web、撤销 8775 公网放行、关闭 8780 AI 网关和 7896 代理桥。",
+            "只结束有项目路径/命令行证据的进程；绝不结束所有 Python 进程。",
+        ),
+        "failure": (
+            "单项关闭失败会保留失败证据并在复查中显示残留端口。",
+            "未知归属或无法确认的 PID 不会强制结束，需人工核对。",
+        ),
+        "rollback": "全部下线本身是恢复动作；需要再次运行时，手动点击“打开启动器”并重新走启动前检测和公网上线流程。",
+    },
+}
+
+
+def get_action_details(action_id: str) -> dict[str, object] | None:
+    """Return a copy of static operator guidance for one control action."""
+    details = ACTION_DETAILS.get(action_id)
+    return dict(details) if details is not None else None
 
 
 class _SystemProcessRunner:
@@ -293,24 +464,72 @@ class DeploymentPanel(tk.Tk):
     def _build_control_tab(self) -> None:
         actions = ttk.LabelFrame(self.control_tab, text="操作", padding=10)
         actions.pack(fill="x")
-        self.open_launcher_button = ttk.Button(actions, text="打开启动器", command=self.open_launcher)
-        self.open_launcher_button.grid(row=0, column=0, padx=5, pady=5)
-        self.refresh_button = ttk.Button(actions, text="刷新状态", command=self.refresh_status)
-        self.refresh_button.grid(row=0, column=1, padx=5, pady=5)
-        self.preflight_button = ttk.Button(actions, text="启动前检测", command=self.run_preflight)
-        self.preflight_button.grid(row=0, column=2, padx=5, pady=5)
-        self.public_button = ttk.Button(actions, text="上线公网", command=self.go_public)
-        self.public_button.grid(row=0, column=3, padx=5, pady=5)
-        self.postflight_button = ttk.Button(actions, text="上线后检测", command=self.run_postflight)
-        self.postflight_button.grid(row=0, column=4, padx=5, pady=5)
-        self.open_workbench_button = ttk.Button(actions, text="打开工作台", command=self.open_workbench)
-        self.open_workbench_button.grid(row=0, column=5, padx=5, pady=5)
-        self.offline_button = ttk.Button(actions, text="全部下线", command=self.take_offline)
-        self.offline_button.grid(row=0, column=6, padx=5, pady=5)
+        action_widgets = (
+            ("open_launcher", "打开启动器", self.open_launcher),
+            ("refresh_status", "刷新状态", self.refresh_status),
+            ("preflight", "启动前检测", self.run_preflight),
+            ("public", "上线公网", self.go_public),
+            ("postflight", "上线后检测", self.run_postflight),
+            ("open_workbench", "打开工作台", self.open_workbench),
+            ("offline", "全部下线", self.take_offline),
+        )
+        for column, (action_id, label, command) in enumerate(action_widgets):
+            cell = ttk.Frame(actions)
+            cell.grid(row=0, column=column, padx=5, pady=5, sticky="w")
+            button = ttk.Button(cell, text=label, command=command)
+            button.pack(side="left")
+            ttk.Button(
+                cell,
+                text="!",
+                width=2,
+                command=lambda current=action_id: self.show_action_details(current),
+            ).pack(side="left", padx=(3, 0))
+            setattr(self, f"{action_id}_button", button)
+        self.open_launcher_button = getattr(self, "open_launcher_button")
+        self.refresh_button = getattr(self, "refresh_status_button")
+        self.preflight_button = getattr(self, "preflight_button")
+        self.public_button = getattr(self, "public_button")
+        self.postflight_button = getattr(self, "postflight_button")
+        self.open_workbench_button = getattr(self, "open_workbench_button")
+        self.offline_button = getattr(self, "offline_button")
         self.control_summary = tk.StringVar(value="尚未检测")
         ttk.Label(self.control_tab, textvariable=self.control_summary, foreground="#52606d").pack(anchor="w", pady=(16, 8))
         self.result_text = tk.Text(self.control_tab, height=18, state="disabled", wrap="word", relief="flat", bg="#fbfcfd")
         self.result_text.pack(fill="both", expand=True)
+
+    def show_action_details(self, action_id: str) -> None:
+        """Show static, read-only technical guidance without changing panel state."""
+        details = get_action_details(action_id)
+        if details is None:
+            return
+        window = tk.Toplevel(self)
+        window.title(f"操作说明：{details['title']}")
+        window.geometry("760x620")
+        window.minsize(620, 460)
+        window.transient(self)
+
+        body = ttk.Frame(window, padding=14)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text=str(details["title"]), font=("Microsoft YaHei UI", 15, "bold")).pack(anchor="w")
+        ttk.Label(body, text=f"目的：{details['purpose']}", wraplength=700, justify="left").pack(anchor="w", pady=(8, 10))
+
+        viewer = scrolledtext.ScrolledText(body, wrap="word", state="normal", relief="solid", borderwidth=1)
+        viewer.pack(fill="both", expand=True)
+        sections = (
+            ("前置条件", details["preconditions"]),
+            ("具体执行步骤", details["steps"]),
+            ("端口、进程与防火墙", details["ports"]),
+            ("失败停止点", details["failure"]),
+            ("回滚 / 恢复", (details["rollback"],)),
+        )
+        for heading, content in sections:
+            viewer.insert("end", f"{heading}\n", "heading")
+            for item in content:
+                viewer.insert("end", f"• {item}\n")
+            viewer.insert("end", "\n")
+        viewer.tag_configure("heading", font=("Microsoft YaHei UI", 10, "bold"), foreground="#1f4e79")
+        viewer.configure(state="disabled")
+        ttk.Button(body, text="关闭", command=window.destroy).pack(anchor="e", pady=(10, 0))
 
     def _build_ports_tab(self) -> None:
         columns = ("port", "address", "pid", "process", "owner", "health", "note")
