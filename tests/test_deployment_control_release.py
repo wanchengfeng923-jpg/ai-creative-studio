@@ -1,4 +1,7 @@
 import json
+import hashlib
+import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -68,6 +71,36 @@ class ReleaseManagerTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertIn("-AllowDirty", " ".join(runner.calls[0][0]))
+
+    def test_release_scripts_hash_without_powershell_module_autoloading(self):
+        expected = hashlib.sha256(self.package.read_bytes()).hexdigest()
+        repository_root = Path(__file__).resolve().parents[1]
+
+        for script_name in ("build_release.ps1", "server_release.ps1"):
+            script = repository_root / "scripts" / script_name
+            script_text = script.read_text(encoding="utf-8")
+            function_text = re.search(
+                r"function Get-FileDigest\(\[string\]\$Path\) \{.*?\n\}",
+                script_text,
+                re.DOTALL,
+            ).group(0)
+            package_path = str(self.package).replace("'", "''")
+            command = (
+                "$PSModuleAutoLoadingPreference = 'None'; "
+                + function_text
+                + f"; Get-FileDigest '{package_path}'"
+            )
+            completed = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(expected, completed.stdout.strip())
 
     def test_code_inventory_rejects_unsafe_output_path(self):
         runner = FakeRunner("{}")

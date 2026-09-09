@@ -2,6 +2,12 @@
 
 > 本文件是简洁的历史/维护指针，不是当前事实索引，也不替代源码、配置和验证输出。当前版本、registry 可加载性、部署/审批边界以 [`docs/current-state.md`](docs/current-state.md) 为准；历史变更见 Git、`CHANGELOG.md` 和对应的部署/审计文档。
 
+## 2026-09-09 部署面板正式打包验收
+
+- `codex/deployment-panel` 已快进合并到 `master`，合并后的全量 unittest 263 项和 AI v2 release gate 124 项通过。
+- 面板实际调用制作发布包时复现非交互式 PowerShell 无法自动加载 `Get-FileHash`；构建端与服务器检查端改用 .NET SHA-256，并增加关闭模块自动加载的回归测试。
+- Prompt registry 哈希已与 static/carousel 模板同步；上述门禁只证明确定性契约通过，真实模型质量仍未运行。
+
 ## 当前结论
 
 - 当前正式代码链路为 **AI v2**；旧生成服务、旧 Prompt、旧图片任务和旧生成路由已退役。

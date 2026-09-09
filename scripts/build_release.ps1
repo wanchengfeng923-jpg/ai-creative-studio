@@ -14,7 +14,14 @@ function Invoke-Checked([string]$Description, [scriptblock]$Command) {
 }
 
 function Get-FileDigest([string]$Path) {
-    (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
 }
 
 $repositoryRoot = (& git rev-parse --show-toplevel).Trim()
