@@ -479,6 +479,8 @@ class DeploymentPanel(tk.Tk):
         self.operation_log = operation_log or OperationLogger(self.project_root / "logs" / "deployment-panel.log")
         self.state = PanelState.ALL_CLOSED
         self.preflight_passed = False
+        self.release_verified_package = ""
+        self.release_verified_sha = ""
         self._busy = False
         self.title("AI 创意工作台部署控制面板")
         self.geometry("980x700")
@@ -596,35 +598,64 @@ class DeploymentPanel(tk.Tk):
         self.port_tree.pack(fill="both", expand=True)
 
     def _build_release_tab(self) -> None:
-        form = ttk.Frame(self.release_tab)
-        form.pack(fill="x")
+        intro = ttk.Label(
+            self.release_tab,
+            text="发布链路：开发完成 → 制作发布包 → 服务器检查 → 执行更新 → 出问题时回滚",
+            foreground="#52606d",
+            wraplength=900,
+        )
+        intro.pack(anchor="w", pady=(0, 10))
         self.release_ref_var = tk.StringVar(value="master")
-        self.inventory_root_var = tk.StringVar(value=r"E:\AI-Creative-Studio")
-        self.inventory_output_var = tk.StringVar(value=r"E:\AI-Creative-Studio\staging\code-inventory.json")
+        self.allow_dirty_var = tk.BooleanVar(value=False)
+        self.inventory_root_var = tk.StringVar(value=str(self.project_root))
+        self.inventory_output_var = tk.StringVar(value=str(self.project_root / "staging" / "code-inventory.json"))
         self.rollback_id_var = tk.StringVar()
         self.package_var = tk.StringVar()
         self.sha_var = tk.StringVar()
-        ttk.Label(form, text="Git Ref", width=12).grid(row=0, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.release_ref_var).grid(row=0, column=1, sticky="ew", pady=6)
-        self.build_button = self._release_button(form, 0, 2, "制作发布包", self.build_release, "build_release")
-        ttk.Label(form, text="发布 ZIP", width=12).grid(row=1, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.package_var).grid(row=1, column=1, sticky="ew", pady=6)
-        ttk.Button(form, text="选择", command=self._choose_package).grid(row=1, column=3, padx=6)
-        ttk.Label(form, text="SHA-256", width=12).grid(row=2, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.sha_var).grid(row=2, column=1, sticky="ew", pady=6)
-        self.inspect_button = self._release_button(form, 3, 1, "服务器检查", self.inspect_release, "inspect_release")
-        self.apply_button = self._release_button(form, 3, 2, "执行更新", self.apply_release, "apply_release")
-        ttk.Label(form, text="RollbackId", width=12).grid(row=4, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.rollback_id_var).grid(row=4, column=1, sticky="ew", pady=6)
-        self.rollback_button = self._release_button(form, 4, 2, "回滚发布", self.rollback_release, "rollback_release")
-        ttk.Label(form, text="盘点根目录", width=12).grid(row=5, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.inventory_root_var).grid(row=5, column=1, sticky="ew", pady=6)
-        self.inventory_button = self._release_button(form, 5, 2, "代码盘点", self.run_code_inventory, "code_inventory")
-        ttk.Label(form, text="盘点输出", width=12).grid(row=6, column=0, sticky="w", pady=6)
-        ttk.Entry(form, textvariable=self.inventory_output_var).grid(row=6, column=1, sticky="ew", pady=6)
-        self.workflow_button = self._release_button(form, 6, 2, "打开发布流程", self.open_release_workflow, "release_workflow")
-        form.columnconfigure(1, weight=1)
-        self.release_result = tk.Text(self.release_tab, height=16, state="disabled", wrap="word", relief="flat", bg="#fbfcfd")
+        build = ttk.LabelFrame(self.release_tab, text="1. 开发机：制作发布包", padding=10)
+        build.pack(fill="x", pady=(0, 8))
+        ttk.Label(build, text="Git Ref", width=12).grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Entry(build, textvariable=self.release_ref_var).grid(row=0, column=1, sticky="ew", pady=4)
+        self.build_button = self._release_button(build, 0, 2, "制作发布包", self.build_release, "build_release")
+        ttk.Checkbutton(
+            build,
+            text="允许脏工作树（只打包已提交 Ref）",
+            variable=self.allow_dirty_var,
+        ).grid(row=1, column=1, sticky="w", pady=(2, 0))
+        ttk.Label(build, text="默认要求工作树干净；勾选后不会把未提交文件带入包。", foreground="#7a4e00").grid(row=1, column=2, sticky="w", padx=8)
+        build.columnconfigure(1, weight=1)
+
+        server = ttk.LabelFrame(self.release_tab, text="2. 服务器：检查并更新", padding=10)
+        server.pack(fill="x", pady=(0, 8))
+        ttk.Label(server, text="发布 ZIP", width=12).grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Entry(server, textvariable=self.package_var).grid(row=0, column=1, columnspan=2, sticky="ew", pady=4)
+        ttk.Button(server, text="选择", command=self._choose_package).grid(row=0, column=3, padx=6)
+        ttk.Label(server, text="SHA-256", width=12).grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Entry(server, textvariable=self.sha_var).grid(row=1, column=1, columnspan=2, sticky="ew", pady=4)
+        self.inspect_button = self._release_button(server, 2, 1, "服务器检查", self.inspect_release, "inspect_release")
+        self.apply_button = self._release_button(server, 2, 2, "执行更新", self.apply_release, "apply_release")
+        ttk.Label(server, text="执行更新前必须先让服务器 8775 和 8780 停止监听。", foreground="#7a4e00").grid(row=3, column=1, columnspan=3, sticky="w", pady=(2, 0))
+        server.columnconfigure(1, weight=1)
+        server.columnconfigure(2, weight=1)
+
+        recovery = ttk.LabelFrame(self.release_tab, text="3. 回滚与一致性检查", padding=10)
+        recovery.pack(fill="x", pady=(0, 8))
+        ttk.Label(recovery, text="RollbackId", width=12).grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Entry(recovery, textvariable=self.rollback_id_var).grid(row=0, column=1, sticky="ew", pady=4)
+        self.rollback_button = self._release_button(recovery, 0, 2, "回滚发布", self.rollback_release, "rollback_release")
+        ttk.Label(recovery, text="盘点根目录", width=12).grid(row=1, column=0, sticky="w", pady=4)
+        ttk.Entry(recovery, textvariable=self.inventory_root_var).grid(row=1, column=1, sticky="ew", pady=4)
+        self.inventory_button = self._release_button(recovery, 1, 2, "代码盘点", self.run_code_inventory, "code_inventory")
+        ttk.Label(recovery, text="盘点输出", width=12).grid(row=2, column=0, sticky="w", pady=4)
+        ttk.Entry(recovery, textvariable=self.inventory_output_var).grid(row=2, column=1, sticky="ew", pady=4)
+        self.workflow_button = self._release_button(recovery, 2, 2, "打开发布流程", self.open_release_workflow, "release_workflow")
+        recovery.columnconfigure(1, weight=1)
+
+        result_header = ttk.Frame(self.release_tab)
+        result_header.pack(fill="x", pady=(2, 4))
+        ttk.Label(result_header, text="本次操作结果", font=("Microsoft YaHei UI", 10, "bold")).pack(side="left")
+        ttk.Button(result_header, text="清空结果", command=self._clear_release_result).pack(side="right")
+        self.release_result = tk.Text(self.release_tab, height=8, state="disabled", wrap="word", relief="flat", bg="#fbfcfd")
         self.release_result.pack(fill="both", expand=True)
 
     def _release_button(self, parent: ttk.Frame, row: int, column: int, label: str, command: Callable[[], None], action_id: str) -> ttk.Button:
@@ -634,6 +665,11 @@ class DeploymentPanel(tk.Tk):
         button.pack(side="left")
         ttk.Button(cell, text="!", width=2, command=lambda current=action_id: self.show_action_details(current)).pack(side="left", padx=(3, 0))
         return button
+
+    def _clear_release_result(self) -> None:
+        self.release_result.configure(state="normal")
+        self.release_result.delete("1.0", "end")
+        self.release_result.configure(state="disabled")
 
     def _build_logs_tab(self) -> None:
         actions = ttk.Frame(self.logs_tab)
@@ -911,14 +947,42 @@ class DeploymentPanel(tk.Tk):
         if not package or not digest:
             self._append_result("请先选择发布 ZIP 并填写 SHA-256。")
             return
-        self._run_background("检查发布包", lambda: self.release_manager.inspect_package(package, digest), lambda result: self._show_release_result(result))
+        self._run_background("检查发布包", lambda: self.release_manager.inspect_package(package, digest), self._finish_inspect_release)
 
     def build_release(self) -> None:
         ref = self.release_ref_var.get().strip()
         if not ref:
             self._append_result("请先填写 Git Ref。")
             return
-        self._run_background("制作发布包", lambda: self.release_manager.build_release(ref), self._show_release_result)
+        self._run_background(
+            "制作发布包",
+            lambda: self.release_manager.build_release(ref, allow_dirty=self.allow_dirty_var.get()),
+            self._finish_build_release,
+        )
+
+    def _finish_build_release(self, result: Any) -> None:
+        if isinstance(result, dict) and result.get("ok"):
+            payload = result.get("result") if isinstance(result.get("result"), dict) else {}
+            package = payload.get("package_path")
+            digest = payload.get("package_sha256")
+            if package:
+                self.package_var.set(str(package))
+            if digest:
+                self.sha_var.set(str(digest))
+            self.release_verified_package = ""
+            self.release_verified_sha = ""
+            self._append_result("发布包已生成，已自动填入 ZIP 和 SHA-256；请先点击“服务器检查”。")
+        self._show_release_result(result)
+
+    def _finish_inspect_release(self, result: Any) -> None:
+        if isinstance(result, dict) and result.get("ok"):
+            self.release_verified_package = str(self.package_var.get().strip())
+            self.release_verified_sha = str(self.sha_var.get().strip()).lower()
+            self._append_result("服务器检查通过；现在才允许执行更新。")
+        else:
+            self.release_verified_package = ""
+            self.release_verified_sha = ""
+        self._show_release_result(result)
 
     def run_code_inventory(self) -> None:
         root = self.inventory_root_var.get().strip()
@@ -949,12 +1013,28 @@ class DeploymentPanel(tk.Tk):
             return
         package = self.package_var.get().strip()
         digest = self.sha_var.get().strip()
+        if package != self.release_verified_package or digest.lower() != self.release_verified_sha:
+            self._append_result("请先对当前 ZIP 和 SHA-256 执行“服务器检查”；检查通过后才能更新。")
+            return
         if not package or not digest or not messagebox.askyesno("确认更新", "更新会先全部下线并创建回滚点，是否继续？"):
             return
-        self._run_background("执行更新", lambda: (self._take_offline_impl(), self.release_manager.apply(package, digest)), lambda result: self._show_release_result(result[-1]))
+        self._run_background("执行更新", lambda: (self._take_offline_impl(), self.release_manager.apply(package, digest)), lambda result: self._finish_apply_release(result[-1]))
+
+    def _finish_apply_release(self, result: Any) -> None:
+        self.release_verified_package = ""
+        self.release_verified_sha = ""
+        self._show_release_result(result)
 
     def _show_release_result(self, result: Any) -> None:
-        text = sanitize_status_message(json.dumps(result, ensure_ascii=False, indent=2) if isinstance(result, (dict, list)) else str(result))
+        if isinstance(result, dict) and not result.get("ok"):
+            text = f"操作未完成\n原因：{result.get('error', '未知错误')}"
+        elif isinstance(result, (dict, list)):
+            text = json.dumps(result, ensure_ascii=False, indent=2)
+        else:
+            text = str(result)
+        text = sanitize_status_message(text).replace("\\r", "").strip()
+        if len(text) > 5000:
+            text = text[:5000] + "\n…（输出已截断，完整内容请查看日志）"
         self.release_result.configure(state="normal")
         self.release_result.insert("end", text + "\n")
         self.release_result.see("end")

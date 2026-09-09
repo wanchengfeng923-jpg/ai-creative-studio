@@ -162,6 +162,7 @@ class ReleaseManager:
 
     def _run_script(self, operation: str, arguments: Sequence[str]) -> dict[str, Any]:
         command_text = (
+            "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
             f"& {_quote_ps(str(self.script_path))} "
             f"{' '.join(argument if argument.startswith('-') else _quote_ps(argument) for argument in arguments)} "
             f"-InstallRoot {_quote_ps(str(self.install_root))} | ConvertTo-Json -Depth 8"
@@ -207,6 +208,7 @@ class ReleaseManager:
 
     def _run_local_script(self, operation: str, script_path: Path, arguments: Sequence[str]) -> dict[str, Any]:
         command_text = (
+            "$OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
             f"& {_quote_ps(str(script_path))} "
             f"{' '.join(_quote_ps(argument) if not argument.startswith('-') else argument for argument in arguments)} "
             "| ConvertTo-Json -Depth 8"

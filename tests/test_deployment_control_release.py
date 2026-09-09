@@ -57,6 +57,14 @@ class ReleaseManagerTests(unittest.TestCase):
         self.assertIn("build_release.ps1", command)
         self.assertIn("-Ref 'master'", command)
 
+    def test_build_release_can_explicitly_ignore_uncommitted_files(self):
+        runner = FakeRunner("{}")
+
+        result = self.manager(runner).build_release("master", allow_dirty=True)
+
+        self.assertTrue(result["ok"])
+        self.assertIn("-AllowDirty", " ".join(runner.calls[0][0]))
+
     def test_code_inventory_rejects_unsafe_output_path(self):
         runner = FakeRunner("{}")
 
