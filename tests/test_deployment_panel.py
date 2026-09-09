@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from deployment_panel import (
     PanelState,
@@ -9,6 +10,10 @@ from deployment_panel import (
 
 
 class DeploymentPanelStateTests(unittest.TestCase):
+    def test_admin_batch_passes_script_path_without_nested_quotes(self):
+        batch = (Path(__file__).resolve().parents[1] / "启动部署控制面板.bat").read_text(encoding="utf-8")
+        self.assertNotIn("-ArgumentList '\"\"%CD%\\deployment_panel.py\"\"'", batch)
+
     def test_all_closed_state_when_no_project_listeners(self):
         state = determine_panel_state(
             launcher_open=False,

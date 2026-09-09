@@ -10,5 +10,5 @@ if not exist ".venv\Scripts\pythonw.exe" (
 )
 
 rem The panel requests elevation once; no service is started automatically.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CD%\.venv\Scripts\pythonw.exe' -ArgumentList '""%CD%\deployment_panel.py""' -WorkingDirectory '%CD%' -Verb RunAs"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CD%\.venv\Scripts\pythonw.exe' -ArgumentList @('%CD%\deployment_panel.py') -WorkingDirectory '%CD%' -Verb RunAs"
 exit /b 0
