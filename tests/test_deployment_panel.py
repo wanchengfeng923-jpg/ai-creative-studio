@@ -11,7 +11,10 @@ from deployment_panel import (
 
 class DeploymentPanelStateTests(unittest.TestCase):
     def test_admin_batch_passes_script_path_without_nested_quotes(self):
-        batch = (Path(__file__).resolve().parents[1] / "启动部署控制面板.bat").read_text(encoding="utf-8")
+        batch_path = Path(__file__).resolve().parents[1] / "启动部署控制面板.bat"
+        raw = batch_path.read_bytes()
+        self.assertIn(b"\r\n", raw)
+        batch = raw.decode("utf-8")
         self.assertNotIn("-ArgumentList '\"\"%CD%\\deployment_panel.py\"\"'", batch)
 
     def test_all_closed_state_when_no_project_listeners(self):
